@@ -3296,7 +3296,7 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.academy-wiki__table tbody tr:hover {
+.academy-wiki__table tbody tr:hover:not(.academy-wiki__row--edit) {
   background: var(--bg-panel);
 }
 
@@ -3327,7 +3327,7 @@
   opacity: 0.55;
 }
 
-.academy-wiki__row--edit:hover {
+.academy-wiki__row--edit {
   background: var(--color-white);
 }
 

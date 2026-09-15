@@ -20,10 +20,12 @@ function KindPill({ value }: { value: string }) {
 function EntryRow({
   entry,
   onChanged,
+  onEditingChange,
   startEditing = false,
 }: {
   entry: WikiEntry
   onChanged: () => Promise<void>
+  onEditingChange: (editing: boolean) => void
   startEditing?: boolean
 }) {
   const { activeWorkspace } = useWorkspace()
@@ -54,6 +56,7 @@ function EntryRow({
       })
       await onChanged()
       setIsEditing(false)
+      onEditingChange(false)
       setInstruction('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Failed to save entry.')
@@ -180,6 +183,7 @@ function EntryRow({
                 disabled={isBusy}
                 onClick={() => {
                   setIsEditing(false)
+                  onEditingChange(false)
                   setLabel(entry.preferred_label)
                   setDefinition(entry.definition)
                   setKind(entry.entry_kind)
@@ -238,7 +242,10 @@ function EntryRow({
             type="button"
             className="academy-wiki__action academy-wiki__action--edit"
             disabled={isBusy}
-            onClick={() => setIsEditing(true)}
+            onClick={() => {
+              setIsEditing(true)
+              onEditingChange(true)
+            }}
           >
             Edit
           </button>
@@ -271,6 +278,7 @@ export function AcademyWiki({
 }) {
   const { wikiEntries, isLoading, error, refresh } = useWorkspaceData()
   const [query, setQuery] = useState('')
+  const [isEditing, setIsEditing] = useState(() => Boolean(targetId))
 
   const visibleEntries = useMemo(() => {
     const q = query.toLowerCase()
@@ -306,15 +314,17 @@ export function AcademyWiki({
 
       {error ? <p className="academy-wiki__error">{error}</p> : null}
 
-      <div className="lib__search academy-wiki__search">
-        <Search size={16} aria-hidden="true" />
-        <input
-          placeholder="Search wiki entries…"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          aria-label="Search wiki entries"
-        />
-      </div>
+      {isEditing ? null : (
+        <div className="lib__search academy-wiki__search">
+          <Search size={16} aria-hidden="true" />
+          <input
+            placeholder="Search wiki entries…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search wiki entries"
+          />
+        </div>
+      )}
 
       {isLoading && wikiEntries.length === 0 ? (
         <div className="lib__empty">
@@ -355,6 +365,7 @@ export function AcademyWiki({
                     key={entry.id}
                     entry={entry}
                     onChanged={refresh}
+                    onEditingChange={setIsEditing}
                     startEditing={entry.id === targetId}
                   />
                 ))}
