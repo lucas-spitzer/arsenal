@@ -47,7 +47,6 @@ export function FoundryArtifacts() {
   const {
     sources,
     artifacts,
-    studySheetJobs,
     isLoading,
     error,
     downloadArtifact,
@@ -56,38 +55,16 @@ export function FoundryArtifacts() {
   const [query, setQuery] = useState('')
   const [view, setView] = useState<FoundryView>('grid')
   const [downloadError, setDownloadError] = useState<string | null>(null)
-  const [dismissedJobIds, setDismissedJobIds] = useState<string[]>([])
   const [workspaceErrorHidden, setWorkspaceErrorHidden] = useState(false)
 
   const sourceById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources])
-  const pendingJobs = useMemo(
-    () => studySheetJobs.filter((job) => job.status === 'queued' || job.status === 'running'),
-    [studySheetJobs],
-  )
-  const latestFailedJob = useMemo(() => {
-    const open = studySheetJobs.filter(
-      (job) => job.status === 'failed' && !dismissedJobIds.includes(job.id),
-    )
-    open.sort((left, right) => {
-      const leftAt = left.completed_at || left.updated_at || left.created_at
-      const rightAt = right.completed_at || right.updated_at || right.created_at
-      return rightAt.localeCompare(leftAt)
-    })
-    return open[0] ?? null
-  }, [studySheetJobs, dismissedJobIds])
 
   const logMessage = downloadError
     ?? (workspaceErrorHidden ? null : error)
-    ?? (latestFailedJob
-      ? `Study sheet failed for ${latestFailedJob.input_filename}: ${latestFailedJob.error || 'generation failed.'}`
-      : null)
 
   const dismissLogs = () => {
     setDownloadError(null)
     setWorkspaceErrorHidden(true)
-    setDismissedJobIds(
-      studySheetJobs.filter((job) => job.status === 'failed').map((job) => job.id),
-    )
   }
 
   const filtered = useMemo(() => {
@@ -137,12 +114,6 @@ export function FoundryArtifacts() {
       </header>
       <div className="as-console__scroll">
         {logMessage ? <ErrorBanner message={logMessage} onDismiss={dismissLogs} /> : null}
-        {pendingJobs.length > 0 ? (
-          <div className="as-console__empty">
-            Generating {pendingJobs.length === 1 ? 'a study sheet' : `${pendingJobs.length} study sheets`}
-            {pendingJobs[0] ? ` from ${pendingJobs[0].input_filename}` : ''}…
-          </div>
-        ) : null}
         <div className="as-console__searchbar">
           <span style={{ color: '#6f828b' }}>⌕</span>
           <input

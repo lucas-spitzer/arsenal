@@ -8,6 +8,7 @@ from app.dependencies.services import (
     get_production_run_repository,
     get_stage_run_repository,
     get_source_repository,
+    get_wiki_ingest_batch_repository,
     get_workspace_repository,
 )
 from app.dependencies.workspace import require_workspace
@@ -19,8 +20,13 @@ from app.pipeline import SUPPORTED_TARGET_ARTIFACTS
 from app.repositories.production_runs import ProductionRunRepository
 from app.repositories.stage_runs import StageRunRepository
 from app.repositories.sources import SourceRepository
+from app.repositories.wiki_ingest_batches import WikiIngestBatchRepository
 from app.repositories.workspaces import WorkspaceRepository
-from app.services.production_runs import create_and_enqueue_production_run
+from app.services.production_runs import (
+    ProductionRunEnqueueError,
+    ProductionRunValidationError,
+    create_and_enqueue_production_run,
+)
 from app.services.stage_run_backfill import enrich_stage_run_row
 
 router = APIRouter(tags=["production-runs"])
@@ -67,6 +73,7 @@ async def create_production_run(
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     settings: Annotated[Settings, Depends(get_settings)],
     sources: Annotated[SourceRepository, Depends(get_source_repository)],
+    batches: Annotated[WikiIngestBatchRepository, Depends(get_wiki_ingest_batch_repository)],
     production_runs: Annotated[
         ProductionRunRepository,
         Depends(get_production_run_repository),
@@ -86,14 +93,24 @@ async def create_production_run(
             detail="One or more source_ids are invalid for this workspace.",
         )
 
-    row = await create_and_enqueue_production_run(
-        workspace_id=workspace.id,
-        owner_id=user.id,
-        source_ids=payload.source_ids,
-        target_artifacts=payload.target_artifacts,
-        settings=settings,
-        production_runs=production_runs,
-    )
+    try:
+        row = await create_and_enqueue_production_run(
+            workspace_id=workspace.id,
+            owner_id=user.id,
+            source_ids=payload.source_ids,
+            target_artifacts=payload.target_artifacts,
+            settings=settings,
+            production_runs=production_runs,
+            sources=found_sources,
+            batches=batches,
+        )
+    except ProductionRunValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except ProductionRunEnqueueError:
+        raise
 
     return ProductionRunResponse.model_validate(row)
 

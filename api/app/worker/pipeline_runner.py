@@ -41,6 +41,10 @@ from app.worker.stage_executor import (
 )
 from app.worker.study_sheet_executor import CreateStudySheetStageExecutor
 from app.worker.storage import WorkerStorage
+from app.worker.wiki_knowledge_executors import (
+    StructureWikiNotesStageExecutor,
+    TranscribeWikiNotesStageExecutor,
+)
 from app.worker.structuring_executors import (
     CreateEbookStageExecutor,
     NormalizeStageExecutor,
@@ -135,6 +139,8 @@ class PipelineRunner:
         generate_narration: NarrationStageExecutor | None = None,
         export_wiki_json: ExportWikiJsonStageExecutor | None = None,
         generate_study_sheet: CreateStudySheetStageExecutor | None = None,
+        transcribe_wiki_notes: TranscribeWikiNotesStageExecutor | None = None,
+        structure_wiki_notes: StructureWikiNotesStageExecutor | None = None,
         flashcard_gen: FlashcardGenStageExecutor | None = None,
         quiz_gen: QuizGenStageExecutor | None = None,
         scenario_gen: ScenarioGenStageExecutor | None = None,
@@ -160,6 +166,13 @@ class PipelineRunner:
         self.generate_study_sheet = generate_study_sheet or CreateStudySheetStageExecutor(
             self.db,
             self.storage,
+        )
+        self.transcribe_wiki_notes = transcribe_wiki_notes or TranscribeWikiNotesStageExecutor(
+            self.db,
+            self.storage,
+        )
+        self.structure_wiki_notes = structure_wiki_notes or StructureWikiNotesStageExecutor(
+            self.db,
         )
         self.flashcard_gen = flashcard_gen or FlashcardGenStageExecutor(self.db)
         self.quiz_gen = quiz_gen or QuizGenStageExecutor(self.db)
@@ -596,6 +609,58 @@ class PipelineRunner:
             executor=self.generate_narration,
         )
 
+    def run_transcribe_wiki_notes_step(
+        self,
+        context: PipelineContext,
+        pipeline: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if "wiki_knowledge" not in context.target_artifacts:
+            return pipeline
+
+        stage_run_ids: list[str] = []
+        for source in context.sources:
+            stage_run_ids.append(
+                self.transcribe_wiki_notes.run(
+                    production_run_id=context.production_run_id,
+                    workspace_id=context.workspace_id,
+                    source_id=source["id"],
+                ),
+            )
+        last_stage_run_id = stage_run_ids[-1] if stage_run_ids else None
+        return mark_step(
+            pipeline,
+            "transcribe-wiki-notes",
+            status="completed",
+            stage_run_id=last_stage_run_id,
+            detail=f"{len(stage_run_ids)} source(s)",
+        )
+
+    def run_structure_wiki_notes_step(
+        self,
+        context: PipelineContext,
+        pipeline: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if "wiki_knowledge" not in context.target_artifacts:
+            return pipeline
+
+        stage_run_ids: list[str] = []
+        for source in context.sources:
+            stage_run_ids.append(
+                self.structure_wiki_notes.run(
+                    production_run_id=context.production_run_id,
+                    workspace_id=context.workspace_id,
+                    source_id=source["id"],
+                ),
+            )
+        last_stage_run_id = stage_run_ids[-1] if stage_run_ids else None
+        return mark_step(
+            pipeline,
+            "structure-wiki-notes",
+            status="completed",
+            stage_run_id=last_stage_run_id,
+            detail=f"{len(stage_run_ids)} source(s)",
+        )
+
     def run_create_ebook_step(
         self,
         context: PipelineContext,
@@ -797,6 +862,12 @@ class PipelineRunner:
             self.db.update_production_run(production_run_id, {"pipeline": pipeline})
 
             pipeline = self.run_web_enrichment_step(context, pipeline)
+            self.db.update_production_run(production_run_id, {"pipeline": pipeline})
+
+            pipeline = self.run_transcribe_wiki_notes_step(context, pipeline)
+            self.db.update_production_run(production_run_id, {"pipeline": pipeline})
+
+            pipeline = self.run_structure_wiki_notes_step(context, pipeline)
             self.db.update_production_run(production_run_id, {"pipeline": pipeline})
 
             pipeline = self.run_create_ebook_step(context, pipeline)

@@ -90,8 +90,8 @@ export function FoundryAssessments({
           <div className="as-console__empty">Loading assessments…</div>
         ) : totalCount === 0 ? (
           <div className="as-console__empty">
-            No assessments yet. Curate wiki entries on the Wiki page, then run a
-            production pipeline with review targets against that source.
+            No assessments yet. Upload a source, run Wiki Knowledge (and review
+            targets) from OPS, then open entries in Academy Library.
           </div>
         ) : (
           <>

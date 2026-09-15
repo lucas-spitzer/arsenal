@@ -8,9 +8,8 @@ from typing import Any
 # from the removed deconstruct-document), and the chunk step turns that model
 # into both ndr_segments and document_chapters.
 #
-# Knowledge no longer comes from an extraction stage: wiki entries are curated
-# manually via the wiki authoring flow (services/wiki_authoring.py) after the
-# author reads the generated ebook, then QnGen runs against that curated wiki.
+# Knowledge no longer comes from an extraction stage: wiki entries are
+# produced by the wiki_knowledge production-run stages, then managed in Academy.
 BASE_PIPELINE: list[dict[str, Any]] = [
     {
         "step": "store",
@@ -144,9 +143,32 @@ OPTIONAL_PIPELINE_STEPS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Wiki knowledge is produced by two Intellex stages after ingest, before
+# Mathesys/QnGen, so a later QnGen step in the same run can use the new entries.
+WIKI_KNOWLEDGE_STEPS: list[dict[str, Any]] = [
+    {
+        "step": "transcribe-wiki-notes",
+        "type": "stage",
+        "module": "intellex",
+        "stage_id": "transcribe-wiki-notes",
+        "stage_version": "1.0",
+        "status": "pending",
+    },
+    {
+        "step": "structure-wiki-notes",
+        "type": "stage",
+        "module": "intellex",
+        "stage_id": "structure-wiki-notes",
+        "stage_version": "1.0",
+        "status": "pending",
+    },
+]
+
 QNGEN_TARGET_ARTIFACTS = frozenset({"flashcards", "quizzes", "scenarios"})
 
-SUPPORTED_TARGET_ARTIFACTS = frozenset(OPTIONAL_PIPELINE_STEPS.keys())
+SUPPORTED_TARGET_ARTIFACTS = frozenset(
+    {*OPTIONAL_PIPELINE_STEPS.keys(), "wiki_knowledge"},
+)
 
 
 def derive_qngen_assessment_types(target_artifacts: list[str]) -> list[str]:
@@ -160,7 +182,12 @@ def derive_qngen_assessment_types(target_artifacts: list[str]) -> list[str]:
 def build_pipeline(target_artifacts: list[str]) -> list[dict[str, Any]]:
     pipeline = [deepcopy(step) for step in BASE_PIPELINE]
 
+    if "wiki_knowledge" in target_artifacts:
+        pipeline.extend(deepcopy(step) for step in WIKI_KNOWLEDGE_STEPS)
+
     for artifact in target_artifacts:
+        if artifact == "wiki_knowledge":
+            continue
         optional_step = OPTIONAL_PIPELINE_STEPS.get(artifact)
 
         if optional_step:

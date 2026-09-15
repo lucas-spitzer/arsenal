@@ -16,6 +16,16 @@ class WikiEntryCreate(BaseModel):
     origin: dict[str, Any] | None = None
 
 
+class WikiReviseRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=4000)
+
+
+class WikiReviseProposal(BaseModel):
+    definition: str
+    preferred_label: str | None = None
+    aliases: list[str] | None = None
+
+
 class WikiEntryUpdate(BaseModel):
     preferred_label: str | None = None
     definition: str | None = None

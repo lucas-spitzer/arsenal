@@ -161,6 +161,7 @@ export interface StageRun {
 export const ARTIFACT_OPTIONS = [
   { value: 'electronic_book', label: 'Electronic Book' },
   { value: 'narration_audio', label: 'Audio Narration' },
+  { value: 'wiki_knowledge', label: 'Wiki Knowledge' },
   { value: 'wiki_json', label: 'Wiki Export' },
   { value: 'study_sheet', label: 'Study Sheet' },
 ] as const
@@ -238,30 +239,6 @@ export async function listWikiEntries(
 
 export async function listArtifacts(workspaceId: string): Promise<Artifact[]> {
   return apiRequest<Artifact[]>(`/workspaces/${workspaceId}/artifacts`)
-}
-
-export interface StudySheetJob {
-  id: string
-  workspace_id: string
-  source_id: string | null
-  status: 'queued' | 'running' | 'completed' | 'failed'
-  input_filename: string
-  input_mime_type: string
-  input_storage_path: string
-  input_file_size_bytes: number
-  artifact_id: string | null
-  attempt_count: number
-  page_count: number | null
-  error: string | null
-  model: string | null
-  cost_usd: number | null
-  created_at: string
-  updated_at: string
-  completed_at: string | null
-}
-
-export async function listStudySheetJobs(workspaceId: string): Promise<StudySheetJob[]> {
-  return apiRequest<StudySheetJob[]>(`/workspaces/${workspaceId}/study-sheets`)
 }
 
 export async function uploadArtifact(workspaceId: string, file: File): Promise<Artifact> {

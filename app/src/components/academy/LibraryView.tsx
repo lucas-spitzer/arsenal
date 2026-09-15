@@ -1,4 +1,4 @@
-import { Headphones, HelpCircle, Layers, Lightbulb, Star } from 'lucide-react'
+import { BookMarked, Headphones, HelpCircle, Layers, Lightbulb, Star } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
@@ -24,6 +24,7 @@ const KIND_META: Record<
   flashcard: { label: 'Flashcard', cls: 'lib__tchip--flash', icon: Layers },
   question: { label: 'Question', cls: 'lib__tchip--q', icon: HelpCircle },
   scenario: { label: 'Scenario', cls: 'lib__tchip--scn', icon: Lightbulb },
+  wiki: { label: 'Wiki', cls: 'lib__tchip--wiki', icon: BookMarked },
 }
 
 function openLabel(item: OutputItem): string {
@@ -32,6 +33,7 @@ function openLabel(item: OutputItem): string {
     return 'Open'
   }
   if (item.kind === 'flashcard') return 'Study'
+  if (item.kind === 'wiki') return 'Edit'
   return 'Open'
 }
 
@@ -85,7 +87,7 @@ export function LibraryView({
       <StudyHead
         eyebrow="Workspace catalog"
         title="Library"
-        description="Search, filter, and open every artifact, flashcard, question, and scenario in this workspace."
+        description="Search, filter, and open every artifact, wiki entry, flashcard, question, and scenario in this workspace."
         stats={[
           { value: filtered.length, label: 'outputs' },
           { value: sources.length, label: 'sources' },
@@ -102,7 +104,7 @@ export function LibraryView({
         sort={sort}
         onSort={setSort}
         sources={sources}
-        searchPlaceholder="Search flashcards, questions, scenarios, artifacts…"
+        searchPlaceholder="Search flashcards, questions, scenarios, wiki, artifacts…"
       />
 
       {filtered.length === 0 ? (

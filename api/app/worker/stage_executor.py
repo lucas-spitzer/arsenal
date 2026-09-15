@@ -676,7 +676,7 @@ def _run_qngen_stage(
     if not concepts:
         raise RuntimeError(
             f"No canonical wiki entries with evidence found for source {source_id}. "
-            "Curate wiki entries (Wiki → Add knowledge, with evidence links) "
+            "Run Wiki Knowledge from OPS, then review entries in Academy Library "
             "before generating assessments.",
         )
 

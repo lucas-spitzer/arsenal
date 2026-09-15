@@ -2,9 +2,9 @@ import { useMemo } from 'react'
 import { useWorkspaceData } from '../features/workspace/workspaceDataContext'
 import type { AcademyPage } from '../components/academy/types'
 import { sourceDisplayName } from './sourceDisplay'
-import type { Source } from './workspaceApi'
+import type { Source, WikiEntry } from './workspaceApi'
 
-export type OutputKind = 'artifact' | 'flashcard' | 'question' | 'scenario'
+export type OutputKind = 'artifact' | 'flashcard' | 'question' | 'scenario' | 'wiki'
 export type OutputType = 'all' | OutputKind
 export type OutputSort = 'source' | 'newest' | 'difficulty' | 'type'
 
@@ -35,8 +35,43 @@ function sourceLabel(source: Source | undefined): string {
   return sourceDisplayName(source)
 }
 
+export function wikiSourceId(entry: WikiEntry): string | null {
+  const origin = entry.origin
+  if (origin && typeof origin.source_id === 'string' && origin.source_id.trim()) {
+    return origin.source_id
+  }
+  const evidence = entry.evidence[0]
+  return typeof evidence?.source_id === 'string' && evidence.source_id
+    ? evidence.source_id
+    : null
+}
+
+export function wikiEntriesToOutputItems(
+  wikiEntries: WikiEntry[],
+  nameOf: (id: string | null | undefined) => string,
+): OutputItem[] {
+  return wikiEntries
+    .filter((entry) => entry.status !== 'deprecated')
+    .map((entry) => {
+      const sourceId = wikiSourceId(entry)
+      return {
+        kind: 'wiki',
+        id: entry.id,
+        title: entry.preferred_label,
+        sourceId,
+        sourceName: nameOf(sourceId),
+        badge: entry.entry_kind || entry.importance,
+        createdAt: entry.created_at,
+        runnerPage: 'wiki',
+        isAudio: false,
+        isEbook: false,
+        isStudySheet: false,
+      }
+    })
+}
+
 export function useOutputs(): { items: OutputItem[]; sources: { id: string; name: string }[] } {
-  const { flashcards, quizzes, scenarios, artifacts, sources } = useWorkspaceData()
+  const { flashcards, quizzes, scenarios, artifacts, wikiEntries, sources } = useWorkspaceData()
 
   return useMemo(() => {
     const byId = new Map(sources.map((s) => [s.id, s]))
@@ -83,6 +118,7 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
         isEbook: false,
         isStudySheet: false,
       })),
+      ...wikiEntriesToOutputItems(wikiEntries, nameOf),
       ...artifacts.map<OutputItem>((a) => {
         const format = (a.format || '').toLowerCase()
         // narration_audio is a JSON manifest; listen in the Reader (chapter MP3s).
@@ -121,7 +157,7 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
       .sort((a, b) => a.name.localeCompare(b.name))
 
     return { items, sources: sourceList }
-  }, [flashcards, quizzes, scenarios, artifacts, sources])
+  }, [flashcards, quizzes, scenarios, artifacts, wikiEntries, sources])
 }
 
 export function filterOutputs(

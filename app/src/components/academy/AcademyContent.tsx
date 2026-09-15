@@ -6,6 +6,7 @@ import { LibraryView } from './LibraryView'
 import { QuizView } from './QuizView'
 import { ReaderView } from './ReaderView'
 import { ScenarioView } from './ScenarioView'
+import { AcademyWiki } from './AcademyWiki'
 import type { AcademyPage, AcademyScope } from './types'
 
 type AcademyContentProps = {
@@ -28,6 +29,7 @@ export function AcademyContent({ page, sourceId = null, seg = null, scope, onOpe
       <div className="academy__main">
         {page === 'library' && <LibraryView onOpen={onOpen} />}
         {page === 'reader' && <ReaderView sourceId={readerSourceId} seg={seg} onOpen={onOpen} />}
+        {page === 'wiki' && <AcademyWiki sourceId={scope.sourceId} targetId={scope.targetId} />}
         {page === 'flashcards' && (
           <FlashcardsView sourceId={scope.sourceId} targetId={scope.targetId} />
         )}

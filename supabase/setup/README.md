@@ -43,9 +43,10 @@ Run these only on databases that already have a Foundry schema and need a target
 
 | File | When to run |
 |------|-------------|
-| `alter-study-sheet.sql` | DB was created before study-sheet jobs. Adds `study_sheet` to `artifacts_type_check` and creates `study_sheet_jobs`. |
-| `alter-library-slugs.sql` | DB was created before frozen workspace/source slugs. Adds `workspaces.slug`, unique workspace names, `sources.slug`, and `study_sheet_jobs.source_id`. |
-| `alter-wiki-ingest-file-ingest.sql` | DB was created before wiki file-ingest support. Adds `attachments`, `transcription_error`, expands the status check (`transcribing`, `transcribed`, …), and sets `raw_notes` default to `''`. |
+| `alter-study-sheet.sql` | DB was created before study-sheet artifacts. Adds `study_sheet` to `artifacts_type_check`. |
+| `alter-drop-study-sheet-jobs.sql` | DB still has leftover `study_sheet_jobs`. Drops that table; production runs generate `study_sheet`. |
+| `alter-library-slugs.sql` | DB was created before frozen workspace/source slugs. Adds `workspaces.slug`, unique workspace names, and `sources.slug`. |
+| `alter-wiki-knowledge-pipeline.sql` | DB was created before wiki ingest as a production-run target. Adds `wiki_ingest_batches.production_run_id`. Re-run `03-seed-stages.sql` for the new wiki stages. |
 | `alter-stage-settings-tts.sql` | DB was created before Speechify narration settings. Widens `workspace_stage_settings.provider` to include `speechify` / `elevenlabs` and adds nullable `voice_id`. |
 | `alter-drop-artifacts-bucket.sql` | Operator note only (SQL no-op). Supabase blocks dropping `storage.buckets` / `storage.objects` from SQL. After migrating objects into the `sources` bucket, purge the legacy `artifacts` bucket via the Storage API or Dashboard. |
 | `alter-discussion-threads.sql` | DB was created before persisted discussion threads. Adds `discussion_threads` and `discussion_messages` with RLS + role revokes. Idempotent. |
@@ -57,10 +58,17 @@ Run these only on databases that already have a Foundry schema and need a target
 supabase db execute --file supabase/setup/alter-wiki-ingest-file-ingest.sql
 ```
 
-### Study sheet jobs
+### Study sheet jobs drop
 
 ```bash
-supabase db execute --file supabase/setup/alter-study-sheet.sql
+supabase db execute --file supabase/setup/alter-drop-study-sheet-jobs.sql
+```
+
+### Wiki knowledge production-run column
+
+```bash
+supabase db execute --file supabase/setup/alter-wiki-knowledge-pipeline.sql
+supabase db execute --file supabase/setup/03-seed-stages.sql
 ```
 
 ### Stage settings TTS providers and voice_id
@@ -119,7 +127,7 @@ cd api && python -m scripts.publish_narration_artifacts
 - `document_chapters` — persisted chapter/section segmentation (`sections` jsonb)
 - `wiki_entries` — canonical terms, concepts, and insights (`entry_kind`; optional `candidate` status)
 - `wiki_disputes` — non-blocking conflict log
-- `wiki_ingest_batches` — manual wiki authoring drafts (paste notes or file attachments with transcription statuses)
+- `wiki_ingest_batches` — one row per source on a `wiki_knowledge` production run; attachments point at the existing source file; structuring writes canonical `wiki_entries`
 
 ### Mathesys outputs
 
@@ -130,7 +138,6 @@ cd api && python -m scripts.publish_narration_artifacts
   `wiki.json`, `sheet.pdf`), Reader audio under `audio/{voice_id}/`, and
   pipeline scratch under `work/`. Wiki note drafts: `{workspace_slug}/drafts/`.
   Frozen unique slugs; API ids stay UUIDs.
-- `study_sheet_jobs` — optional scripted upload path; production runs generate `study_sheet` via `generate-study-sheet`
 
 ### QnGen assessments
 
@@ -156,6 +163,8 @@ To repair a wiped or stale `stages` table on an existing project, re-run `supaba
 | intellex | `validate-structure` | 1.0 |
 | intellex | `source-research` | 1.0, 2.0, **2.1** (pipeline) |
 | intellex | `web-enrichment` | **1.0** (pipeline) |
+| intellex | `transcribe-wiki-notes` | **1.0** (pipeline) |
+| intellex | `structure-wiki-notes` | **1.0** (pipeline) |
 | intellex | `prepare-document` | 1.0, 2.0 (deactivated) |
 | intellex | `deconstruct-document` | 1.0, 2.0 (deactivated) |
 | intellex | `extract-knowledge` | 1.0, 2.1 (deactivated — wiki is curated) |

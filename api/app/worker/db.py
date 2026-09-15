@@ -17,9 +17,8 @@ logger = logging.getLogger(__name__)
 NDR_SEGMENT_BATCH_SIZE = 200
 
 
-# Wiki writes for canonical entries live in the API's wiki-authoring flow
-# (services/wiki_authoring.py). The worker still updates wiki_ingest_batches
-# during note-file transcription.
+# Wiki ingest batches are production-run input. Canonical wiki_entries are
+# written by the wiki_knowledge stages in this worker.
 
 
 class WorkerDatabase:
@@ -194,6 +193,25 @@ class WorkerDatabase:
         )
         return rows[0] if rows else None
 
+    def get_wiki_ingest_batch_for_run(
+        self,
+        production_run_id: str,
+        source_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        params = {
+            "select": "*",
+            "production_run_id": f"eq.{production_run_id}",
+            "limit": "1",
+        }
+        if source_id:
+            params["source_id"] = f"eq.{source_id}"
+        rows = self._request(
+            "GET",
+            "wiki_ingest_batches",
+            params=params,
+        )
+        return rows[0] if rows else None
+
     def update_wiki_ingest_batch(
         self,
         batch_id: str,
@@ -203,31 +221,6 @@ class WorkerDatabase:
             "PATCH",
             "wiki_ingest_batches",
             params={"id": f"eq.{batch_id}"},
-            json_body=payload,
-        )
-        return rows[0]
-
-    def get_study_sheet_job(self, job_id: str) -> dict[str, Any] | None:
-        rows = self._request(
-            "GET",
-            "study_sheet_jobs",
-            params={
-                "select": "*",
-                "id": f"eq.{job_id}",
-                "limit": "1",
-            },
-        )
-        return rows[0] if rows else None
-
-    def update_study_sheet_job(
-        self,
-        job_id: str,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        rows = self._request(
-            "PATCH",
-            "study_sheet_jobs",
-            params={"id": f"eq.{job_id}"},
             json_body=payload,
         )
         return rows[0]
@@ -389,6 +382,60 @@ class WorkerDatabase:
                 "select": "*",
                 "workspace_id": f"eq.{workspace_id}",
                 "order": "preferred_label.asc",
+            },
+        )
+        return rows or []
+
+    def get_wiki_entries(self, wiki_entry_ids: list[str]) -> list[dict[str, Any]]:
+        if not wiki_entry_ids:
+            return []
+        joined = ",".join(wiki_entry_ids)
+        rows = self._request(
+            "GET",
+            "wiki_entries",
+            params={
+                "select": "*",
+                "id": f"in.({joined})",
+            },
+        )
+        return rows or []
+
+    def insert_wiki_entries(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        created: list[dict[str, Any]] = []
+        for start in range(0, len(rows), NDR_SEGMENT_BATCH_SIZE):
+            batch = rows[start : start + NDR_SEGMENT_BATCH_SIZE]
+            created.extend(self._request("POST", "wiki_entries", json_body=batch) or [])
+        return created
+
+    def update_wiki_entry(self, wiki_entry_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = self._request(
+            "PATCH",
+            "wiki_entries",
+            params={"id": f"eq.{wiki_entry_id}"},
+            json_body=payload,
+        )
+        return rows[0]
+
+    def match_ndr_segments(
+        self,
+        *,
+        embedding: list[float],
+        workspace_id: str,
+        threshold: float,
+        count: int,
+        source_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        rows = self._request(
+            "POST",
+            "rpc/match_ndr_segments",
+            json_body={
+                "query_embedding": embedding,
+                "p_workspace_id": workspace_id,
+                "match_threshold": threshold,
+                "match_count": count,
+                "p_source_ids": source_ids,
             },
         )
         return rows or []

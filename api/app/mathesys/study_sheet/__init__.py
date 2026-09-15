@@ -7,10 +7,7 @@ from app.mathesys.study_sheet.generate import (
     StudySheetSource,
     generate_study_sheet,
 )
-from app.mathesys.study_sheet.upload import (
-    StudySheetUploadError,
-    validate_study_sheet_upload,
-)
+from app.mathesys.study_sheet.upload import StudySheetUploadError
 
 __all__ = [
     "StudySheetError",
@@ -19,5 +16,4 @@ __all__ = [
     "StudySheetSource",
     "StudySheetUploadError",
     "generate_study_sheet",
-    "validate_study_sheet_upload",
 ]

@@ -1,7 +1,14 @@
 import type { LucideIcon } from 'lucide-react'
 import { BookOpen, HelpCircle, Layers, Library, Lightbulb, MessageSquare } from 'lucide-react'
 
-export type AcademyPage = 'library' | 'reader' | 'flashcards' | 'quiz' | 'scenarios' | 'discussions'
+export type AcademyPage =
+  | 'library'
+  | 'reader'
+  | 'wiki'
+  | 'flashcards'
+  | 'quiz'
+  | 'scenarios'
+  | 'discussions'
 
 // Scope passed when opening a runner from the Library (filter + focus target).
 export type AcademyScope = { sourceId: string | null; targetId: string | null }

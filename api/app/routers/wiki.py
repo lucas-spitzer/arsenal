@@ -15,11 +15,11 @@ from app.models.wiki_entry import (
     WikiEntryCreate,
     WikiEntryResponse,
     WikiEntryUpdate,
+    WikiReviseProposal,
+    WikiReviseRequest,
 )
 from app.models.wiki_ingest import (
     WikiIngestBatchResponse,
-    WikiIngestBatchUpdate,
-    WikiIngestCommitResponse,
     WikiIngestCreate,
     batch_row_to_response,
 )
@@ -29,7 +29,6 @@ from app.repositories.wiki_entries import WikiEntryRepository
 from app.services.wiki_authoring import (
     WikiAuthoringError,
     WikiAuthoringService,
-    WikiIngestDriftError,
     WikiIngestNotFoundError,
 )
 
@@ -126,6 +125,28 @@ async def update_wiki_entry(
     return WikiEntryResponse.model_validate(row)
 
 
+@router.post("/entries/{wiki_entry_id}/revise", response_model=WikiReviseProposal)
+async def revise_wiki_entry(
+    wiki_entry_id: str,
+    payload: WikiReviseRequest,
+    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
+    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    authoring: Annotated[WikiAuthoringService, Depends(get_wiki_authoring_service)],
+) -> WikiReviseProposal:
+    try:
+        proposal = await authoring.revise_entry(
+            wiki_entry_id,
+            workspace.id,
+            payload.instruction,
+        )
+    except WikiIngestNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except WikiAuthoringError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return WikiReviseProposal.model_validate(proposal)
+
+
 @router.delete("/entries/{wiki_entry_id}", response_model=WikiEntryResponse)
 async def deprecate_wiki_entry(
     wiki_entry_id: str,
@@ -159,7 +180,8 @@ async def list_wiki_disputes(
 
 
 # ---------------------------------------------------------------------------
-# Ingest batches: notes dump → structured draft → review → commit
+# Ingest batches: leftover API for notes/files → wiki_knowledge production run.
+# The UI path is New Run with Wiki Knowledge; the selected source file is the notes.
 # ---------------------------------------------------------------------------
 
 
@@ -175,21 +197,20 @@ async def create_ingest_batch(
     sources: Annotated[SourceRepository, Depends(get_source_repository)],
     authoring: Annotated[WikiAuthoringService, Depends(get_wiki_authoring_service)],
 ) -> WikiIngestBatchResponse:
-    if payload.source_id:
-        found = await sources.get_many_for_workspace(
-            [payload.source_id],
-            workspace.id,
-            user.id,
+    found = await sources.get_many_for_workspace(
+        [payload.source_id],
+        workspace.id,
+        user.id,
+    )
+
+    if not found:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source_id is invalid for this workspace.",
         )
 
-        if not found:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="source_id is invalid for this workspace.",
-            )
-
     try:
-        row = await authoring.create_batch(payload, workspace.id)
+        row = await authoring.create_batch(payload, workspace.id, owner_id=user.id)
     except WikiAuthoringError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -247,31 +268,12 @@ async def create_ingest_batch_from_files(
     try:
         row = await authoring.create_file_batch(
             workspace_id=workspace.id,
+            owner_id=user.id,
             source_id=source_id,
             chapter_hint=(chapter_hint.strip() if chapter_hint else None),
             title=(title.strip() if title else None),
             files=uploads,
         )
-    except WikiAuthoringError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    return batch_row_to_response(row)
-
-
-@router.post(
-    "/ingest-batches/{batch_id}/structure",
-    response_model=WikiIngestBatchResponse,
-)
-async def structure_ingest_batch(
-    batch_id: str,
-    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
-    authoring: Annotated[WikiAuthoringService, Depends(get_wiki_authoring_service)],
-) -> WikiIngestBatchResponse:
-    try:
-        row = await authoring.structure_batch(batch_id, workspace.id)
-    except WikiIngestNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WikiAuthoringError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -308,76 +310,5 @@ async def get_ingest_batch(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ingest batch not found.",
         )
-
-    return batch_row_to_response(row)
-
-
-@router.patch("/ingest-batches/{batch_id}", response_model=WikiIngestBatchResponse)
-async def update_ingest_batch(
-    batch_id: str,
-    payload: WikiIngestBatchUpdate,
-    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
-    authoring: Annotated[WikiAuthoringService, Depends(get_wiki_authoring_service)],
-) -> WikiIngestBatchResponse:
-    try:
-        row = await authoring.update_batch(
-            batch_id,
-            workspace.id,
-            title=payload.title,
-            raw_notes=payload.raw_notes,
-            entries=payload.entries,
-        )
-    except WikiIngestNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except WikiAuthoringError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    return batch_row_to_response(row)
-
-
-@router.post("/ingest-batches/{batch_id}/commit", response_model=WikiIngestCommitResponse)
-async def commit_ingest_batch(
-    batch_id: str,
-    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
-    authoring: Annotated[WikiAuthoringService, Depends(get_wiki_authoring_service)],
-) -> WikiIngestCommitResponse:
-    try:
-        batch, inserted_ids, updated_ids = await authoring.commit_batch(batch_id, workspace.id)
-    except WikiIngestNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except WikiAuthoringError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except WikiIngestDriftError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "detail": str(exc),
-                "drifted_indexes": exc.drifted_indexes,
-                "batch": batch_row_to_response(exc.batch).model_dump(mode="json"),
-            },
-        ) from exc
-
-    return WikiIngestCommitResponse(
-        batch=batch_row_to_response(batch),
-        inserted_entry_ids=inserted_ids,
-        updated_entry_ids=updated_ids,
-    )
-
-
-@router.post("/ingest-batches/{batch_id}/discard", response_model=WikiIngestBatchResponse)
-async def discard_ingest_batch(
-    batch_id: str,
-    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
-    authoring: Annotated[WikiAuthoringService, Depends(get_wiki_authoring_service)],
-) -> WikiIngestBatchResponse:
-    try:
-        row = await authoring.discard_batch(batch_id, workspace.id)
-    except WikiIngestNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except WikiAuthoringError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return batch_row_to_response(row)

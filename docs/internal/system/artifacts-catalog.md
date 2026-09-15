@@ -55,7 +55,7 @@ The important product rule is composition, not container: narration is a timed v
 - **Identifier:** `wiki_json`
 - **Definition:** A versioned JSON snapshot of the curated wiki for a source: canonical entries the author kept while reading, packaged as a downloadable knowledge artifact.
 - **Format:** A single JSON file (`format: json`) that can be downloaded, diffed, or re-imported.
-- **Model:** None. Curation happens in the wiki authoring flow; `export-wiki-json` is a deterministic Mathesys snapshot of that work.
+- **Model:** None. Curation happens via Wiki Knowledge on a New Run (`wiki_knowledge` production runs) and Academy Library entry management; `export-wiki-json` is a deterministic Mathesys snapshot of that work.
 - **Academy use:** Interchange and review, not a primary reading surface. The live wiki remains the in-product knowledge base; this artifact is the portable copy.
 
 The export includes canonical entries that cite the source (or record it in origin) plus workspace-level entries with no source affiliation, so curated knowledge is not silently dropped. Entries tied only to other sources are excluded. The document records export version, source identity, entry counts by kind and scope, and standalone entry payloads (labels rather than internal ids for prerequisites).

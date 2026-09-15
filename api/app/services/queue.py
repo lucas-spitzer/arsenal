@@ -23,23 +23,3 @@ def enqueue_production_run(settings: Settings, production_run_id: str) -> str:
         job_timeout=settings.production_run_job_timeout,
     )
     return job.id
-
-
-def enqueue_wiki_ingest_transcription(settings: Settings, batch_id: str) -> str:
-    queue = get_task_queue(settings)
-    job = queue.enqueue(
-        "app.worker.jobs.transcribe_wiki_ingest_batch",
-        batch_id,
-        job_timeout=settings.wiki_authoring.transcription_job_timeout,
-    )
-    return job.id
-
-
-def enqueue_study_sheet_job(settings: Settings, job_id: str) -> str:
-    queue = get_task_queue(settings)
-    job = queue.enqueue(
-        "app.worker.jobs.generate_study_sheet",
-        job_id,
-        job_timeout=settings.study_sheet.job_timeout,
-    )
-    return job.id

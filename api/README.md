@@ -45,7 +45,7 @@ Infrastructure variables have defaults (see `.env.example`).
 | `create-ebook` | — | Deterministic EPUB build |
 | `generate-narration` | `SPEECHIFY_API_KEY` or `ELEVENLABS_API_KEY`, `AUDIO_NARRATION_MODEL`, `AUDIO_NARRATION_VOICE_ID` | Default TTS is Speechify (`simba-3.2` / `hugh_32`). Set the model to `eleven*` to use ElevenLabs. |
 
-Each LLM action has a dedicated model env var (`SOURCE_RESEARCH_MODEL`, `SOURCE_WEB_ENRICHMENT_MODEL`, `WIKI_STRUCTURING_MODEL`, `DRAFT_MODEL`, `CRITIQUE_MODEL`, `READER_DEFINE_MODEL`, `STUDY_SHEET_MODEL`). Optional `LLM_<ACTION>_PROVIDER` overrides the registry provider. Defaults and supported actions live in [`app/llm_actions.py`](app/llm_actions.py).
+Each LLM action has a dedicated model env var (`SOURCE_RESEARCH_MODEL`, `SOURCE_WEB_ENRICHMENT_MODEL`, `WIKI_STRUCTURING_MODEL`, `WIKI_REVISE_MODEL`, `DRAFT_MODEL`, `CRITIQUE_MODEL`, `READER_DEFINE_MODEL`, `STUDY_SHEET_MODEL`). Optional `LLM_<ACTION>_PROVIDER` overrides the registry provider. Defaults and supported actions live in [`app/llm_actions.py`](app/llm_actions.py).
 
 `SUPABASE_ANON_KEY` may be used instead of `SUPABASE_PUBLISHABLE_KEY` for older Supabase projects.
 
@@ -157,12 +157,22 @@ Optional query param: `?module=intellex|mathesys|qngen`
 ### Wiki
 
 ```text
-GET /workspaces/{workspace_id}/wiki/entries
-GET /workspaces/{workspace_id}/wiki/entries/{wiki_entry_id}
-GET /workspaces/{workspace_id}/wiki/disputes
+GET    /workspaces/{workspace_id}/wiki/entries
+POST   /workspaces/{workspace_id}/wiki/entries
+GET    /workspaces/{workspace_id}/wiki/entries/{wiki_entry_id}
+PATCH  /workspaces/{workspace_id}/wiki/entries/{wiki_entry_id}
+DELETE /workspaces/{workspace_id}/wiki/entries/{wiki_entry_id}
+POST   /workspaces/{workspace_id}/wiki/entries/{wiki_entry_id}/revise
+GET    /workspaces/{workspace_id}/wiki/disputes
+POST   /workspaces/{workspace_id}/wiki/ingest-batches
+POST   /workspaces/{workspace_id}/wiki/ingest-batches/from-files
+GET    /workspaces/{workspace_id}/wiki/ingest-batches
+GET    /workspaces/{workspace_id}/wiki/ingest-batches/{batch_id}
 ```
 
 Optional query params on entries: `?status=canonical|disputed|open`, `?search=term`
+
+`POST …/revise` returns a proposed definition (and optional label/aliases). It does not write the row; save with `PATCH`. Wiki Knowledge on New Run uses each selected source file as the notes. Markdown is a passthrough; PDFs go through LlamaParse. Ingest-batch endpoints remain for API clients.
 
 ### Assessments (QnGen)
 
@@ -211,18 +221,20 @@ Supported `target_artifacts` values:
 - `electronic_book` — Mathesys create-ebook (chapter-based EPUB per source)
 - `narration_audio` — Mathesys generate-narration (timed clips + manifest per source)
 - `wiki_json` — Mathesys export-wiki-json (curated wiki snapshot per source)
+- `wiki_knowledge` — Intellex transcribe-wiki-notes + structure-wiki-notes (canonical wiki entries from each selected source file)
 - `study_sheet` — Mathesys generate-study-sheet (one- or two-page PDF from the source file)
 - `flashcards` — QnGen generate-flashcards
 - `quizzes` — QnGen generate-questions
 - `scenarios` — QnGen generate-scenarios
 
-The PDF lands at `{workspace_slug}/{source_slug}/sheet.pdf`. Markdown sources skip Intellex ingest and still generate a sheet from the original file. `POST /workspaces/{id}/study-sheets` remains for scripted uploads.
+The PDF lands at `{workspace_slug}/{source_slug}/sheet.pdf`. Markdown sources skip Intellex ingest and still generate a sheet from the original file.
 
 Full pipeline worker behavior:
 
-- always completes Intellex ingest (`store`, `parse`, `normalize-document`, `trim-document-boundaries`, `structure-document`, `validate-structure`, `chunk`, `source-research`); reuses prior ingest/Intellex results when a source was already processed; skips Intellex for markdown sources (study sheets still generate from the original file)
+- always completes Intellex ingest (`store`, `parse`, `normalize-document`, `trim-document-boundaries`, `structure-document`, `validate-structure`, `chunk`, `source-research`, `web-enrichment`); reuses prior ingest/Intellex results when a source was already processed; skips Intellex for markdown sources (study sheets still generate from the original file)
+- when `wiki_knowledge` is a target, inserts one ingest batch per source (attachments point at the existing source object), then runs `transcribe-wiki-notes` (markdown passthrough; skipped when notes are already filled or there are no files) then `structure-wiki-notes` (writes canonical wiki entries)
 - optionally runs Mathesys stages and QnGen stages based on `target_artifacts`
-- promotes artifacts and assessment entities; wiki entries are curated manually via the wiki authoring flow, not by the pipeline
+- promotes artifacts and assessment entities
 - marks production run `completed` when finished
 
 ## Tests

@@ -53,6 +53,13 @@ LLM_ACTIONS: tuple[LLMAction, ...] = (
         "WIKI_STRUCTURING_MODEL",
     ),
     LLMAction(
+        "wiki_revise",
+        "Wiki Revise",
+        "openai",
+        GPT_56_TERRA_MODEL,
+        "WIKI_REVISE_MODEL",
+    ),
+    LLMAction(
         "qngen_draft",
         "Assessment Draft",
         "openai",

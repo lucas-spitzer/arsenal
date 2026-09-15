@@ -108,7 +108,7 @@ def build_wiki_export(
     if not exported:
         raise RuntimeError(
             f"No canonical wiki entries found for source {source_id}. "
-            "Curate wiki entries (Wiki → Add knowledge) before exporting.",
+            "Run Wiki Knowledge from OPS, then open entries in Academy Library before exporting.",
         )
 
     exported.sort(

@@ -20,7 +20,7 @@ BatchStatus = Literal[
 
 class WikiIngestCreate(BaseModel):
     notes: str = Field(min_length=1)
-    source_id: str | None = None
+    source_id: str = Field(min_length=1)
     chapter_hint: str | None = None
     title: str | None = None
 
@@ -81,6 +81,7 @@ class WikiIngestBatchResponse(BaseModel):
     id: str
     workspace_id: str
     source_id: str | None
+    production_run_id: str | None = None
     title: str
     raw_notes: str
     chapter_hint: str | None

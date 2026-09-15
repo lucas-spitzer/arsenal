@@ -1,50 +1,35 @@
-"""Manual knowledge curation: notes → structured entries → reviewed wiki rows.
+"""Wiki knowledge ingest (Foundry production run) and entry management (Academy).
 
-The lifecycle (docs/internal/plans/wiki-authoring-contract.md):
-
-1. ``create_batch`` — paste notes → structuring LLM → enriched ``draft`` batch.
-2. ``create_file_batch`` — upload note files → ``transcribing`` (RQ) →
-   ``transcribed`` (author edits) → ``structure_batch`` → ``draft``.
-3. ``update_batch`` — review edits; slugs/resolutions recomputed server-side.
-4. ``commit_batch`` — re-validates against the *current* wiki (409 on drift),
-   promotes included entries through the shared candidate promotion, resolves
-   prerequisites, embeds every touched entry, and marks the batch committed.
-
-The structuring model never writes to ``wiki_entries`` directly — every entry
-passes through human review first.
+OPS New Run with Wiki Knowledge writes one ``wiki_ingest_batches`` row per
+selected source. Attachments point at the existing source file on a
+``production_run`` with ``target_artifacts=["wiki_knowledge"]``. The worker
+transcribes that file if needed, structures notes, and writes canonical
+``wiki_entries``. Academy Library lists those entries; Academy edits,
+deprecates, and AI-rewrites them. Ingest-batch HTTP endpoints remain for
+API clients.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 from app.artifact_paths import storage_slug
 from app.config import Settings, get_settings
-from app.intellex.wiki_candidates import (
-    WikiCandidate,
-    candidate_slug,
-    definitions_conflict,
-    promote_candidates,
-    resolve_prerequisites,
-)
-from app.models.wiki_ingest import (
-    WikiIngestCreate,
-    WikiIngestEntry,
-    WikiIngestEvidence,
-    WikiIngestSimilarEntry,
-)
-from app.repositories.retrieval import RetrievalRepository
+from app.intellex.wiki_candidates import WikiCandidate, candidate_slug
+from app.models.wiki_ingest import WikiIngestCreate
+from app.pipeline import build_pipeline
+from app.repositories.production_runs import ProductionRunRepository
 from app.repositories.wiki_entries import WikiEntryRepository
 from app.repositories.wiki_ingest_batches import WikiIngestBatchRepository
-from app.services.api_pricing import cost_llm_usage
 from app.services.embeddings import EmbeddingClient, get_embedding_client, to_pgvector_literal
 from app.services.llm import get_llm_client
 from app.services.llm.base import LLMClient
-from app.services.queue import enqueue_wiki_ingest_transcription
-from app.services.retrieval import build_reader_link
+from app.services.production_runs import ProductionRunEnqueueError
+from app.services.queue import enqueue_production_run
 from app.services.supabase_storage import SupabaseStorageClient, SupabaseStorageError
 from app.services.wiki_transcription import (
     ValidatedAttachment,
@@ -53,16 +38,10 @@ from app.services.wiki_transcription import (
     validate_note_attachment,
 )
 
-_DISCARDABLE_STATUSES = frozenset(
-    {"transcribing", "transcribed", "structuring", "draft", "failed"},
-)
+logger = logging.getLogger(__name__)
 
 STRUCTURING_ACTION = "wiki_structuring"
-
-# When evidence search is restricted to one chapter we over-fetch source-wide
-# matches and filter client-side (the RPC has no segment filter), so the
-# chapter can still fill top_k after filtering.
-_CHAPTER_OVERFETCH = 4
+REVISE_ACTION = "wiki_revise"
 
 STRUCTURING_SYSTEM_PROMPT = """You convert a reader's unstructured book notes into structured wiki entries.
 
@@ -98,25 +77,27 @@ Respond with a JSON object:
   "unparsed_fragments": [string]
 }"""
 
+REVISE_SYSTEM_PROMPT = """You rewrite one wiki entry according to the user's instruction.
+
+Rewrite the definition (and label/aliases only when the instruction asks). Do not invent facts the current entry does not support unless the instruction supplies them. Keep the same meaning unless the instruction asks to change it. Stay concise.
+
+Respond with a JSON object:
+{
+  "definition": string,
+  "preferred_label": string | null,
+  "aliases": [string] | null
+}
+
+Use null for preferred_label or aliases when they should stay unchanged.
+"""
+
 
 class WikiAuthoringError(Exception):
     """Invalid input or state; routers map this to 400."""
 
 
 class WikiIngestNotFoundError(Exception):
-    """Batch does not exist in this workspace; routers map this to 404."""
-
-
-class WikiIngestDriftError(Exception):
-    """Commit-time review state drifted against the current wiki (409)."""
-
-    def __init__(self, drifted_indexes: list[int], batch: dict[str, Any]) -> None:
-        super().__init__(
-            "The wiki changed since this batch was reviewed. "
-            "Re-confirm the highlighted entries and commit again.",
-        )
-        self.drifted_indexes = drifted_indexes
-        self.batch = batch
+    """Batch or entry does not exist in this workspace; routers map this to 404."""
 
 
 def _utc_now_iso() -> str:
@@ -124,8 +105,6 @@ def _utc_now_iso() -> str:
 
 
 def _embedding_text(label: str, definition: str) -> str:
-    # Same shape as scripts/backfill_embeddings.py so every wiki vector lives
-    # in one consistent space.
     return f"{label}. {definition}"
 
 
@@ -135,18 +114,18 @@ class WikiAuthoringService:
         *,
         wiki_entries: WikiEntryRepository,
         batches: WikiIngestBatchRepository,
-        retrieval: RetrievalRepository,
+        production_runs: ProductionRunRepository,
         settings: Settings | None = None,
         embedding_client: EmbeddingClient | None = None,
-        llm_client: LLMClient | None = None,
+        revise_llm_client: LLMClient | None = None,
         storage: SupabaseStorageClient | None = None,
     ) -> None:
         self.wiki_entries = wiki_entries
         self.batches = batches
-        self.retrieval = retrieval
+        self.production_runs = production_runs
         self.settings = settings or get_settings()
         self._embedding_client = embedding_client
-        self._llm_client = llm_client
+        self._revise_llm_client = revise_llm_client
         self._storage = storage
 
     @property
@@ -156,10 +135,10 @@ class WikiAuthoringService:
         return self._embedding_client
 
     @property
-    def llm_client(self) -> LLMClient:
-        if self._llm_client is None:
-            self._llm_client = get_llm_client(STRUCTURING_ACTION)
-        return self._llm_client
+    def revise_llm_client(self) -> LLMClient:
+        if self._revise_llm_client is None:
+            self._revise_llm_client = get_llm_client(REVISE_ACTION)
+        return self._revise_llm_client
 
     @property
     def storage(self) -> SupabaseStorageClient:
@@ -167,19 +146,20 @@ class WikiAuthoringService:
             self._storage = SupabaseStorageClient(self.settings)
         return self._storage
 
-    # ------------------------------------------------------------------
-    # Batch lifecycle
-    # ------------------------------------------------------------------
-
     async def create_batch(
         self,
         payload: WikiIngestCreate,
         workspace_id: str,
+        *,
+        owner_id: str,
     ) -> dict[str, Any]:
         notes = payload.notes.strip()
-
         if not notes:
             raise WikiAuthoringError("Notes are empty.")
+
+        source_id = (payload.source_id or "").strip()
+        if not source_id:
+            raise WikiAuthoringError("source_id is required.")
 
         max_chars = self.settings.wiki_authoring.max_notes_chars
         if len(notes) > max_chars:
@@ -188,52 +168,36 @@ class WikiAuthoringService:
                 "Split the dump (one chapter per batch works well).",
             )
 
-        chapter = await self._resolve_chapter(payload.chapter_hint, payload.source_id)
-
-        structured, model, cost_usd = await self._structure_notes(
-            notes,
-            chapter_title=(chapter or {}).get("title"),
-        )
-
-        entries = await self._enrich_entries(
-            structured["entries"],
-            workspace_id=workspace_id,
-            source_id=payload.source_id,
-            chapter=chapter,
-        )
-
+        chapter = await self._resolve_chapter(payload.chapter_hint, source_id)
         title = (payload.title or "").strip() or f"Notes — {_utc_now_iso()[:10]}"
-        row = await self.batches.insert(
-            {
+        return await self._queue_wiki_knowledge_run(
+            workspace_id=workspace_id,
+            owner_id=owner_id,
+            source_id=source_id,
+            batch_payload={
                 "workspace_id": workspace_id,
-                "source_id": payload.source_id,
+                "source_id": source_id,
                 "title": title,
                 "raw_notes": notes,
                 "chapter_hint": payload.chapter_hint,
                 "chapter": chapter,
-                "status": "draft",
-                "entries": [entry.model_dump() for entry in entries],
-                "unparsed_fragments": structured["unparsed_fragments"],
+                "status": "transcribed",
+                "entries": [],
+                "unparsed_fragments": [],
                 "attachments": [],
-                "model": model,
-                "cost_usd": cost_usd,
             },
         )
-        return row
 
     async def create_file_batch(
         self,
         *,
         workspace_id: str,
+        owner_id: str,
         source_id: str,
         chapter_hint: str | None,
         title: str | None,
         files: list[tuple[str, str | None, bytes]],
     ) -> dict[str, Any]:
-        """Create a ``transcribing`` batch from note uploads and enqueue RQ.
-
-        ``files`` is ``(filename, content_type, content)`` in upload order.
-        """
         if not (source_id or "").strip():
             raise WikiAuthoringError("source_id is required for file ingest.")
 
@@ -244,12 +208,6 @@ class WikiAuthoringService:
         if len(files) > wiki_settings.max_attachments_per_batch:
             raise WikiAuthoringError(
                 f"At most {wiki_settings.max_attachments_per_batch} files per batch.",
-            )
-
-        if not await self.batches.source_has_segments(source_id):
-            raise WikiAuthoringError(
-                "Selected source has no parsed segments yet. "
-                "Finish ingesting the source before attaching reading notes.",
             )
 
         validated: list[ValidatedAttachment] = []
@@ -306,8 +264,11 @@ class WikiAuthoringService:
         except SupabaseStorageError as exc:
             raise WikiAuthoringError(f"Could not store note files: {exc}") from exc
 
-        row = await self.batches.insert(
-            {
+        return await self._queue_wiki_knowledge_run(
+            workspace_id=workspace_id,
+            owner_id=owner_id,
+            source_id=source_id,
+            batch_payload={
                 "id": batch_id,
                 "workspace_id": workspace_id,
                 "source_id": source_id,
@@ -322,233 +283,6 @@ class WikiAuthoringService:
                 "transcription_error": None,
             },
         )
-
-        try:
-            enqueue_wiki_ingest_transcription(self.settings, batch_id)
-        except Exception as exc:  # noqa: BLE001 - surface queue failures to the API
-            await self.batches.update(
-                batch_id,
-                {
-                    "status": "failed",
-                    "transcription_error": f"Failed to enqueue transcription: {exc}",
-                },
-            )
-            raise WikiAuthoringError(
-                f"Failed to enqueue transcription job: {exc}",
-            ) from exc
-
-        return row
-
-    async def structure_batch(
-        self,
-        batch_id: str,
-        workspace_id: str,
-    ) -> dict[str, Any]:
-        """Structure current ``raw_notes`` after transcription review."""
-        batch = await self._require_batch(
-            batch_id,
-            workspace_id,
-            allowed={"transcribed"},
-        )
-        notes = str(batch.get("raw_notes") or "").strip()
-
-        if not notes:
-            raise WikiAuthoringError("Notes are empty. Edit the transcription first.")
-
-        max_chars = self.settings.wiki_authoring.max_notes_chars
-        if len(notes) > max_chars:
-            raise WikiAuthoringError(
-                f"Notes exceed {max_chars} characters. "
-                "Split into another batch (same source/chapter works well).",
-            )
-
-        await self.batches.update(
-            batch_id,
-            {"status": "structuring", "transcription_error": None},
-        )
-
-        chapter = batch.get("chapter")
-        if not isinstance(chapter, dict):
-            chapter = await self._resolve_chapter(
-                batch.get("chapter_hint"),
-                batch.get("source_id"),
-            )
-
-        try:
-            structured, model, cost_usd = await self._structure_notes(
-                notes,
-                chapter_title=(chapter or {}).get("title"),
-            )
-            entries = await self._enrich_entries(
-                structured["entries"],
-                workspace_id=workspace_id,
-                source_id=batch.get("source_id"),
-                chapter=chapter if isinstance(chapter, dict) else None,
-            )
-            return await self.batches.update(
-                batch_id,
-                {
-                    "status": "draft",
-                    "entries": [entry.model_dump() for entry in entries],
-                    "unparsed_fragments": structured["unparsed_fragments"],
-                    "model": model,
-                    "cost_usd": cost_usd,
-                    "chapter": chapter,
-                },
-            )
-        except Exception:
-            await self.batches.update(batch_id, {"status": "transcribed"})
-            raise
-
-    async def update_batch(
-        self,
-        batch_id: str,
-        workspace_id: str,
-        *,
-        title: str | None = None,
-        raw_notes: str | None = None,
-        entries: list[WikiIngestEntry] | None = None,
-    ) -> dict[str, Any]:
-        batch = await self.batches.get_for_workspace(batch_id, workspace_id)
-
-        if not batch:
-            raise WikiIngestNotFoundError("Ingest batch not found.")
-
-        status = batch.get("status")
-        payload: dict[str, Any] = {}
-
-        if title is not None and title.strip():
-            if status not in {"transcribed", "draft", "failed"}:
-                raise WikiAuthoringError(
-                    f"Batch is {status}; title can only be edited while "
-                    "transcribed, draft, or failed.",
-                )
-            payload["title"] = title.strip()
-
-        if raw_notes is not None:
-            if status not in {"transcribed", "failed"}:
-                raise WikiAuthoringError(
-                    f"Batch is {status}; raw_notes can only be edited while "
-                    "transcribed (or after a failed transcription).",
-                )
-            stripped = raw_notes.strip()
-            if not stripped:
-                raise WikiAuthoringError("Notes are empty.")
-            payload["raw_notes"] = stripped
-            if status == "failed":
-                payload["status"] = "transcribed"
-                payload["transcription_error"] = None
-
-        if entries is not None:
-            if status != "draft":
-                raise WikiAuthoringError(
-                    f"Batch is {status}; only drafts can edit structured entries.",
-                )
-            existing_entries = await self._list_all_entries(workspace_id)
-            refreshed = self._refresh_resolutions(entries, existing_entries)
-            payload["entries"] = [entry.model_dump() for entry in refreshed]
-
-        if not payload:
-            return batch
-
-        return await self.batches.update(batch_id, payload)
-
-    async def discard_batch(self, batch_id: str, workspace_id: str) -> dict[str, Any]:
-        batch = await self.batches.get_for_workspace(batch_id, workspace_id)
-
-        if not batch:
-            raise WikiIngestNotFoundError("Ingest batch not found.")
-
-        if batch.get("status") not in _DISCARDABLE_STATUSES:
-            raise WikiAuthoringError(
-                f"Batch is {batch.get('status')}; it cannot be discarded.",
-            )
-
-        return await self.batches.update(batch_id, {"status": "discarded"})
-
-    async def commit_batch(
-        self,
-        batch_id: str,
-        workspace_id: str,
-    ) -> tuple[dict[str, Any], list[str], list[str]]:
-        batch = await self._require_batch(batch_id, workspace_id, allowed={"draft"})
-        entries = [WikiIngestEntry.model_validate(entry) for entry in batch.get("entries") or []]
-        included = [entry for entry in entries if entry.include]
-
-        if not included:
-            raise WikiAuthoringError("No entries are marked for inclusion.")
-
-        existing_entries = await self._list_all_entries(workspace_id)
-
-        # Another batch (or a manual edit) may have landed since review: any
-        # included entry whose resolution silently changed must be re-confirmed
-        # before it can overwrite state the author never saw.
-        refreshed = self._refresh_resolutions(entries, existing_entries)
-        drifted = [
-            entry.index
-            for original, entry in zip(entries, refreshed)
-            if entry.include
-            and (
-                entry.resolution != original.resolution
-                or entry.existing_entry_id != original.existing_entry_id
-            )
-        ]
-
-        if drifted:
-            updated = await self.batches.update(
-                batch_id,
-                {"entries": [entry.model_dump() for entry in refreshed]},
-            )
-            raise WikiIngestDriftError(drifted, updated)
-
-        source_id = batch.get("source_id")
-        chapter = batch.get("chapter") or {}
-        candidates = [
-            self._entry_to_candidate(entry, batch_id=batch_id, source_id=source_id, chapter=chapter)
-            for entry in refreshed
-            if entry.include
-        ]
-
-        inserts, updates, _ = promote_candidates(
-            workspace_id=workspace_id,
-            candidates=candidates,
-            existing_entries=existing_entries,
-            # Conflicts were shown side-by-side in review; the author's
-            # reviewed definition is the dispute resolution.
-            override_conflicts=True,
-        )
-
-        inserted_rows = await self.wiki_entries.insert_many(inserts) if inserts else []
-        updated_ids: list[str] = []
-
-        for update in updates:
-            update_payload = dict(update)
-            wiki_id = update_payload.pop("id")
-            await self.wiki_entries.update(wiki_id, update_payload)
-            updated_ids.append(str(wiki_id))
-
-        all_rows = await self._list_all_entries(workspace_id)
-        for prereq_update in resolve_prerequisites(candidates=candidates, wiki_rows=all_rows):
-            prereq_payload = dict(prereq_update)
-            wiki_id = prereq_payload.pop("id")
-            await self.wiki_entries.update(wiki_id, prereq_payload)
-
-        inserted_ids = [str(row["id"]) for row in inserted_rows]
-        await self._embed_entries(inserted_ids + updated_ids)
-
-        committed = await self.batches.update(
-            batch_id,
-            {
-                "status": "committed",
-                "committed_at": _utc_now_iso(),
-                "committed_entry_ids": inserted_ids + updated_ids,
-            },
-        )
-        return committed, inserted_ids, updated_ids
-
-    # ------------------------------------------------------------------
-    # Single-entry CRUD (quick add / edit without the LLM)
-    # ------------------------------------------------------------------
 
     async def create_entry(
         self,
@@ -630,285 +364,122 @@ class WikiAuthoringService:
 
         return await self.wiki_entries.update(wiki_entry_id, {"status": "deprecated"})
 
-    # ------------------------------------------------------------------
-    # Structuring + enrichment internals
-    # ------------------------------------------------------------------
-
-    async def _structure_notes(
+    async def revise_entry(
         self,
-        notes: str,
-        *,
-        chapter_title: str | None,
-    ) -> tuple[dict[str, Any], str, float | None]:
-        context = f"These notes are from the chapter: {chapter_title}\n\n" if chapter_title else ""
-        user_prompt = f"{context}READER NOTES:\n{notes}"
+        wiki_entry_id: str,
+        workspace_id: str,
+        instruction: str,
+    ) -> dict[str, Any]:
+        row = await self.wiki_entries.get_for_workspace(wiki_entry_id, workspace_id)
+        if not row:
+            raise WikiIngestNotFoundError("Wiki entry not found.")
+
+        stripped = instruction.strip()
+        if not stripped:
+            raise WikiAuthoringError("Instruction is empty.")
+
+        origin = row.get("origin") if isinstance(row.get("origin"), dict) else {}
+        excerpt = str(origin.get("note_excerpt") or "").strip()
+        evidence_lines = []
+        for record in row.get("evidence") or []:
+            if not isinstance(record, dict):
+                continue
+            quote = str(record.get("quote") or record.get("preview") or "").strip()
+            if quote:
+                evidence_lines.append(quote)
+
+        user_prompt = (
+            f"LABEL: {row.get('preferred_label') or ''}\n"
+            f"KIND: {row.get('entry_kind') or ''}\n"
+            f"ALIASES: {', '.join(str(alias) for alias in (row.get('aliases') or []) if str(alias).strip()) or '(none)'}\n"
+            f"CURRENT DEFINITION:\n{row.get('definition') or ''}\n"
+        )
+        if excerpt:
+            user_prompt += f"\nNOTE EXCERPT:\n{excerpt}\n"
+        if evidence_lines:
+            user_prompt += "\nEVIDENCE QUOTES:\n" + "\n".join(f"- {line}" for line in evidence_lines) + "\n"
+        user_prompt += f"\nINSTRUCTION:\n{stripped}"
 
         result = await asyncio.to_thread(
-            self.llm_client.complete_json,
-            system_prompt=STRUCTURING_SYSTEM_PROMPT,
+            self.revise_llm_client.complete_json,
+            system_prompt=REVISE_SYSTEM_PROMPT,
             user_prompt=user_prompt,
         )
+        definition = str(result.content.get("definition") or "").strip()
+        if not definition:
+            raise WikiAuthoringError("Revise failed: the model returned an empty definition.")
 
-        raw_entries = result.content.get("entries")
-        if not isinstance(raw_entries, list):
-            raise WikiAuthoringError("Structuring failed: the model returned no entries.")
+        label_raw = result.content.get("preferred_label")
+        preferred_label = str(label_raw).strip() if label_raw else None
+        aliases_raw = result.content.get("aliases")
+        aliases: list[str] | None = None
+        if isinstance(aliases_raw, list):
+            aliases = [str(alias).strip() for alias in aliases_raw if str(alias).strip()]
 
-        fragments = result.content.get("unparsed_fragments")
-        structured = {
-            "entries": raw_entries,
-            "unparsed_fragments": [
-                str(fragment)
-                for fragment in (fragments if isinstance(fragments, list) else [])
-                if str(fragment).strip()
-            ],
+        return {
+            "definition": definition,
+            "preferred_label": preferred_label or None,
+            "aliases": aliases,
         }
 
-        usage = result.token_usage or {}
-        cost = cost_llm_usage(
-            provider=getattr(result, "provider", "openai") or "openai",
-            model=result.model,
-            input_tokens=int(usage.get("input_tokens") or 0),
-            output_tokens=int(usage.get("output_tokens") or 0),
-        )
-        return structured, result.model, cost.get("cost_usd")
-
-    async def _enrich_entries(
+    async def _queue_wiki_knowledge_run(
         self,
-        raw_entries: list[Any],
         *,
         workspace_id: str,
-        source_id: str | None,
-        chapter: dict[str, Any] | None,
-    ) -> list[WikiIngestEntry]:
-        entries: list[WikiIngestEntry] = []
-
-        for index, raw in enumerate(raw_entries):
-            if not isinstance(raw, dict):
-                continue
-
-            label = str(raw.get("label") or "").strip()
-            definition = str(raw.get("definition") or "").strip()
-
-            if not label or not definition:
-                continue
-
-            entries.append(
-                WikiIngestEntry(
-                    index=index,
-                    label=label[:120],
-                    entry_kind=self._coerce_choice(
-                        raw.get("entry_kind"), {"term", "concept", "insight"}, "concept",
-                    ),
-                    definition=definition,
-                    aliases=[str(alias) for alias in raw.get("aliases") or [] if str(alias).strip()],
-                    pronunciation=(str(raw["pronunciation"]) if raw.get("pronunciation") else None),
-                    importance=self._coerce_choice(
-                        raw.get("importance"),
-                        {"essential", "supporting", "contextual"},
-                        "supporting",
-                    ),
-                    prerequisite_labels=[
-                        str(item) for item in raw.get("prerequisite_labels") or [] if str(item).strip()
-                    ],
-                    note_excerpt=str(raw.get("note_excerpt") or "")[:240],
-                ),
-            )
-
-        # Re-index after dropping malformed items so indexes stay contiguous.
-        for index, entry in enumerate(entries):
-            entry.index = index
-
-        existing_entries = await self._list_all_entries(workspace_id)
-        entries = self._refresh_resolutions(entries, existing_entries)
-
-        if entries:
-            await self._attach_evidence_and_similars(
-                entries,
-                workspace_id=workspace_id,
-                source_id=source_id,
-                chapter=chapter,
-            )
-
-        return entries
-
-    @staticmethod
-    def _coerce_choice(value: Any, allowed: set[str], default: str) -> str:
-        candidate = str(value or "").strip().lower()
-        return candidate if candidate in allowed else default
-
-    def _refresh_resolutions(
-        self,
-        entries: list[WikiIngestEntry],
-        existing_entries: list[dict[str, Any]],
-    ) -> list[WikiIngestEntry]:
-        entries_by_slug = {
-            str(entry["canonical_slug"]): entry for entry in existing_entries
-        }
-        refreshed: list[WikiIngestEntry] = []
-
-        for entry in entries:
-            candidate = WikiCandidate(
-                label=entry.label,
-                definition=entry.definition,
-                entry_kind=entry.entry_kind,
-            )
-            slug = candidate_slug(candidate, entries_by_slug)
-            existing = entries_by_slug.get(slug)
-
-            updated = entry.model_copy(deep=True)
-            updated.canonical_slug = slug
-
-            if not existing:
-                updated.resolution = "new"
-                updated.existing_entry_id = None
-                updated.existing_definition = None
-            else:
-                updated.existing_entry_id = str(existing.get("id") or "") or None
-                updated.existing_definition = str(existing.get("definition") or "")
-                updated.resolution = (
-                    "conflict"
-                    if definitions_conflict(updated.existing_definition, entry.definition)
-                    else "merge"
-                )
-
-            refreshed.append(updated)
-
-        return refreshed
-
-    async def _attach_evidence_and_similars(
-        self,
-        entries: list[WikiIngestEntry],
-        *,
-        workspace_id: str,
-        source_id: str | None,
-        chapter: dict[str, Any] | None,
-    ) -> None:
-        texts = [_embedding_text(entry.label, entry.definition) for entry in entries]
-        vectors = await asyncio.to_thread(self.embedding_client.embed, texts)
-
-        wiki_settings = self.settings.wiki_authoring
-        chapter_segment_ids = set(
-            str(segment_id) for segment_id in (chapter or {}).get("segment_ids") or []
+        owner_id: str,
+        source_id: str,
+        batch_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        run = await self.production_runs.create(
+            {
+                "workspace_id": workspace_id,
+                "owner_id": owner_id,
+                "source_ids": [source_id],
+                "target_artifacts": ["wiki_knowledge"],
+                "pipeline": build_pipeline(["wiki_knowledge"]),
+                "status": "queued",
+            },
         )
-        fetch_count = (
-            wiki_settings.evidence_top_k * _CHAPTER_OVERFETCH
-            if chapter_segment_ids
-            else wiki_settings.evidence_top_k
-        )
-
-        for entry, vector in zip(entries, vectors):
-            if source_id:
-                rows = await self.retrieval.match_segments(
-                    embedding=vector,
-                    workspace_id=workspace_id,
-                    threshold=wiki_settings.evidence_weak_floor,
-                    count=fetch_count,
-                    source_ids=[source_id],
-                )
-
-                if chapter_segment_ids:
-                    scoped = [row for row in rows if str(row["id"]) in chapter_segment_ids]
-                    rows = scoped or rows
-
-                rows = rows[: wiki_settings.evidence_top_k]
-                entry.evidence = [
-                    WikiIngestEvidence(
-                        segment_id=str(row["id"]),
-                        sequence_index=row.get("sequence_index"),
-                        page=(row.get("locator") or {}).get("page"),
-                        similarity=round(float(row.get("similarity") or 0.0), 4),
-                        preview=str(row.get("text") or "")[:280],
-                        reader_link=build_reader_link(
-                            str(row["source_id"]),
-                            int(row.get("sequence_index") or 0),
-                        ),
-                    )
-                    for row in rows
-                ]
-                best = max((float(row.get("similarity") or 0.0) for row in rows), default=0.0)
-
-                if best >= wiki_settings.evidence_threshold:
-                    entry.evidence_status = "linked"
-                elif entry.evidence:
-                    entry.evidence_status = "weak"
-                else:
-                    entry.evidence_status = "unlinked"
-            else:
-                entry.evidence = []
-                entry.evidence_status = "unlinked"
-
-            similar_rows = await self.retrieval.match_wiki_entries(
-                embedding=vector,
-                workspace_id=workspace_id,
-                threshold=wiki_settings.dedup_similarity_threshold,
-                count=3,
+        batch_payload = {**batch_payload, "production_run_id": run["id"]}
+        try:
+            row = await self.batches.insert(batch_payload)
+        except Exception:
+            await self.production_runs.update(
+                run["id"],
+                {
+                    "status": "failed",
+                    "error": "Failed to store wiki ingest batch.",
+                },
             )
-            entry.similar_entries = [
-                WikiIngestSimilarEntry(
-                    id=str(row["id"]),
-                    label=str(row.get("preferred_label") or ""),
-                    similarity=round(float(row.get("similarity") or 0.0), 4),
-                )
-                for row in similar_rows
-                if str(row.get("canonical_slug") or "") != entry.canonical_slug
-            ]
+            raise
 
-    def _entry_to_candidate(
-        self,
-        entry: WikiIngestEntry,
-        *,
-        batch_id: str,
-        source_id: str | None,
-        chapter: dict[str, Any],
-    ) -> WikiCandidate:
-        evidence: list[dict[str, Any]] = []
+        try:
+            enqueue_production_run(self.settings, run["id"])
+        except Exception as exc:
+            logger.exception("Failed to enqueue wiki knowledge run %s", run["id"])
+            await self.production_runs.update(
+                run["id"],
+                {
+                    "status": "failed",
+                    "error": f"Failed to enqueue production run: {exc}",
+                },
+            )
+            await self.batches.update(
+                str(row["id"]),
+                {
+                    "status": "failed",
+                    "transcription_error": f"Failed to enqueue production run: {exc}",
+                },
+            )
+            raise ProductionRunEnqueueError(str(exc)) from exc
 
-        if source_id:
-            for record in entry.evidence:
-                evidence.append(
-                    {
-                        "source_id": source_id,
-                        "segment_id": record.segment_id,
-                        "sequence_index": record.sequence_index,
-                        "page": record.page,
-                        "reader_link": record.reader_link,
-                    },
-                )
-
-        origin: dict[str, Any] = {
-            "kind": "manual",
-            "batch_id": batch_id,
-            "note_excerpt": entry.note_excerpt,
-        }
-        if source_id:
-            origin["source_id"] = source_id
-        if chapter.get("chapter_id"):
-            origin["chapter_id"] = chapter["chapter_id"]
-        if chapter.get("sequence_index") is not None:
-            origin["chapter_sequence_index"] = chapter["sequence_index"]
-
-        return WikiCandidate(
-            label=entry.label,
-            definition=entry.definition,
-            entry_kind=entry.entry_kind,
-            aliases=entry.aliases,
-            prerequisite_labels=entry.prerequisite_labels,
-            pronunciation=entry.pronunciation,
-            importance=entry.importance,
-            evidence=evidence,
-            origin=origin,
-        )
+        return row
 
     async def _resolve_chapter(
         self,
         chapter_hint: str | None,
         source_id: str | None,
     ) -> dict[str, Any] | None:
-        """Resolve a chapter number or title fragment against document_chapters.
-
-        The stored block keeps ``segment_ids`` (for evidence scoping) alongside
-        the contract's display fields; responses expose only the display fields.
-        """
         if not chapter_hint or not source_id:
             return None
 
@@ -951,30 +522,7 @@ class WikiAuthoringService:
             ],
         }
 
-    async def _require_batch(
-        self,
-        batch_id: str,
-        workspace_id: str,
-        *,
-        allowed: set[str],
-    ) -> dict[str, Any]:
-        batch = await self.batches.get_for_workspace(batch_id, workspace_id)
-
-        if not batch:
-            raise WikiIngestNotFoundError("Ingest batch not found.")
-
-        status = batch.get("status")
-        if status not in allowed:
-            allowed_list = ", ".join(sorted(allowed))
-            raise WikiAuthoringError(
-                f"Batch is {status}; expected one of: {allowed_list}.",
-            )
-
-        return batch
-
     async def _list_all_entries(self, workspace_id: str) -> list[dict[str, Any]]:
-        # All statuses: the slug-uniqueness constraint spans deprecated and
-        # disputed rows too, so resolution must see them.
         return await self.wiki_entries.list_for_workspace(workspace_id, limit=1000)
 
     async def _embed_entries(self, wiki_entry_ids: list[str]) -> None:
@@ -982,7 +530,6 @@ class WikiAuthoringService:
             return
 
         rows = await self.wiki_entries.get_many(wiki_entry_ids)
-
         if not rows:
             return
 

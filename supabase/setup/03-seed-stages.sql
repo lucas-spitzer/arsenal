@@ -688,6 +688,28 @@ values
       "system": "Generate realistic application scenarios using draft/critique skill orchestration.",
       "user_template": "Create scenarios for source {{source_id}}."
     }'::jsonb
+  ),
+  (
+    'transcribe-wiki-notes',
+    '1.0',
+    'intellex',
+    'Transcribe Wiki Notes',
+    'Turn uploaded wiki note files into markdown (passthrough for text; LlamaParse for PDF, DOCX, and images). Skipped when notes were pasted.',
+    array['text'],
+    '{"type":"object","properties":{"production_run_id":{"type":"string"},"batch_id":{"type":"string"}}}'::jsonb,
+    '{"type":"object","properties":{"skipped":{"type":"boolean"},"attachment_count":{"type":"integer"},"raw_notes_chars":{"type":"integer"}}}'::jsonb,
+    '{"system":"Transcribe wiki note attachments into markdown.","user_template":"Transcribe notes for production run {{production_run_id}}."}'::jsonb
+  ),
+  (
+    'structure-wiki-notes',
+    '1.0',
+    'intellex',
+    'Structure Wiki Notes',
+    'Format reader notes into canonical wiki entries and write them immediately (merge/conflict uses the new definition).',
+    array['text'],
+    '{"type":"object","properties":{"production_run_id":{"type":"string"},"batch_id":{"type":"string"}}}'::jsonb,
+    '{"type":"object","properties":{"entry_count":{"type":"integer"},"inserted_ids":{"type":"array"},"updated_ids":{"type":"array"}}}'::jsonb,
+    '{"system":"Structure reader notes into wiki entries without inventing facts.","user_template":"Structure notes for production run {{production_run_id}}."}'::jsonb
   )
 on conflict (stage_id, version) do update
 set

@@ -4,7 +4,6 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from app.services.production_runs import ProductionRunEnqueueError
-from app.services.study_sheet import StudySheetEnqueueError
 from app.services.supabase_rest import SupabaseRestError
 from app.services.supabase_storage import SupabaseStorageError
 
@@ -52,15 +51,4 @@ def register_exception_handlers(app: FastAPI) -> None:
             content={
                 "detail": "Production run could not be queued. Is Redis running?",
             },
-        )
-
-    @app.exception_handler(StudySheetEnqueueError)
-    async def handle_study_sheet_enqueue_error(
-        request: Request,
-        exc: StudySheetEnqueueError,
-    ) -> JSONResponse:
-        logger.exception("Study sheet enqueue error on %s", request.url.path)
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={"detail": str(exc) or "Study sheet could not be queued."},
         )

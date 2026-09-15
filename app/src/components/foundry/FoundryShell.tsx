@@ -16,7 +16,6 @@ import { FoundryOps } from './FoundryOps'
 import { FoundryStages } from './FoundryStages'
 import { FoundrySources } from './FoundrySources'
 import { FoundryStageSettings } from './FoundryStageSettings'
-import { FoundryWiki } from './FoundryWiki'
 import { FoundryWorkspaces } from './FoundryWorkspaces'
 import { railIconSize, railItems, type FoundryPage } from './types'
 
@@ -25,7 +24,8 @@ type AppMode = 'foundry' | 'academy'
 const SHELL_STORAGE_KEY = 'arsenal.foundryShell'
 
 const foundryPageIds = new Set(railItems.map((item) => item.id))
-const academyPageIds = new Set(academyRailItems.map((item) => item.id))
+const academyRailPageIds = new Set(academyRailItems.map((item) => item.id))
+const academyPageIds = new Set<AcademyPage>([...academyRailPageIds, 'wiki'])
 
 type ShellState = {
   mode: AppMode
@@ -199,7 +199,6 @@ export function FoundryShell() {
             {foundryPage === 'sources' ? <FoundrySources /> : null}
             {foundryPage === 'stages' ? <FoundryStages /> : null}
             {foundryPage === 'artifacts' ? <FoundryArtifacts /> : null}
-            {foundryPage === 'wiki' ? <FoundryWiki /> : null}
             {foundryPage === 'assessments' ? <FoundryAssessments onOpen={openAcademy} /> : null}
             {foundryPage === 'workspace' ? <FoundryWorkspaces /> : null}
             {foundryPage === 'settings' ? <FoundryStageSettings /> : null}

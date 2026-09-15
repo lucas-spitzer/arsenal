@@ -199,10 +199,7 @@ class NarrationSettings:
 
 @dataclass(frozen=True)
 class StudySheetSettings:
-    max_upload_bytes: int
-    max_markdown_chars: int
     max_attempts: int
-    job_timeout: str
 
 
 @dataclass(frozen=True)
@@ -364,12 +361,7 @@ def _get_settings_cached() -> Settings:
             scenarios_per_chapter_max=int(os.getenv("QNGEN_SCENARIOS_PER_CHAPTER_MAX", "3")),
         ),
         study_sheet=StudySheetSettings(
-            max_upload_bytes=int(
-                os.getenv("STUDY_SHEET_MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)),
-            ),
-            max_markdown_chars=int(os.getenv("STUDY_SHEET_MAX_MARKDOWN_CHARS", "200000")),
             max_attempts=int(os.getenv("STUDY_SHEET_MAX_ATTEMPTS", "3")),
-            job_timeout=os.getenv("STUDY_SHEET_JOB_TIMEOUT", "20m"),
         ),
     )
 

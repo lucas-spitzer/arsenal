@@ -308,6 +308,7 @@ create table public.wiki_ingest_batches (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces (id) on delete cascade,
   source_id uuid references public.sources (id) on delete set null,
+  production_run_id uuid references public.production_runs (id) on delete set null,
   title text not null,
   -- Empty while status = transcribing (file ingest); filled after transcription
   -- or immediately for paste-notes batches.
@@ -344,6 +345,8 @@ create index wiki_ingest_batches_workspace_id_idx
 on public.wiki_ingest_batches (workspace_id);
 create index wiki_ingest_batches_source_id_idx
 on public.wiki_ingest_batches (source_id);
+create index wiki_ingest_batches_production_run_id_idx
+on public.wiki_ingest_batches (production_run_id);
 create index wiki_ingest_batches_status_idx
 on public.wiki_ingest_batches (workspace_id, status);
 
@@ -383,44 +386,6 @@ create table public.artifacts (
 create index artifacts_workspace_id_idx on public.artifacts (workspace_id);
 create index artifacts_source_id_idx on public.artifacts (source_id);
 create index artifacts_production_run_id_idx on public.artifacts (production_run_id);
-
--- ---------------------------------------------------------------------------
--- Study sheet jobs (optional scripted upload; production runs use generate-study-sheet)
--- ---------------------------------------------------------------------------
-
-create table public.study_sheet_jobs (
-  id uuid primary key default gen_random_uuid(),
-  workspace_id uuid not null references public.workspaces (id) on delete cascade,
-  source_id uuid references public.sources (id) on delete set null,
-  status text not null default 'queued',
-  input_filename text not null,
-  input_mime_type text not null,
-  input_storage_path text not null,
-  input_file_size_bytes bigint not null default 0,
-  artifact_id uuid references public.artifacts (id) on delete set null,
-  attempt_count integer not null default 0,
-  page_count integer,
-  error text,
-  model text,
-  cost_usd numeric(12, 6),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  completed_at timestamptz,
-  constraint study_sheet_jobs_status_check
-    check (status in ('queued', 'running', 'completed', 'failed'))
-);
-
-create index study_sheet_jobs_workspace_id_idx
-on public.study_sheet_jobs (workspace_id);
-create index study_sheet_jobs_source_id_idx
-on public.study_sheet_jobs (source_id);
-create index study_sheet_jobs_status_idx
-on public.study_sheet_jobs (workspace_id, status);
-
-create trigger study_sheet_jobs_set_updated_at
-before update on public.study_sheet_jobs
-for each row
-execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
 -- Narration segments (per-paragraph audio + word timings for the Reader)

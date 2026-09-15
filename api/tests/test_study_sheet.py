@@ -13,7 +13,6 @@ from app.mathesys.study_sheet.generate import (
 )
 from app.mathesys.study_sheet.html import sanitize_body_html, wrap_sheet_html
 from app.mathesys.study_sheet.prompts import SYSTEM_PROMPT
-from app.mathesys.study_sheet.upload import StudySheetUploadError, validate_study_sheet_upload
 from app.services.llm.base import LLMCompletionResult
 
 
@@ -82,47 +81,6 @@ class ScriptedCompleter:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             model=model,
-        )
-
-
-def test_validate_accepts_markdown_and_pdf() -> None:
-    name, mime = validate_study_sheet_upload(
-        filename="notes.md",
-        content_type="text/markdown",
-        content=b"# Title\n\nA fact.",
-        max_bytes=10_000,
-        max_markdown_chars=10_000,
-    )
-    assert name == "notes.md"
-    assert mime == "text/markdown"
-
-    pdf = _pdf_bytes(1)
-    name, mime = validate_study_sheet_upload(
-        filename="notes.pdf",
-        content_type="application/pdf",
-        content=pdf,
-        max_bytes=10_000,
-        max_markdown_chars=10_000,
-    )
-    assert mime == "application/pdf"
-
-
-def test_validate_rejects_txt_and_oversized_markdown() -> None:
-    with pytest.raises(StudySheetUploadError, match="markdown"):
-        validate_study_sheet_upload(
-            filename="notes.txt",
-            content_type="text/plain",
-            content=b"hello",
-            max_bytes=10_000,
-            max_markdown_chars=10_000,
-        )
-    with pytest.raises(StudySheetUploadError, match="too large"):
-        validate_study_sheet_upload(
-            filename="notes.md",
-            content_type="text/markdown",
-            content=b"x" * 50,
-            max_bytes=10_000,
-            max_markdown_chars=10,
         )
 
 

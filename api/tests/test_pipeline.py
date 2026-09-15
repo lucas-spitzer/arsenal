@@ -58,10 +58,20 @@ def test_prepare_and_deconstruct_are_gone() -> None:
 
 
 def test_extract_knowledge_is_gone() -> None:
-    # Wiki entries are curated manually via the authoring flow, not extracted.
     step_names = [step["step"] for step in build_pipeline([])]
 
     assert "extract-knowledge" not in step_names
+
+
+def test_wiki_knowledge_appends_transcribe_and_structure_before_qngen() -> None:
+    pipeline = build_pipeline(["wiki_knowledge", "flashcards"])
+    step_names = [step["step"] for step in pipeline]
+
+    assert step_names[-3:] == [
+        "transcribe-wiki-notes",
+        "structure-wiki-notes",
+        "generate-flashcards",
+    ]
 
 
 def test_wiki_json_target_maps_to_export_stage() -> None:

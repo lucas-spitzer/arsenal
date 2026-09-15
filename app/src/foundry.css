@@ -773,6 +773,24 @@
 .as-wiki__textarea:focus-visible { outline: 3px solid var(--color-gold); outline-offset: 2px; }
 .as-wiki__textarea--definition { margin-top: 8px; }
 
+.as-wiki__edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.as-wiki__edit-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.as-wiki__rewrite {
+  display: block;
+}
+
 .as-wiki__select { min-width: 130px; }
 
 .as-wiki__review-row {

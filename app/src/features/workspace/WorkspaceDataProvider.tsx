@@ -9,7 +9,6 @@ import {
   listScenarios,
   listStageRuns,
   listSources,
-  listStudySheetJobs,
   listWikiEntries,
   uploadSource as uploadSourceRequest,
   uploadArtifact as uploadArtifactRequest,
@@ -20,7 +19,6 @@ import {
   type Scenario,
   type StageRun,
   type Source,
-  type StudySheetJob,
   type WikiEntry,
 } from '../../lib/workspaceApi'
 import { useWorkspace } from './workspaceContext'
@@ -45,7 +43,6 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
   const [flashcards, setFlashcards] = useState<Flashcard[]>([])
   const [quizzes, setQuizzes] = useState<Quiz[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>([])
-  const [studySheetJobs, setStudySheetJobs] = useState<StudySheetJob[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -72,7 +69,6 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
         nextFlashcards,
         nextQuizzes,
         nextScenarios,
-        nextStudySheetJobs,
       ] = await Promise.all([
         listSources(refreshWorkspaceId),
         listProductionRuns(refreshWorkspaceId),
@@ -81,7 +77,6 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
         listFlashcards(refreshWorkspaceId),
         listQuizzes(refreshWorkspaceId),
         listScenarios(refreshWorkspaceId),
-        listStudySheetJobs(refreshWorkspaceId),
       ])
 
       const stageRunEntries = await Promise.all(
@@ -101,7 +96,6 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       setFlashcards(nextFlashcards)
       setQuizzes(nextQuizzes)
       setScenarios(nextScenarios)
-      setStudySheetJobs(nextStudySheetJobs)
     } catch (loadError) {
       if (refreshWorkspaceId !== workspaceIdRef.current) {
         return
@@ -125,7 +119,6 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       setFlashcards([])
       setQuizzes([])
       setScenarios([])
-      setStudySheetJobs([])
       setError(null)
       setIsLoading(false)
       return
@@ -136,9 +129,8 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
 
   const activeRunCount = useMemo(
     () =>
-      productionRuns.filter((run) => ACTIVE_STATUSES.has(run.status)).length +
-      studySheetJobs.filter((job) => ACTIVE_STATUSES.has(job.status)).length,
-    [productionRuns, studySheetJobs],
+      productionRuns.filter((run) => ACTIVE_STATUSES.has(run.status)).length,
+    [productionRuns],
   )
 
   useEffect(() => {
@@ -216,7 +208,6 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       flashcards,
       quizzes,
       scenarios,
-      studySheetJobs,
       isLoading,
       error,
       activeRunCount,
@@ -236,7 +227,6 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       flashcards,
       quizzes,
       scenarios,
-      studySheetJobs,
       isLoading,
       error,
       activeRunCount,

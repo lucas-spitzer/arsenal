@@ -101,7 +101,7 @@ def test_export_resolves_prerequisites_to_labels() -> None:
 
 
 def test_export_raises_when_nothing_to_export() -> None:
-    with pytest.raises(RuntimeError, match="Curate wiki entries"):
+    with pytest.raises(RuntimeError, match="Wiki Knowledge"):
         build_wiki_export(
             wiki_entries=[
                 _entry(

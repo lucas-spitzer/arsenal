@@ -1,11 +1,6 @@
 import { apiRequest } from './apiClient'
 import type { WikiEntry } from './workspaceApi'
 
-// Wiki authoring: notes dump → structured draft batch → review → commit.
-// Mirrors docs/internal/plans/wiki-authoring-contract.md.
-
-export type WikiIngestResolution = 'new' | 'merge' | 'conflict'
-export type WikiIngestEvidenceStatus = 'linked' | 'weak' | 'unlinked'
 export type WikiIngestBatchStatus =
   | 'transcribing'
   | 'transcribed'
@@ -14,55 +9,6 @@ export type WikiIngestBatchStatus =
   | 'committed'
   | 'discarded'
   | 'failed'
-
-export const OPEN_INGEST_STATUSES: WikiIngestBatchStatus[] = [
-  'transcribing',
-  'transcribed',
-  'structuring',
-  'draft',
-  'failed',
-]
-
-export interface WikiIngestEvidence {
-  segment_id: string
-  sequence_index: number | null
-  page: number | null
-  similarity: number | null
-  preview: string | null
-  reader_link: string | null
-}
-
-export interface WikiIngestSimilarEntry {
-  id: string
-  label: string
-  similarity: number
-}
-
-export interface WikiIngestEntry {
-  index: number
-  label: string
-  entry_kind: 'term' | 'concept' | 'insight'
-  definition: string
-  aliases: string[]
-  pronunciation: string | null
-  importance: 'essential' | 'supporting' | 'contextual'
-  prerequisite_labels: string[]
-  note_excerpt: string
-  canonical_slug: string
-  resolution: WikiIngestResolution
-  existing_entry_id: string | null
-  existing_definition: string | null
-  similar_entries: WikiIngestSimilarEntry[]
-  evidence_status: WikiIngestEvidenceStatus
-  evidence: WikiIngestEvidence[]
-  include: boolean
-}
-
-export interface WikiIngestChapter {
-  chapter_id: string
-  title: string
-  sequence_index: number
-}
 
 export interface WikiIngestAttachment {
   order: number
@@ -76,34 +22,29 @@ export interface WikiIngestBatch {
   id: string
   workspace_id: string
   source_id: string | null
+  production_run_id: string | null
   title: string
   raw_notes: string
   chapter_hint: string | null
-  chapter: WikiIngestChapter | null
   status: WikiIngestBatchStatus
-  entries: WikiIngestEntry[]
-  unparsed_fragments: string[]
   attachments: WikiIngestAttachment[]
   transcription_error: string | null
-  model: string | null
-  cost_usd: number | null
   committed_entry_ids: string[]
-  committed_at: string | null
   created_at: string
   updated_at: string
 }
 
-export interface WikiIngestCommitResponse {
-  batch: WikiIngestBatch
-  inserted_entry_ids: string[]
-  updated_entry_ids: string[]
+export interface WikiReviseProposal {
+  definition: string
+  preferred_label: string | null
+  aliases: string[] | null
 }
 
-export async function createIngestBatch(
+export async function createWikiKnowledge(
   workspaceId: string,
   payload: {
     notes: string
-    source_id?: string | null
+    source_id: string
     chapter_hint?: string | null
     title?: string | null
   },
@@ -114,7 +55,7 @@ export async function createIngestBatch(
   })
 }
 
-export async function createIngestBatchFromFiles(
+export async function createWikiKnowledgeFromFiles(
   workspaceId: string,
   payload: {
     source_id: string
@@ -144,66 +85,17 @@ export async function createIngestBatchFromFiles(
   )
 }
 
-export async function structureIngestBatch(
+export async function reviseWikiEntry(
   workspaceId: string,
-  batchId: string,
-): Promise<WikiIngestBatch> {
-  return apiRequest<WikiIngestBatch>(
-    `/workspaces/${workspaceId}/wiki/ingest-batches/${batchId}/structure`,
-    { method: 'POST' },
-  )
-}
-
-export async function listIngestBatches(
-  workspaceId: string,
-  status?: WikiIngestBatchStatus,
-): Promise<WikiIngestBatch[]> {
-  const query = status ? `?status=${status}` : ''
-  return apiRequest<WikiIngestBatch[]>(
-    `/workspaces/${workspaceId}/wiki/ingest-batches${query}`,
-  )
-}
-
-export async function getIngestBatch(
-  workspaceId: string,
-  batchId: string,
-): Promise<WikiIngestBatch> {
-  return apiRequest<WikiIngestBatch>(
-    `/workspaces/${workspaceId}/wiki/ingest-batches/${batchId}`,
-  )
-}
-
-export async function updateIngestBatch(
-  workspaceId: string,
-  batchId: string,
-  payload: { title?: string; raw_notes?: string; entries?: WikiIngestEntry[] },
-): Promise<WikiIngestBatch> {
-  return apiRequest<WikiIngestBatch>(
-    `/workspaces/${workspaceId}/wiki/ingest-batches/${batchId}`,
+  entryId: string,
+  instruction: string,
+): Promise<WikiReviseProposal> {
+  return apiRequest<WikiReviseProposal>(
+    `/workspaces/${workspaceId}/wiki/entries/${entryId}/revise`,
     {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
+      method: 'POST',
+      body: JSON.stringify({ instruction }),
     },
-  )
-}
-
-export async function commitIngestBatch(
-  workspaceId: string,
-  batchId: string,
-): Promise<WikiIngestCommitResponse> {
-  return apiRequest<WikiIngestCommitResponse>(
-    `/workspaces/${workspaceId}/wiki/ingest-batches/${batchId}/commit`,
-    { method: 'POST' },
-  )
-}
-
-export async function discardIngestBatch(
-  workspaceId: string,
-  batchId: string,
-): Promise<WikiIngestBatch> {
-  return apiRequest<WikiIngestBatch>(
-    `/workspaces/${workspaceId}/wiki/ingest-batches/${batchId}/discard`,
-    { method: 'POST' },
   )
 }
 

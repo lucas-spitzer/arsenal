@@ -36,9 +36,10 @@ The ideal loop is:
 
 1. Upload source documents, media, or notes into Foundry.
 2. Intellex ingests and organizes those materials.
-3. Mathesys generates educational content from the structured source.
-4. QnGen creates assessments from curated knowledge.
-5. Academy presents the resulting package for reading, study, and interaction.
+3. A production run is the Foundry work order: selected sources plus target artifacts (ebook, narration, study sheet, wiki knowledge, assessments). Wiki Knowledge treats the uploaded source file as the notes and writes canonical wiki entries.
+4. Mathesys generates educational content from the structured source.
+5. QnGen creates assessments from curated wiki knowledge.
+6. Academy presents the resulting package for reading, study, and interaction. Canonical wiki entries appear in Academy Library. Open an entry to edit, deprecate, or rewrite it. There is no wiki tab on the rail.
 
 Foundry is not merely a repository of files, a command-line tool, or a collection of scripts. It is a web-based production studio for AI-assisted educational content creation. Academy is the companion surface for putting that content to work.
 
@@ -75,4 +76,4 @@ The frontend provides both Foundry and Academy interfaces. FastAPI handles API r
 | Work-order system | RQ/Redis |
 | Automation factory | Python workers |
 | Memory and storage | Supabase |
-| Intelligence layer | OpenAI |
+| Intelligence layer | AI Models |
