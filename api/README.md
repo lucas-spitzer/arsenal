@@ -141,7 +141,7 @@ GET    /workspaces/{workspace_id}/sources/{source_id}/segments
 DELETE /workspaces/{workspace_id}/sources/{source_id}
 ```
 
-`POST /sources` accepts `multipart/form-data` with a `file` field. Each successful upload automatically queues an ingest-only production run (Intellex pipeline through `extract-knowledge`). Redis and the RQ worker must be running.
+`POST /sources` accepts `multipart/form-data` with a `file` field. Each successful upload automatically queues an ingest-only production run (Intellex base pipeline through `web-enrichment`; wiki entries are not extracted here). Redis and the RQ worker must be running.
 
 ### Stages
 

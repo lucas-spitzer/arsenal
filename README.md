@@ -2,14 +2,16 @@
 
 Arsenal is a private educational system with two surfaces in one SPA:
 
-- **Foundry** — browser-based **educational production studio**. It transforms raw source documents into structured knowledge, listenable narration artifacts, and assessment questions through three coordinated automation systems running over a queued worker pipeline.
-- **Academy** — learning surface for viewing and interacting with artifacts produced by Foundry.
+- **Foundry** — browser-based **educational production studio**. Upload sources, run Intellex ingest and Wiki Knowledge, and generate Mathesys artifacts plus QnGen assessments over a queued worker pipeline.
+- **Academy** — learning surface. **Library** is the catalog of artifacts, wiki entries, and assessments. Foundry produces; Academy curates.
 
 | Foundry system | Role | Module |
 |--------|------|--------|
-| **Intellex** | The library — ingests, parses, researches, and deconstructs sources into a grounded knowledge base. | `intellex` |
-| **Mathesys** | The teacher — turns the knowledge base into narration scripts and audio-ready artifacts. | `mathesys` |
-| **QnGen** | The examiner — produces flashcards, quizzes, and scenarios from the material. | `qngen` |
+| **Intellex** | Ingest and grounded knowledge: structured source (chapters/chunks/research) plus Wiki Knowledge → canonical `wiki_entries`. Not “Library.” | `intellex` |
+| **Mathesys** | File artifacts from the structured source (ebook, narration, wiki JSON snapshot, study sheet). | `mathesys` |
+| **QnGen** | Flashcards, quizzes, and scenarios from canonical wiki + evidence. | `qngen` |
+
+Names, output kinds, and module ownership: [`docs/internal/system/system-overview.md`](docs/internal/system/system-overview.md). Mathesys file contracts: [`docs/internal/system/artifacts-catalog.md`](docs/internal/system/artifacts-catalog.md).
 
 ---
 
@@ -124,35 +126,40 @@ sequenceDiagram
 
 ## The Production Pipeline
 
-A **production run** is the unit of work that turns selected sources into artifacts and assessments. The user selects source files and a set of `target_artifacts`; the backend builds an ordered pipeline (`build_pipeline`) and enqueues it. The worker's `PipelineRunner` executes each step in order, updating the run's `pipeline` JSON after every step so the UI can show live progress.
+A **production run** is one work order: selected sources plus `target_artifacts` (Intellex wiki, Mathesys files, QnGen assessments). Empty targets = ingest only. The backend builds an ordered pipeline (`build_pipeline`) and enqueues it. `PipelineRunner` executes each step and updates the run’s `pipeline` JSON so OPS can show progress.
 
 ### Pipeline composition
 
-The pipeline always runs the **Intellex base steps**, then appends only the **optional stage steps** matching the requested `target_artifacts`. An empty `target_artifacts` list runs ingest only. When a source was already fully ingested in a prior run, those Intellex steps are skipped and the run proceeds directly to the requested artifact stages.
+Intellex **base ingest** always runs (or is skipped when that source is already ingested). Optional steps are appended from `target_artifacts`. `wiki_knowledge` is Intellex, not Mathesys.
 
 ```mermaid
 flowchart LR
-    subgraph base["Intellex base — always runs"]
-        S1[store] --> S2[parse] --> S3[prepare-document] --> S4[chunk] --> S5[source-research] --> S6[deconstruct-document] --> S7[extract-knowledge]
+    subgraph base["Intellex base ingest"]
+        S1[store] --> S2[parse] --> S3[normalize-document] --> S4[trim-document-boundaries] --> S5[structure-document] --> S6[validate-structure] --> S7[chunk] --> S8[source-research] --> S9[web-enrichment]
     end
 
-    subgraph optional["Optional steps — appended per target_artifact"]
+    subgraph optional["Optional — per target"]
         direction TB
-        M1[create-ebook]
-        Q1[generate-flashcards]
-        Q2[generate-questions]
-        Q3[generate-scenarios]
+        W1[wiki_knowledge]
+        M1[create-ebook / generate-narration / generate-study-sheet / export-wiki-json]
+        Q1[generate-flashcards / generate-questions / generate-scenarios]
     end
 
-    S5 --> optional
+    S9 --> optional
 ```
 
-| `target_artifact` | Pipeline step | Module | Output |
-|-------------------|---------------|--------|--------|
-| `electronic_book` | `create-ebook` | Mathesys | Electronic Book (one chapter-based EPUB for manual upload) |
-| `flashcards` | `generate-flashcards` | QnGen | Flashcard set |
-| `quizzes` | `generate-questions` | QnGen | Question set |
-| `scenarios` | `generate-scenarios` | QnGen | Scenario set |
+| `target_artifact` | Pipeline step | Module | Output kind |
+|-------------------|---------------|--------|-------------|
+| `wiki_knowledge` | `transcribe-wiki-notes` + `structure-wiki-notes` | Intellex | Wiki entries |
+| `electronic_book` | `create-ebook` | Mathesys | Artifact (EPUB) |
+| `narration_audio` | `generate-narration` | Mathesys | Artifact |
+| `study_sheet` | `generate-study-sheet` | Mathesys | Artifact (PDF) |
+| `wiki_json` | `export-wiki-json` | Mathesys | Artifact (snapshot of wiki) |
+| `flashcards` | `generate-flashcards` | QnGen | Assessments |
+| `quizzes` | `generate-questions` | QnGen | Assessments |
+| `scenarios` | `generate-scenarios` | QnGen | Assessments |
+
+Canonical step lists: [`api/app/pipeline.py`](api/app/pipeline.py) and [`api/README.md`](api/README.md).
 
 ### Full pipeline execution
 
@@ -160,39 +167,51 @@ flowchart LR
 flowchart TD
     START([Production run queued]) --> RUNNING[status = running]
 
-    subgraph intellex["Intellex Stage — always"]
-        STORE[store<br/>verify storage paths]
-        PARSE[parse<br/>LlamaParse → ParsedDocument]
-        PREPARE[prepare-document<br/>learning content only]
-        CHUNK[chunk<br/>NDR segments → Postgres]
-        RESEARCH[source-research<br/>metadata slice + web gap-fill]
-        DECON[deconstruct-document<br/>chapter/section segmentation]
-        EXTRACT[extract-knowledge<br/>terms, concepts, insights]
-        STORE --> PARSE --> PREPARE --> CHUNK --> RESEARCH --> DECON --> EXTRACT
+    subgraph intellex["Intellex ingest — always unless reused/skipped"]
+        STORE[store]
+        PARSE[parse]
+        NORM[normalize-document]
+        TRIM[trim-document-boundaries]
+        STRUCT[structure-document]
+        VAL[validate-structure]
+        CHUNK[chunk]
+        RESEARCH[source-research]
+        WEB[web-enrichment]
+        STORE --> PARSE --> NORM --> TRIM --> STRUCT --> VAL --> CHUNK --> RESEARCH --> WEB
     end
 
-    subgraph mathesys["Mathesys Stage — selected only"]
+    subgraph wiki["Intellex wiki — if wiki_knowledge"]
+        TWN[transcribe-wiki-notes]
+        SWN[structure-wiki-notes]
+        TWN --> SWN
+    end
+
+    subgraph mathesys["Mathesys — selected artifacts"]
         EBOOK[create-ebook]
+        NAR[generate-narration]
+        SHEET[generate-study-sheet]
+        WJ[export-wiki-json]
     end
 
-    subgraph qngen["QnGen Stage — selected only"]
+    subgraph qngen["QnGen — selected assessments"]
         FLASH[generate-flashcards]
         QUIZ[generate-questions]
         SCEN[generate-scenarios]
     end
 
     RUNNING --> STORE
-    EXTRACT -- promote knowledge --> WIKI[(wiki_entries)]
-    EXTRACT --> mathesys
-    mathesys -- EPUB --> ART[(artifacts + Storage)]
-    mathesys --> qngen
+    WEB --> wiki
+    SWN --> WIKI[(wiki_entries)]
+    WEB --> mathesys
+    mathesys --> ART[(artifacts + Storage)]
+    WIKI --> qngen
     qngen --> ASSESS[(flashcards · quizzes · scenarios)]
     qngen --> DONE([status = completed])
 
     DONE -.failure at any step.-> FAILED([status = failed<br/>error recorded])
 ```
 
-Each stage step runs once per selected source, recording an immutable `stage_run` row (inputs, output, model, token usage). Intellex `prepare-document` strips non-learning content; `deconstruct-document` persists chapter/section groupings in `document_chapters`; `extract-knowledge` promotes terms, concepts, and insights into `wiki_entries`. Mathesys `create-ebook` builds one simple EPUB per source from `document_chapters` (chapter titles, subsection headings, body text) for manual ElevenReader upload; the resulting `electronic_book` artifact lands in Storage with a signed URL served on download. QnGen stages promote `flashcards`, `quizzes`, and `scenarios`. If any step raises, the run is marked `failed`, the error is recorded, and in-flight sources are reset.
+Each stage step runs once per selected source and writes an immutable `stage_run`. Ingest builds the structured source (`document_chapters`, `ndr_segments`). Wiki Knowledge writes canonical `wiki_entries` from the source file as notes. Mathesys packages files; QnGen reads the wiki. A failed step marks the run `failed` and resets in-flight sources.
 
 ---
 
@@ -269,8 +288,8 @@ Arsenal/
 │       ├── routers/          HTTP endpoints
 │       ├── services/         upload, queue, supabase, openai
 │       ├── repositories/     Postgres data access
-│       ├── intellex/         ingest, parsing, chunking, deconstruction stages
-│       ├── mathesys/         narration / EPUB / SSML stages
+│       ├── intellex/         ingest, structure, research, wiki-knowledge stages
+│       ├── mathesys/         ebook, narration, study sheet, wiki JSON export
 │       ├── qngen/            flashcard / quiz / scenario stages
 │       ├── worker/           PipelineRunner, stage executors, RQ jobs
 │       └── pipeline.py       pipeline composition (base + optional steps)
@@ -297,4 +316,4 @@ Setup, environment variables, and the full endpoint reference live in [`api/READ
 3. **Database** — for a new Supabase project, run `01`–`04` in order (see [`supabase/setup/README.md`](supabase/setup/README.md)). Existing databases use the `alter-*.sql` patches in that same folder — see [`supabase/README.md`](supabase/README.md).
 4. **Frontend** — point `VITE_API_BASE_URL` at the API and run the Vite dev server (see [`app/README.md`](app/README.md)).
 
-For architectural rationale and the design narrative, see [`docs/internal/system/system-overview.md`](docs/internal/system/system-overview.md).
+Canonical organization (names, systems, output kinds): [`docs/internal/system/system-overview.md`](docs/internal/system/system-overview.md).
