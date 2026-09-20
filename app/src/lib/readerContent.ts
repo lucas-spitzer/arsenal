@@ -113,11 +113,31 @@ export type SpokenWord = {
 export type WordBlock = { block: Block; words: SpokenWord[] }
 
 export type NarrationClip = {
-  fetchSegmentId: string
+  fetchNarrationId: string
   audioKey: string
-  base: number
-  count: number
+  globals: number[]
   timings: { s: number; e: number }[]
+  alignmentSource: 'provider' | 'forced' | 'estimated'
+}
+
+/** Return the latest timing whose start is at or before media time. */
+export function timingIndexAt(
+  timings: { s: number; e: number }[],
+  mediaTime: number,
+): number {
+  let low = 0
+  let high = timings.length - 1
+  let found = -1
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    if (timings[middle].s <= mediaTime) {
+      found = middle
+      low = middle + 1
+    } else {
+      high = middle - 1
+    }
+  }
+  return found
 }
 
 type StyledWord = { text: string; em: boolean; strong: boolean }
@@ -390,7 +410,12 @@ export function buildNarrationClips(
   wordBlocks: WordBlock[],
   narration: Map<
     string,
-    { audio_path?: string | null; words: { s: number; e: number }[] }
+    {
+      id: string
+      audio_path?: string | null
+      alignment_source: 'provider' | 'forced' | 'estimated'
+      words: { s: number; e: number }[]
+    }
   >,
 ): NarrationClip[] {
   const clips: NarrationClip[] = []
@@ -398,20 +423,26 @@ export function buildNarrationClips(
     if (wb.words.length === 0) continue
     const row = narration.get(wb.block.id)
     if (!row || row.words.length === 0) continue
+    if (row.words.length !== wb.words.length) continue
     const audioKey = row.audio_path || wb.block.id
     const last = clips[clips.length - 1]
     const timings = row.words.map((w) => ({ s: w.s, e: w.e }))
-    if (last && last.audioKey === audioKey) {
-      last.count += wb.words.length
+    const globals = wb.words.map((word) => word.global)
+    if (
+      last
+      && last.audioKey === audioKey
+      && last.alignmentSource === row.alignment_source
+    ) {
+      last.globals.push(...globals)
       last.timings.push(...timings)
       continue
     }
     clips.push({
-      fetchSegmentId: wb.block.id,
+      fetchNarrationId: row.id,
       audioKey,
-      base: wb.words[0].global,
-      count: wb.words.length,
+      globals,
       timings,
+      alignmentSource: row.alignment_source,
     })
   }
   return clips

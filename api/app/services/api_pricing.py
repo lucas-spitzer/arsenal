@@ -92,6 +92,26 @@ ELEVENLABS_PRICE_PER_CHARACTER = _float_env("ELEVENLABS_PRICE_PER_CHARACTER", 0.
 # or Scale ($6).
 SPEECHIFY_PRICE_PER_CHARACTER = _float_env("SPEECHIFY_PRICE_PER_CHARACTER", 0.00001)
 
+# Cartesia Pro sticker: $5 / 100K credits ≈ $50 / 1M characters.
+CARTESIA_PRICE_PER_CHARACTER = _float_env("CARTESIA_PRICE_PER_CHARACTER", 0.00005)
+
+# Gemini 3.1 Flash TTS converted sticker: $40 / 1M characters.
+GOOGLE_TTS_PRICE_PER_CHARACTER = _float_env("GOOGLE_TTS_PRICE_PER_CHARACTER", 0.00004)
+
+_TTS_PRICE_ENV: dict[str, str] = {
+    "speechify": "SPEECHIFY_PRICE_PER_CHARACTER",
+    "elevenlabs": "ELEVENLABS_PRICE_PER_CHARACTER",
+    "cartesia": "CARTESIA_PRICE_PER_CHARACTER",
+    "google": "GOOGLE_TTS_PRICE_PER_CHARACTER",
+}
+
+_TTS_DEFAULT_RATES: dict[str, float] = {
+    "speechify": SPEECHIFY_PRICE_PER_CHARACTER,
+    "elevenlabs": ELEVENLABS_PRICE_PER_CHARACTER,
+    "cartesia": CARTESIA_PRICE_PER_CHARACTER,
+    "google": GOOGLE_TTS_PRICE_PER_CHARACTER,
+}
+
 
 def _round_usd(value: float) -> float:
     return round(value, 6)
@@ -272,24 +292,17 @@ def cost_llamaparse_usage(*, credit_count: int) -> dict[str, Any]:
 
 
 def _tts_character_rate(*, provider: str, model: str | None) -> float:
-    env_name = (
-        "SPEECHIFY_PRICE_PER_CHARACTER"
-        if provider == "speechify"
-        else "ELEVENLABS_PRICE_PER_CHARACTER"
-    )
-    raw = os.getenv(env_name)
-    if raw is not None and raw.strip():
-        return float(raw)
+    env_name = _TTS_PRICE_ENV.get(provider)
+    if env_name:
+        raw = os.getenv(env_name)
+        if raw is not None and raw.strip():
+            return float(raw)
 
     catalog = tts_catalog_list_price(model)
     if catalog is not None:
         return catalog / 1_000_000.0
 
-    return (
-        SPEECHIFY_PRICE_PER_CHARACTER
-        if provider == "speechify"
-        else ELEVENLABS_PRICE_PER_CHARACTER
-    )
+    return _TTS_DEFAULT_RATES.get(provider, ELEVENLABS_PRICE_PER_CHARACTER)
 
 
 def cost_elevenlabs_usage(*, model: str | None, character_count: int) -> dict[str, Any]:
@@ -322,6 +335,12 @@ def cost_tts_usage(
     model: str | None,
     character_count: int,
 ) -> dict[str, Any]:
-    if provider == "speechify":
-        return cost_speechify_usage(model=model, character_count=character_count)
-    return cost_elevenlabs_usage(model=model, character_count=character_count)
+    rate = _tts_character_rate(provider=provider, model=model)
+    total = character_count * rate
+
+    return {
+        "provider": provider,
+        "model": model or "unknown",
+        "character_count": character_count,
+        "cost_usd": _round_usd(total),
+    }

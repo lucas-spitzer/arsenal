@@ -7,7 +7,7 @@ Layout (no UUIDs in keys):
     {workspace_slug}/{source_slug}/narration.json
     {workspace_slug}/{source_slug}/wiki.json
     {workspace_slug}/{source_slug}/sheet.pdf
-    {workspace_slug}/{source_slug}/audio/{voice_id}/{clip}
+    {workspace_slug}/{source_slug}/audio/{provider}/{model_id}/{voice_id}/{clip}
     {workspace_slug}/{source_slug}/work/{parse.md|pages.json|normalized.json|trimmed.json|book.json}
     {workspace_slug}/drafts/{batch_slug}/{file}
 """
@@ -82,10 +82,19 @@ def output_path(workspace_slug: str, source_slug: str, artifact_type: str) -> st
 def audio_clip_path(
     workspace_slug: str,
     source_slug: str,
+    provider: str,
+    model_id: str,
     voice_id: str,
     filename: str,
 ) -> str:
-    return f"{source_folder(workspace_slug, source_slug)}/audio/{voice_id}/{filename}"
+    variant_path = "/".join(
+        (
+            storage_slug(provider, fallback="tts"),
+            storage_slug(model_id, fallback="model"),
+            storage_slug(voice_id, fallback="voice"),
+        )
+    )
+    return f"{source_folder(workspace_slug, source_slug)}/audio/{variant_path}/{filename}"
 
 
 def drafts_path(workspace_slug: str, batch_slug: str, filename: str) -> str:
@@ -132,10 +141,22 @@ def downloadable_artifact_path(source: dict[str, Any], artifact_type: str) -> st
 
 def narration_clip_path(
     source: dict[str, Any],
+    provider: str,
+    model_id: str,
     voice_id: str,
     chapter_id: str,
     clip_index: int,
+    *,
+    extension: str = "mp3",
 ) -> str:
     workspace_slug, source_slug = location_from_source(source)
-    filename = f"{chapter_id}-{clip_index:02d}.mp3"
-    return audio_clip_path(workspace_slug, source_slug, voice_id, filename)
+    suffix = extension.lstrip(".") or "mp3"
+    filename = f"{chapter_id}-{clip_index:02d}.{suffix}"
+    return audio_clip_path(
+        workspace_slug,
+        source_slug,
+        provider,
+        model_id,
+        voice_id,
+        filename,
+    )

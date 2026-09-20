@@ -177,3 +177,20 @@ def test_put_audio_narration_stores_voice() -> None:
     assert repo.upserted[0]["reasoning_effort"] is None
     assert result.voice_id == "hugh_32"
     assert result.is_overridden is True
+
+
+def test_put_audio_narration_accepts_cartesia() -> None:
+    repo = FakeStageSettingsRepo()
+    payload = StageSettingUpdate(
+        provider="cartesia",
+        model="sonic-3.6",
+        voice_id="a5136bf9-224c-4d76-b823-52bd5efcffcc",
+    )
+
+    result = asyncio.run(
+        put_stage_setting("audio_narration", payload, _workspace(), repo),  # type: ignore[arg-type]
+    )
+
+    assert repo.upserted[0]["provider"] == "cartesia"
+    assert repo.upserted[0]["model"] == "sonic-3.6"
+    assert result.voice_id == "a5136bf9-224c-4d76-b823-52bd5efcffcc"

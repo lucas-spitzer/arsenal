@@ -219,6 +219,8 @@ async def list_source_narration(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     narration: Annotated[NarrationSegmentRepository, Depends(get_narration_segment_repository)],
+    model_id: Annotated[str | None, Query()] = None,
+    voice_id: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=2000)] = 1000,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[NarrationSegmentResponse]:
@@ -227,6 +229,8 @@ async def list_source_narration(
             source_id,
             workspace.id,
             user.id,
+            model_id=model_id,
+            voice_id=voice_id,
             limit=limit,
             offset=offset,
         )
@@ -240,12 +244,12 @@ async def list_source_narration(
 
 
 @router.get(
-    "/{source_id}/narration/{segment_id}/audio",
+    "/{source_id}/narration/{narration_id}/audio",
     response_model=NarrationAudioResponse,
 )
 async def get_source_narration_audio(
     source_id: str,
-    segment_id: str,
+    narration_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     narration: Annotated[NarrationSegmentRepository, Depends(get_narration_segment_repository)],
@@ -253,7 +257,7 @@ async def get_source_narration_audio(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> NarrationAudioResponse:
     try:
-        row = await narration.get_for_segment(source_id, segment_id, workspace.id, user.id)
+        row = await narration.get_by_id(source_id, narration_id, workspace.id, user.id)
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -273,7 +277,8 @@ async def get_source_narration_audio(
     )
 
     return NarrationAudioResponse(
-        segment_id=segment_id,
+        narration_id=narration_id,
+        segment_id=row["segment_id"],
         audio_url=audio_url,
         expires_in=settings.signed_url_expires_seconds,
     )

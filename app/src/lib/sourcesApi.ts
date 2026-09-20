@@ -65,6 +65,8 @@ export interface NarrationWord {
   w: string
   s: number
   e: number
+  cs?: number
+  ce?: number
 }
 
 export interface NarrationSegment {
@@ -73,15 +75,20 @@ export interface NarrationSegment {
   workspace_id: string
   chapter_id: string | null
   segment_id: string
+  provider: string
   voice_id: string
   model_id: string
+  text_hash: string
   duration_seconds: number
   audio_path?: string | null
   words: NarrationWord[]
+  alignment_source: 'provider' | 'forced' | 'estimated'
+  alignment_quality: Record<string, unknown>
   created_at: string
 }
 
 export interface NarrationAudio {
+  narration_id: string
   segment_id: string
   audio_url: string
   expires_in: number
@@ -105,9 +112,9 @@ export async function listSourceNarration(
 export async function getNarrationAudioUrl(
   workspaceId: string,
   sourceId: string,
-  segmentId: string,
+  narrationId: string,
 ): Promise<NarrationAudio> {
   return apiRequest<NarrationAudio>(
-    `/workspaces/${workspaceId}/sources/${sourceId}/narration/${segmentId}/audio`,
+    `/workspaces/${workspaceId}/sources/${sourceId}/narration/${narrationId}/audio`,
   )
 }

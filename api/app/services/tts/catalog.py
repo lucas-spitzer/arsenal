@@ -17,6 +17,10 @@ from app.tts_defaults import (
 )
 
 ELEVENLABS_DEFAULT_VOICE_ID = "4YYIPFl9wE5c4L2eu2Gb"
+CARTESIA_DEFAULT_VOICE_ID = "4df027cb-2920-4a1f-8c34-f21529d5c3fe"
+CARTESIA_JAMESON_VOICE_ID = "a5136bf9-224c-4d76-b823-52bd5efcffcc"
+GEMINI_DEFAULT_VOICE_ID = "Kore"
+GEMINI_SADALTAGER_VOICE_ID = "Sadaltager"
 
 # Speechify Starter / PAYG list: $10 / 1M characters.
 # https://speechify.ai/pricing — Scale is $6/1M, Pro $8/1M.
@@ -25,6 +29,16 @@ SPEECHIFY_LIST_PRICE_PER_MILLION = 10.00
 # ElevenLabs API list for Multilingual v2 / v3: $0.10 / 1K characters = $100 / 1M.
 # https://elevenlabs.io/pricing/api
 ELEVENLABS_V3_LIST_PRICE_PER_MILLION = 100.00
+
+# Cartesia Sonic TTS is ~1 credit per character. Pro is $5 / 100K credits = $50 / 1M.
+# https://docs.cartesia.ai/pricing — Scale is ~$37.38 ($299 / 8M credits).
+CARTESIA_SONIC_LIST_PRICE_PER_MILLION = 50.00
+
+# Gemini 3.1 Flash TTS has no per-character list price. Paid tier is $1.00 / 1M
+# text-input tokens and $20.00 / 1M audio-output tokens (25 audio tokens/sec
+# ≈ $0.03/min). At 750 chars/min that converts to $40 / 1M characters.
+# https://ai.google.dev/gemini-api/docs/pricing
+GEMINI_FLASH_TTS_LIST_PRICE_PER_MILLION = 40.00
 
 SIMBA_32_VOICES: tuple[tuple[str, str], ...] = (
     ("hugh_32", "Hugh"),
@@ -67,7 +81,7 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         default_voice_id=DEFAULT_NARRATION_VOICE_ID,
         voices=_voices(*SIMBA_32_VOICES),
         price_per_million=SPEECHIFY_LIST_PRICE_PER_MILLION,
-        capability_tier=2,
+        capability_tier=1,
     ),
     TtsCatalogModel(
         model="eleven_v3",
@@ -78,9 +92,35 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         price_per_million=ELEVENLABS_V3_LIST_PRICE_PER_MILLION,
         capability_tier=5,
     ),
+    TtsCatalogModel(
+        model="sonic-3.6",
+        provider="cartesia",
+        display_name="Sonic 3.6",
+        default_voice_id=CARTESIA_DEFAULT_VOICE_ID,
+        voices=_voices(
+            (CARTESIA_DEFAULT_VOICE_ID, "Carson"),
+            (CARTESIA_JAMESON_VOICE_ID, "Jameson"),
+        ),
+        price_per_million=CARTESIA_SONIC_LIST_PRICE_PER_MILLION,
+        capability_tier=4,
+    ),
+    TtsCatalogModel(
+        model="gemini-3.1-flash-tts-preview",
+        provider="google",
+        display_name="Gemini 3.1 Flash TTS",
+        default_voice_id=GEMINI_DEFAULT_VOICE_ID,
+        voices=_voices(
+            (GEMINI_DEFAULT_VOICE_ID, "Kore"),
+            (GEMINI_SADALTAGER_VOICE_ID, "Sadaltager"),
+        ),
+        price_per_million=GEMINI_FLASH_TTS_LIST_PRICE_PER_MILLION,
+        capability_tier=3,
+    ),
 )
 
-TTS_SELECTABLE_PROVIDERS: frozenset[str] = frozenset({"speechify", "elevenlabs"})
+TTS_SELECTABLE_PROVIDERS: frozenset[str] = frozenset(
+    {"speechify", "elevenlabs", "cartesia", "google"},
+)
 
 TTS_CATALOG_BY_MODEL: dict[str, TtsCatalogModel] = {
     entry.model: entry for entry in TTS_MODEL_CATALOG
@@ -101,8 +141,13 @@ def default_voice_for_model(model: str | None) -> str:
     entry = get_tts_catalog_model(model)
     if entry is not None:
         return entry.default_voice_id
-    if tts_provider_for_model(model or DEFAULT_NARRATION_MODEL) == "elevenlabs":
+    provider = tts_provider_for_model(model or DEFAULT_NARRATION_MODEL)
+    if provider == "elevenlabs":
         return ELEVENLABS_DEFAULT_VOICE_ID
+    if provider == "cartesia":
+        return CARTESIA_DEFAULT_VOICE_ID
+    if provider == "google":
+        return GEMINI_DEFAULT_VOICE_ID
     return DEFAULT_NARRATION_VOICE_ID
 
 
@@ -143,6 +188,7 @@ def validate_tts_selection(provider: str | None, model: str | None) -> str | Non
 __all__ = [
     "AUDIO_NARRATION_ACTION",
     "TTS_MODEL_CATALOG",
+    "TTS_SELECTABLE_PROVIDERS",
     "TtsCatalogModel",
     "TtsVoice",
     "default_voice_for_model",

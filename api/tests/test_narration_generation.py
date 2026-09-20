@@ -1,6 +1,7 @@
 """Tests for the generate-narration stage's alignment and pipeline wiring."""
 
 import base64
+import hashlib
 import json
 from typing import Any
 
@@ -199,7 +200,12 @@ class _FakeWorkerDb:
         self.updated_stage_runs.append((stage_run_id, payload))
         return payload
 
-    def list_narration_segments_for_source(self, source_id: str, voice_id: str):
+    def list_narration_segments_for_source(
+        self,
+        source_id: str,
+        voice_id: str,
+        model_id: str | None = None,
+    ):
         return self.narration_rows
 
     def list_document_chapters_for_source(self, source_id: str):
@@ -435,6 +441,19 @@ def test_pack_chapter_clips_fits_and_splits() -> None:
     assert [[row["id"] for row in clip] for clip in clips] == [["ok"]]
 
 
+def test_pack_chapter_clips_skips_punctuation_only() -> None:
+    from app.worker.narration_executor import pack_chapter_clips
+
+    rows = [
+        {"id": "dot", "text": "."},
+        {"id": "ok", "text": "Hello"},
+    ]
+    clips, oversize, empty = pack_chapter_clips(rows, max_chars=20)
+    assert empty == 1
+    assert oversize == []
+    assert [[row["id"] for row in clip] for clip in clips] == [["ok"]]
+
+
 def test_assign_words_to_paragraphs_keeps_clip_timeline() -> None:
     from app.services.elevenlabs_client import WordTiming
     from app.worker.narration_executor import assign_words_to_paragraphs
@@ -444,10 +463,10 @@ def test_assign_words_to_paragraphs_keeps_clip_timeline() -> None:
         {"id": "b", "text": "Go now"},
     ]
     words = [
-        WordTiming(0, "Hello", 0.0, 0.2),
-        WordTiming(1, "world", 0.2, 0.4),
-        WordTiming(2, "Go", 0.5, 0.6),
-        WordTiming(3, "now", 0.6, 0.8),
+        WordTiming(0, "Hello", 0.0, 0.2, 0, 5),
+        WordTiming(1, "world", 0.2, 0.4, 6, 11),
+        WordTiming(2, "Go", 0.5, 0.6, 13, 15),
+        WordTiming(3, "now", 0.6, 0.8, 16, 19),
     ]
     assigned = assign_words_to_paragraphs(paragraphs, words)
     assert [w.word for w in assigned[0]] == ["Hello", "world"]
@@ -455,6 +474,17 @@ def test_assign_words_to_paragraphs_keeps_clip_timeline() -> None:
     assert assigned[1][0].word == "Go"
     assert assigned[1][0].index == 0
     assert assigned[1][0].start == 0.5
+
+
+def test_assign_words_to_paragraphs_rejects_missing_source_span() -> None:
+    from app.services.elevenlabs_client import WordTiming
+    from app.worker.narration_executor import assign_words_to_paragraphs
+
+    with pytest.raises(ValueError, match="missing source character spans"):
+        assign_words_to_paragraphs(
+            [{"id": "a", "text": "Hello world"}],
+            [WordTiming(0, "Hello", 0.0, 0.2)],
+        )
 
 
 class _FakeTts:
@@ -469,12 +499,22 @@ class _FakeTts:
 
     def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
         from app.services.elevenlabs_client import NarrationResult, WordTiming
+        from app.services.tts.alignment import tokenize_with_spans
 
         self.texts.append(text)
         words = []
         t = 0.0
-        for i, token in enumerate(text.split()):
-            words.append(WordTiming(i, token, t, t + 0.1))
+        for token in tokenize_with_spans(text):
+            words.append(
+                WordTiming(
+                    token.index,
+                    token.text,
+                    t,
+                    t + 0.1,
+                    token.start_char,
+                    token.end_char,
+                )
+            )
             t += 0.1
         return NarrationResult(
             audio=b"mp3",
@@ -528,6 +568,13 @@ def test_narrate_source_writes_one_clip_per_chapter() -> None:
     assert paths[0].endswith("ch-1-00.mp3")
     assert len(db.narration_rows) == 2
     assert db.narration_rows[0]["audio_path"] == db.narration_rows[1]["audio_path"] == paths[0]
+    assert db.narration_rows[0]["provider"] == "speechify"
+    assert db.narration_rows[0]["model_id"] == "simba-3.2"
+    assert db.narration_rows[0]["alignment_source"] == "provider"
+    assert db.narration_rows[0]["alignment_quality"]["valid"] is True
+    assert db.narration_rows[0]["text_hash"] == hashlib.sha256(
+        b"Hello there."
+    ).hexdigest()
     assert output["segments_narrated"] == 1
     assert output["segments_total"] == 1
     assert output["summary"] == "1/1 clips"
@@ -579,11 +626,23 @@ def test_narrate_source_splits_chapter_over_cap() -> None:
 def test_narrate_source_reuses_matching_chapter_clip() -> None:
     from app.worker.narration_executor import NarrationStageExecutor
 
-    audio_path = "ocs-prep/src-1/audio/voice-1/ch-1-00.mp3"
+    audio_path = (
+        "ocs-prep/src-1/audio/speechify/simba-3-2/voice-1/ch-1-00.mp3"
+    )
     db = _FakeWorkerDb(
         [
-            {"segment_id": "p1", "audio_path": audio_path},
-            {"segment_id": "p2", "audio_path": audio_path},
+            {
+                "segment_id": "p1",
+                "audio_path": audio_path,
+                "model_id": "simba-3.2",
+                "text_hash": hashlib.sha256(b"Hello there.").hexdigest(),
+            },
+            {
+                "segment_id": "p2",
+                "audio_path": audio_path,
+                "model_id": "simba-3.2",
+                "text_hash": hashlib.sha256(b"More words here.").hexdigest(),
+            },
         ]
     )
     db.chapters = [
@@ -619,4 +678,107 @@ def test_narrate_source_reuses_matching_chapter_clip() -> None:
     assert chars == 0
     assert output["segments_reused"] == 1
     assert output["segments_narrated"] == 0
+
+
+def test_narrate_source_skips_mid_run_gemini_invalid_argument() -> None:
+    from app.services.gemini_tts_client import GeminiTtsError
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    class _FlakyGemini(_FakeTts):
+        provider = "google"
+        model_id = "gemini-3.1-flash-tts-preview"
+        audio_content_type = "audio/wav"
+
+        def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
+            if text.startswith("b"):
+                raise GeminiTtsError(
+                    "Gemini TTS synthesis failed (10 chars): 400 INVALID_ARGUMENT. "
+                    "{'error': {'code': 400, 'message': 'Request contains an "
+                    "invalid argument.', 'status': 'INVALID_ARGUMENT'}}"
+                )
+            return super().synthesize_with_timestamps(text, **kwargs)
+
+    db = _FakeWorkerDb([])
+    db.chapters = [
+        {
+            "id": "ch-1",
+            "title": "One",
+            "sequence_index": 0,
+            "segment_ids": ["p1", "p2"],
+        }
+    ]
+    db.ndr_segments = [
+        {"id": "p1", "kind": "paragraph", "text": "aaaaaaaaaa"},
+        {"id": "p2", "kind": "paragraph", "text": "bbbbbbbbbb"},
+    ]
+    storage = _FakeWorkerStorage()
+    client = _FlakyGemini()
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=storage,  # type: ignore[arg-type]
+        client=client,  # type: ignore[arg-type]
+        max_segment_chars=20,
+    )
+    output, chars, _ctx = executor._narrate_source(
+        workspace_id="ws-1",
+        source={
+            "id": "src-1",
+            "slug": "src-1",
+            "workspace_slug": "ocs-prep",
+            "storage_path": "ocs-prep/src-1/file.pdf",
+        },
+        stage_run_id="sr-1",
+    )
+    assert client.texts == ["aaaaaaaaaa"]
+    assert output["segments_narrated"] == 1
+    assert output["segments_skipped"] == 1
+    assert output["segments_total"] == 2
+    assert len(db.narration_rows) == 1
+    assert chars == 10
+
+
+def test_narrate_source_fails_first_gemini_invalid_argument() -> None:
+    from app.services.gemini_tts_client import GeminiTtsError
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    class _BrokenGemini(_FakeTts):
+        provider = "google"
+        model_id = "gemini-3.1-flash-tts-preview"
+
+        def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
+            raise GeminiTtsError(
+                "Gemini TTS synthesis failed (12 chars): 400 INVALID_ARGUMENT. "
+                "{'error': {'code': 400, 'message': 'Request contains an "
+                "invalid argument.', 'status': 'INVALID_ARGUMENT'}}"
+            )
+
+    db = _FakeWorkerDb([])
+    db.chapters = [
+        {
+            "id": "ch-1",
+            "title": "One",
+            "sequence_index": 0,
+            "segment_ids": ["p1"],
+        }
+    ]
+    db.ndr_segments = [
+        {"id": "p1", "kind": "paragraph", "text": "Hello there."},
+    ]
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=_BrokenGemini(),  # type: ignore[arg-type]
+        max_segment_chars=200,
+    )
+    with pytest.raises(GeminiTtsError, match="INVALID_ARGUMENT"):
+        executor._narrate_source(
+            workspace_id="ws-1",
+            source={
+                "id": "src-1",
+                "slug": "src-1",
+                "workspace_slug": "ocs-prep",
+                "storage_path": "ocs-prep/src-1/file.pdf",
+            },
+            stage_run_id="sr-1",
+        )
 

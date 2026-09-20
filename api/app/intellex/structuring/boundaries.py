@@ -16,14 +16,29 @@ import re
 
 from app.intellex.structuring.models import Element
 
-DEFAULT_CHAPTER_RE = r"^\s*chapter\s+\d+\s*$"
+# Arabic digits, English words through twenty-nine, or roman numerals through
+# xxix. MCU Press / academic books often use "CHAPTER ONE" instead of "Chapter 1".
+# Longer word forms come first so "two" does not steal the prefix of "twenty".
+CHAPTER_NUMBER = (
+    r"(?:[0-9]+|"
+    r"twenty[- ](?:one|two|three|four|five|six|seven|eight|nine)|"
+    r"twenty|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|"
+    r"eleven|twelve|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"xxix|xxviii|xxvii|xxvi|xxv|xxiv|xxiii|xxii|xxi|xx|"
+    r"xix|xviii|xvii|xvi|xv|xiv|xiii|xii|xi|x|"
+    r"ix|viii|vii|vi|v|iv|iii|ii|i)"
+)
+DEFAULT_CHAPTER_RE = rf"^\s*chapter\s+{CHAPTER_NUMBER}\s*$"
 
 _BACK_MATTER_LABELS = re.compile(
     r"^\s*(notes?|endnotes?|glossary|bibliography|references?|index|"
     r"appendix(?:\s+[a-z0-9]+)?|epilogue|afterword|about\s+the\s+author)\s*$",
     re.IGNORECASE,
 )
-_EMBEDDED_TITLE_RE = re.compile(r"^\s*chapter\s+\d+\s*[.:\-]?\s*(.+)$", re.IGNORECASE)
+_EMBEDDED_TITLE_RE = re.compile(
+    rf"^\s*chapter\s+{CHAPTER_NUMBER}\s*[.:\-]?\s+(.+)$",
+    re.IGNORECASE,
+)
 
 
 def _headings(elements: list[Element]) -> list[Element]:

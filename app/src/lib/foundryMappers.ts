@@ -308,6 +308,7 @@ const API_PROVIDER_LABELS: Record<string, string> = {
   google: 'Gemini',
   elevenlabs: 'ElevenLabs',
   speechify: 'Speechify',
+  cartesia: 'Cartesia',
 }
 
 function apiUsageRecord(stageRun: StageRun): Record<string, unknown> | null {
@@ -342,6 +343,8 @@ export function stageRunApiToolLabel(stageRun: StageRun): string {
       stageRun.output?.model_id ?? stageRun.model ?? '',
     ).toLowerCase()
     if (model.includes('eleven')) return 'ElevenLabs'
+    if (model.includes('sonic')) return 'Cartesia'
+    if (model.includes('gemini')) return 'Gemini'
     return 'Speechify'
   }
 

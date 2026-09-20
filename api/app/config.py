@@ -8,8 +8,10 @@ from dotenv import load_dotenv
 from app.llm_actions import LLM_ACTION_BY_KEY, LLM_GLOBAL_DEFAULT
 from app.llm_defaults import DEFAULT_OPENAI_MODEL
 from app.tts_defaults import (
+    CARTESIA_MAX_SEGMENT_CHARS,
     DEFAULT_NARRATION_MODEL,
     DEFAULT_NARRATION_VOICE_ID,
+    GOOGLE_TTS_MAX_SEGMENT_CHARS,
     SPEECHIFY_STREAM_MAX_CHARS,
     tts_provider_for_model,
 )
@@ -169,9 +171,12 @@ class AssistantSettings:
 @dataclass(frozen=True)
 class NarrationSettings:
     # Synthesized narration for the Reader (generate-narration stage).
-    # Provider is inferred from model_id (simba-* → Speechify, eleven* → ElevenLabs).
+    # Provider is inferred from model_id (simba-* → Speechify, eleven* →
+    # ElevenLabs, sonic* → Cartesia, gemini* → Google).
     speechify_api_key: str | None
     elevenlabs_api_key: str | None
+    cartesia_api_key: str | None
+    google_api_key: str | None
     model_id: str
     voice_id: str
     output_format: str
@@ -179,6 +184,8 @@ class NarrationSettings:
     max_retries: int
     elevenlabs_max_segment_chars: int
     speechify_max_segment_chars: int
+    cartesia_max_segment_chars: int
+    google_tts_max_segment_chars: int
 
     @property
     def provider(self) -> str:
@@ -188,12 +195,20 @@ class NarrationSettings:
     def api_key(self) -> str | None:
         if self.provider == "elevenlabs":
             return self.elevenlabs_api_key
+        if self.provider == "cartesia":
+            return self.cartesia_api_key
+        if self.provider == "google":
+            return self.google_api_key
         return self.speechify_api_key
 
     @property
     def max_segment_chars(self) -> int:
         if self.provider == "elevenlabs":
             return self.elevenlabs_max_segment_chars
+        if self.provider == "cartesia":
+            return self.cartesia_max_segment_chars
+        if self.provider == "google":
+            return self.google_tts_max_segment_chars
         return self.speechify_max_segment_chars
 
 
@@ -341,6 +356,8 @@ def _get_settings_cached() -> Settings:
         narration=NarrationSettings(
             speechify_api_key=os.getenv("SPEECHIFY_API_KEY"),
             elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY"),
+            cartesia_api_key=os.getenv("CARTESIA_API_KEY"),
+            google_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
             model_id=os.getenv("AUDIO_NARRATION_MODEL", DEFAULT_NARRATION_MODEL),
             voice_id=os.getenv("AUDIO_NARRATION_VOICE_ID", DEFAULT_NARRATION_VOICE_ID),
             output_format=os.getenv("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128"),
@@ -349,6 +366,12 @@ def _get_settings_cached() -> Settings:
             elevenlabs_max_segment_chars=int(os.getenv("ELEVENLABS_MAX_SEGMENT_CHARS", "9500")),
             speechify_max_segment_chars=int(
                 os.getenv("SPEECHIFY_MAX_SEGMENT_CHARS", str(SPEECHIFY_STREAM_MAX_CHARS)),
+            ),
+            cartesia_max_segment_chars=int(
+                os.getenv("CARTESIA_MAX_SEGMENT_CHARS", str(CARTESIA_MAX_SEGMENT_CHARS)),
+            ),
+            google_tts_max_segment_chars=int(
+                os.getenv("GOOGLE_TTS_MAX_SEGMENT_CHARS", str(GOOGLE_TTS_MAX_SEGMENT_CHARS)),
             ),
         ),
         qngen=QnGenSettings(

@@ -123,6 +123,261 @@ def test_auto_boundaries_detects_first_chapter_and_repeated_title_back_matter() 
     assert "repeated chapter title" in reasons["end"]
 
 
+def test_auto_boundaries_detects_spelled_out_chapter_numbers() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Contents", value="Contents", level=1),
+            _item("heading", "# Foreword", value="Foreword", level=1),
+            _item("heading", "# Introduction", value="Introduction", level=1),
+        ]),
+        _page(50, [
+            _item("heading", "# CHAPTER ONE", value="CHAPTER ONE", level=1),
+            _item("heading", "# Tending to Produce", value="Tending to Produce", level=1),
+            _item("text", "Boyd's early career.", value="Boyd's early career."),
+        ]),
+        _page(82, [
+            _item("heading", "# CHAPTER TWO", value="CHAPTER TWO", level=1),
+            _item("heading", "# Done with the Jungle", value="Done with the Jungle", level=1),
+            _item("text", "After Vietnam.", value="After Vietnam."),
+        ]),
+        _page(226, [
+            _item("heading", "# Epilogue", value="Epilogue", level=1),
+            _item("text", "Back-matter close.", value="Back-matter close."),
+        ]),
+        _page(248, [
+            _item("heading", "# APPENDIX A", value="APPENDIX A", level=1),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    start, end, reasons = auto_boundaries(elements)
+
+    start_el = next(e for e in elements if e.index == start)
+    end_el = next(e for e in elements if e.index == end)
+    assert start_el.text == "CHAPTER ONE"
+    assert end_el.text == "Epilogue"
+    assert "first bare chapter marker" in reasons["start"]
+    assert "back-matter label" in reasons["end"]
+
+
+def test_classify_merges_spelled_out_chapter_with_following_title() -> None:
+    pages = [
+        _page(50, [
+            _item("heading", "# CHAPTER ONE", value="CHAPTER ONE", level=1),
+            _item("heading", "# Tending to Produce", value="Tending to Produce", level=1),
+            _item(
+                "heading",
+                "# John Boyd from the Pool to the Pentagon",
+                value="John Boyd from the Pool to the Pentagon",
+                level=1,
+            ),
+            _item("heading", "# RAISED TO PRODUCE", value="RAISED TO PRODUCE", level=1),
+            _item("text", "Boyd's early career.", value="Boyd's early career."),
+        ]),
+        _page(82, [
+            _item("heading", "# CHAPTER TWO", value="CHAPTER TWO", level=1),
+            _item("heading", "# Done with the Jungle", value="Done with the Jungle", level=1),
+            _item(
+                "text",
+                "The Marine Corps' Near Future after Vietnam",
+                value="The Marine Corps' Near Future after Vietnam",
+            ),
+            _item("text", "After Vietnam the Corps needed a new theory.", value="After Vietnam the Corps needed a new theory."),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert [chapter.title for chapter in book.chapters] == [
+        "CHAPTER ONE Tending to Produce: John Boyd from the Pool to the Pentagon",
+        "CHAPTER TWO Done with the Jungle: The Marine Corps' Near Future after Vietnam",
+    ]
+    assert [section.title for section in book.chapters[0].sections] == ["RAISED TO PRODUCE"]
+    assert book.chapters[1].sections == []
+    assert [paragraph.md for paragraph in book.chapters[1].intro] == [
+        "After Vietnam the Corps needed a new theory.",
+    ]
+
+
+def test_classify_merges_empty_heading_with_following_title_line() -> None:
+    pages = [
+        _page(82, [
+            _item("heading", "# CHAPTER TWO", value="CHAPTER TWO", level=1),
+            _item("heading", "# Done with the Jungle", value="Done with the Jungle", level=1),
+            _item("heading", "# INTERNAL ADAPTABILITY", value="INTERNAL ADAPTABILITY", level=1),
+            _item("text", "The Corps adapted internally.", value="The Corps adapted internally."),
+            _item("heading", "# OPLAN 316", value="OPLAN 316", level=1),
+            _item(
+                "heading",
+                "# When the Cold War Almost Went Hot",
+                value="When the Cold War Almost Went Hot",
+                level=1,
+            ),
+            _item("text", "The plan assumed a short warning.", value="The plan assumed a short warning."),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert [section.title for section in book.chapters[0].sections] == [
+        "INTERNAL ADAPTABILITY",
+        "OPLAN 316: When the Cold War Almost Went Hot",
+    ]
+    assert [paragraph.md for paragraph in book.chapters[0].sections[1].body] == [
+        "The plan assumed a short warning.",
+    ]
+
+
+def test_classify_keeps_title_case_section_when_body_intervenes() -> None:
+    pages = [
+        _page(109, [
+            _item("heading", "# CHAPTER THREE", value="CHAPTER THREE", level=1),
+            _item(
+                "heading",
+                "# Where Does the Marine Corps Go from Here?",
+                value="Where Does the Marine Corps Go from Here?",
+                level=1,
+            ),
+            _item("heading", "# THE BIG QUESTIONS", value="THE BIG QUESTIONS", level=1),
+            _item("text", "Marines asked where to fight next.", value="Marines asked where to fight next."),
+            _item("heading", "# Finding a Battlefield", value="Finding a Battlefield", level=1),
+            _item("text", "Norway became the candidate theater.", value="Norway became the candidate theater."),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert book.chapters[0].title == "CHAPTER THREE Where Does the Marine Corps Go from Here?"
+    assert [section.title for section in book.chapters[0].sections] == [
+        "THE BIG QUESTIONS",
+        "Finding a Battlefield",
+    ]
+
+
+def test_classify_drops_page_footnotes_and_rejoins_split_sentence() -> None:
+    pages = [
+        _page(57, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item("heading", "# Tending to Produce", value="Tending to Produce", level=1),
+            _item("heading", "# LESSONS IN THE AIR", value="LESSONS IN THE AIR", level=1),
+            _item(
+                "text",
+                "Selected to fly the North American F-86 Sabre jet fighter, Boyd",
+                value="Selected to fly the North American F-86 Sabre jet fighter, Boyd",
+                bbox=_bbox("text", 0.96),
+            ),
+            _item(
+                "text",
+                "<sup>17</sup> Boyd Air Force oral history, 6–7, emphasis in original.",
+                value="<sup>17</sup> Boyd Air Force oral history, 6–7, emphasis in original.",
+                bbox=_bbox("footnote", 0.96),
+            ),
+            _item(
+                "text",
+                "<sup>18</sup> Coram, *Boyd*, 45.",
+                value="<sup>18</sup> Coram, Boyd, 45.",
+                bbox=_bbox("footnote", 0.97),
+            ),
+        ]),
+        _page(58, [
+            _item(
+                "text",
+                "was promoted to first lieutenant in January 1953, and Boyd only "
+                "accumulated 29 missions and 44 combat flight",
+                value="was promoted to first lieutenant in January 1953, and Boyd only "
+                "accumulated 29 missions and 44 combat flight",
+                bbox=_bbox("text", 0.99),
+            ),
+            _item(
+                "text",
+                "<sup>21</sup> Boyd official military records.",
+                value="<sup>21</sup> Boyd official military records.",
+                bbox=_bbox("footnote", 0.97),
+            ),
+            _item(
+                "text",
+                "*Gun camera photo of a Russian-built MiG-15.*",
+                value="Gun camera photo of a Russian-built MiG-15.",
+                bbox=_bbox("caption", 0.97),
+            ),
+        ]),
+        _page(59, [
+            _item(
+                "text",
+                "National Museum of the U.S. Air Force",
+                value="National Museum of the U.S. Air Force",
+                bbox=_bbox("text", 0.93),
+            ),
+            _item(
+                "text",
+                "hours before the signing of the Armistice.",
+                value="hours before the signing of the Armistice.",
+                bbox=_bbox("text", 1.0),
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    body = [paragraph.md for paragraph in book.chapters[0].sections[0].body]
+    assert body == [
+        "Selected to fly the North American F-86 Sabre jet fighter, Boyd "
+        "was promoted to first lieutenant in January 1953, and Boyd only "
+        "accumulated 29 missions and 44 combat flight hours before the "
+        "signing of the Armistice."
+    ]
+    assert book.dropped_nontext == {
+        "footnote": 3,
+        "visual_description": 1,
+        "caption": 1,
+    }
+    xhtml = book_to_epub_chapters(book)[0]["xhtml_body"]
+    assert "oral history" not in xhtml
+    assert "official military records" not in xhtml
+    assert "National Museum" not in xhtml
+    assert "Gun camera photo" not in xhtml
+    assert "<sup>" not in xhtml
+
+
+def test_classify_drops_source_notes_and_rejoins_split_sentence() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item("heading", "# Boyd and the Uncertainty Principle", value="Boyd and the Uncertainty Principle", level=1),
+            _item("heading", "# UNCERTAINTY", value="UNCERTAINTY", level=1),
+            _item(
+                "text",
+                "An early incarnation appeared in a 1927 paper by Werner",
+                value="An early incarnation appeared in a 1927 paper by Werner",
+                bbox=_bbox("text", 0.99),
+            ),
+            _item(
+                "text",
+                'Source: Boyd, “Interview #859,” 2–3; and Boyd official military records.',
+                value='Source: Boyd, “Interview #859,” 2–3; and Boyd official military records.',
+                bbox=_bbox("text", 0.98),
+            ),
+            _item(
+                "text",
+                "Heisenberg, entitled “On the Perceptual Content.”",
+                value="Heisenberg, entitled “On the Perceptual Content.”",
+                bbox=_bbox("text", 0.99),
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    body = [paragraph.md for paragraph in book.chapters[0].sections[0].body]
+    assert body == [
+        "An early incarnation appeared in a 1927 paper by Werner "
+        "Heisenberg, entitled “On the Perceptual Content.”"
+    ]
+    assert book.dropped_nontext == {"reference": 1}
+    xhtml = book_to_epub_chapters(book)[0]["xhtml_body"]
+    assert "Source:" not in xhtml
+    assert "official military records" not in xhtml
+
+
 def test_classify_merges_titles_ignores_level_strips_footnotes_drops_figures() -> None:
     _, book = _build_book()
 

@@ -17,7 +17,13 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
-from app.services.elevenlabs_client import NarrationResult, WordTiming
+from app.services.tts.alignment import (
+    RawTiming,
+    align_offset_timings,
+    align_ordered_timings,
+    timing_quality,
+)
+from app.services.tts.types import NarrationResult, WordTiming
 from app.tts_defaults import SPEECHIFY_BATCH_MAX_CHARS, SPEECHIFY_STREAM_MAX_CHARS
 
 logger = logging.getLogger(__name__)
@@ -34,8 +40,10 @@ class SpeechifyError(RuntimeError):
 def words_from_speech_marks(
     marks: dict[str, Any] | list[dict[str, Any]] | None,
     text: str,
+    *,
+    duration_seconds: float | None = None,
 ) -> list[WordTiming]:
-    """Map Speechify speech-mark chunks to Reader word timings (seconds)."""
+    """Map Speechify marks to source tokens using provider character offsets."""
     chunks: list[dict[str, Any]]
     if isinstance(marks, list):
         chunks = marks
@@ -45,7 +53,7 @@ def words_from_speech_marks(
     else:
         chunks = []
 
-    words: list[WordTiming] = []
+    raw_timings: list[RawTiming] = []
     for chunk in chunks:
         if not isinstance(chunk, dict):
             continue
@@ -54,18 +62,27 @@ def words_from_speech_marks(
             continue
         start_ms = float(chunk.get("start_time") or 0)
         end_ms = float(chunk.get("end_time") or start_ms)
-        words.append(WordTiming(len(words), value, start_ms / 1000.0, end_ms / 1000.0))
-
-    expected = len(text.split())
-    if words and expected and len(words) != expected:
-        logger.warning(
-            "Speechify alignment produced %d words for a %d-word segment; "
-            "highlighting may drift within this paragraph.",
-            len(words),
-            expected,
+        start_char = chunk.get("start")
+        end_char = chunk.get("end")
+        raw_timings.append(
+            RawTiming(
+                value=value,
+                start=start_ms / 1000.0,
+                end=end_ms / 1000.0,
+                start_char=int(start_char) if isinstance(start_char, (int, float)) else None,
+                end_char=int(end_char) if isinstance(end_char, (int, float)) else None,
+            )
         )
 
-    return words
+    duration = duration_seconds
+    if duration is None:
+        duration = max((mark.end for mark in raw_timings), default=0.0)
+    if raw_timings and all(
+        mark.start_char is not None and mark.end_char is not None
+        for mark in raw_timings
+    ):
+        return align_offset_timings(text, raw_timings, duration)
+    return align_ordered_timings(text, raw_timings, duration)
 
 
 def _duration_seconds(
@@ -84,6 +101,7 @@ def _duration_seconds(
 
 class SpeechifyClient:
     provider = "speechify"
+    audio_content_type = "audio/mpeg"
 
     def __init__(
         self,
@@ -209,11 +227,15 @@ class SpeechifyClient:
         audio = base64.b64decode(audio_b64)
 
         marks = payload.get("speech_marks")
-        words = words_from_speech_marks(marks if isinstance(marks, (dict, list)) else None, text)
         duration = _duration_seconds(
-            words,
+            [],
             marks if isinstance(marks, dict) else None,
             None,
+        )
+        words = words_from_speech_marks(
+            marks if isinstance(marks, (dict, list)) else None,
+            text,
+            duration_seconds=duration,
         )
         character_cost = payload.get("billable_characters_count")
         try:
@@ -227,6 +249,8 @@ class SpeechifyClient:
             duration_seconds=float(duration),
             request_id=response.headers.get("x-request-id") or response.headers.get("request-id"),
             character_cost=cost,
+            alignment_source="provider",
+            alignment_quality=timing_quality(text, words, float(duration)),
         )
 
     def _post_stream(
@@ -339,13 +363,20 @@ class SpeechifyClient:
         if not audio_parts:
             raise SpeechifyError("Speechify stream returned no audio.")
 
-        words = words_from_speech_marks(mark_chunks, text)
+        duration = _duration_seconds([], None, audio_duration_ms)
+        words = words_from_speech_marks(
+            mark_chunks,
+            text,
+            duration_seconds=duration,
+        )
         return NarrationResult(
             audio=b"".join(audio_parts),
             words=words,
-            duration_seconds=_duration_seconds(words, None, audio_duration_ms),
+            duration_seconds=duration,
             request_id=response.headers.get("x-request-id") or response.headers.get("request-id"),
             character_cost=character_cost,
+            alignment_source="provider",
+            alignment_quality=timing_quality(text, words, duration),
         )
 
     def _backoff(self, attempt: int, reason: str) -> None:

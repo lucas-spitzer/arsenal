@@ -13,16 +13,18 @@ from __future__ import annotations
 import base64
 import logging
 import time
-from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from app.config import get_settings
+from app.services.tts.alignment import RawTiming, align_ordered_timings, timing_quality
+from app.services.tts.types import NarrationResult, WordTiming
 
 logger = logging.getLogger(__name__)
 
 _API_BASE = "https://api.elevenlabs.io/v1/text-to-speech"
+_FORCED_ALIGNMENT_URL = "https://api.elevenlabs.io/v1/forced-alignment"
 _RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 _RETRY_BACKOFF_SECONDS = 5
 
@@ -43,26 +45,6 @@ class ElevenLabsError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
-class WordTiming:
-    index: int
-    word: str
-    start: float
-    end: float
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"i": self.index, "w": self.word, "s": self.start, "e": self.end}
-
-
-@dataclass(frozen=True)
-class NarrationResult:
-    audio: bytes
-    words: list[WordTiming]
-    duration_seconds: float
-    request_id: str | None
-    character_cost: int
-
-
 def words_from_alignment(
     characters: list[str],
     start_times: list[float],
@@ -77,25 +59,100 @@ def words_from_alignment(
     words: list[WordTiming] = []
     current = ""
     word_start = 0.0
+    word_start_char = 0
+    char_cursor = 0
 
     for char, start, end in zip(characters, start_times, end_times, strict=False):
         if char.isspace():
             if current:
-                words.append(WordTiming(len(words), current, word_start, prev_end))
+                words.append(
+                    WordTiming(
+                        len(words),
+                        current,
+                        word_start,
+                        prev_end,
+                        word_start_char,
+                        char_cursor,
+                    )
+                )
                 current = ""
+            char_cursor += len(char)
             continue
         if not current:
             word_start = start
+            word_start_char = char_cursor
         current += char
         prev_end = end
+        char_cursor += len(char)
 
     if current:
-        words.append(WordTiming(len(words), current, word_start, prev_end))
+        words.append(
+            WordTiming(
+                len(words),
+                current,
+                word_start,
+                prev_end,
+                word_start_char,
+                char_cursor,
+            )
+        )
 
     return words
 
 
+def force_align_audio(
+    *,
+    audio: bytes,
+    text: str,
+    api_key: str,
+    content_type: str,
+    client: httpx.Client | None = None,
+) -> tuple[list[WordTiming], dict[str, Any]]:
+    """Align finished provider audio to the exact source transcript."""
+
+    def request(http: httpx.Client) -> httpx.Response:
+        response = http.post(
+            _FORCED_ALIGNMENT_URL,
+            headers={"xi-api-key": api_key},
+            files={"file": ("narration-audio", audio, content_type)},
+            data={"text": text},
+        )
+        if response.status_code >= 400:
+            raise ElevenLabsError(
+                f"ElevenLabs forced alignment failed: "
+                f"{response.status_code}: {response.text.strip()[:500]}"
+            )
+        return response
+
+    if client is not None:
+        response = request(client)
+    else:
+        with httpx.Client(timeout=httpx.Timeout(600.0)) as owned:
+            response = request(owned)
+
+    payload = response.json()
+    raw_words = payload.get("words") or []
+    marks = [
+        RawTiming(
+            value=str(item.get("text") or ""),
+            start=float(item.get("start") or 0),
+            end=float(item.get("end") or item.get("start") or 0),
+        )
+        for item in raw_words
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    duration = max((mark.end for mark in marks), default=0.0)
+    words = align_ordered_timings(text, marks, duration)
+    quality = timing_quality(text, words, duration)
+    if payload.get("loss") is not None:
+        quality["loss"] = float(payload["loss"])
+    return words, quality
+
+
 class ElevenLabsClient:
+    provider = "elevenlabs"
+    audio_content_type = "audio/mpeg"
+
     def __init__(
         self,
         *,
@@ -115,7 +172,6 @@ class ElevenLabsClient:
             request_timeout_seconds or settings.request_timeout_seconds
         )
         self.max_retries = max_retries or settings.max_retries
-        self.provider = "elevenlabs"
         self.max_segment_chars = settings.elevenlabs_max_segment_chars
 
     @property
@@ -254,4 +310,6 @@ class ElevenLabsClient:
             duration_seconds=float(duration),
             request_id=response.headers.get("request-id"),
             character_cost=character_cost,
+            alignment_source="provider",
+            alignment_quality=timing_quality(text, words, float(duration)),
         )

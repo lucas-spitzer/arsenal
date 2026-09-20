@@ -6,6 +6,7 @@ import {
   endsSentence,
   matchWikiTerms,
   resolveReaderSelection,
+  timingIndexAt,
   type Block,
 } from './readerContent'
 
@@ -180,7 +181,9 @@ describe('buildNarrationClips', () => {
       [
         'p1',
         {
+          id: 'n1',
           audio_path: 'chapter-0.mp3',
+          alignment_source: 'provider' as const,
           words: [
             { s: 0, e: 0.2 },
             { s: 0.2, e: 0.4 },
@@ -192,7 +195,9 @@ describe('buildNarrationClips', () => {
       [
         'p2',
         {
+          id: 'n2',
           audio_path: 'chapter-0.mp3',
+          alignment_source: 'provider' as const,
           words: [
             { s: 0.9, e: 1.1 },
             { s: 1.1, e: 1.3 },
@@ -206,7 +211,9 @@ describe('buildNarrationClips', () => {
       [
         'p3',
         {
+          id: 'n3',
           audio_path: 'chapter-1.mp3',
+          alignment_source: 'provider' as const,
           words: [
             { s: 0, e: 0.2 },
             { s: 0.2, e: 0.4 },
@@ -219,10 +226,45 @@ describe('buildNarrationClips', () => {
     const clips = buildNarrationClips(wordBlocks, narration)
     expect(clips).toHaveLength(2)
     expect(clips[0].audioKey).toBe('chapter-0.mp3')
-    expect(clips[0].fetchSegmentId).toBe('p1')
-    expect(clips[0].count).toBe(10)
+    expect(clips[0].fetchNarrationId).toBe('n1')
+    expect(clips[0].globals).toHaveLength(10)
     expect(clips[0].timings).toHaveLength(10)
     expect(clips[1].audioKey).toBe('chapter-1.mp3')
-    expect(clips[1].count).toBe(4)
+    expect(clips[1].globals).toHaveLength(4)
+  })
+
+  it('drops a paragraph whose timing count does not match rendered words', () => {
+    const { wordBlocks } = buildNarration([para(0, 'p', 'one two three')])
+    const narration = new Map([
+      [
+        'p',
+        {
+          id: 'n1',
+          audio_path: 'clip.mp3',
+          alignment_source: 'provider' as const,
+          words: [
+            { s: 0, e: 0.2 },
+            { s: 0.2, e: 0.4 },
+          ],
+        },
+      ],
+    ])
+
+    expect(buildNarrationClips(wordBlocks, narration)).toEqual([])
+  })
+})
+
+describe('timingIndexAt', () => {
+  const timings = [
+    { s: 0.1, e: 0.18 },
+    { s: 0.18, e: 0.24 },
+    { s: 0.24, e: 0.31 },
+  ]
+
+  it('resolves short consecutive words from exact media time', () => {
+    expect(timingIndexAt(timings, 0.099)).toBe(-1)
+    expect(timingIndexAt(timings, 0.12)).toBe(0)
+    expect(timingIndexAt(timings, 0.2)).toBe(1)
+    expect(timingIndexAt(timings, 0.3)).toBe(2)
   })
 })

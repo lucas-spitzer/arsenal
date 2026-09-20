@@ -34,6 +34,7 @@ import {
   globalsFromDomSelection,
   matchWikiTerms,
   resolveReaderSelection,
+  timingIndexAt,
   type Block,
   type NarrationClip,
   type SpokenWord,
@@ -201,6 +202,8 @@ export function ReaderView({
   // narration stage's synthesized audio is wired in; speed scales the WPM.
   const [playing, setPlaying] = useState(false)
   const [spoken, setSpoken] = useState(-1)
+  const [activeSpoken, setActiveSpoken] = useState(-1)
+  const [preciseHighlight, setPreciseHighlight] = useState(false)
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1)
   const [audioError, setAudioError] = useState<string | null>(null)
 
@@ -255,6 +258,8 @@ export function ReaderView({
     setSpread(0)
     setPlaying(false)
     setSpoken(-1)
+    setActiveSpoken(-1)
+    setPreciseHighlight(false)
     setTargetSeq(null)
     bookmarkRestoredRef.current = false
   }, [sourceId, seg, cancelFlip])
@@ -687,22 +692,36 @@ export function ReaderView({
     () => buildNarrationClips(wordBlocks, live.narration),
     [live.narration, wordBlocks],
   )
+  const narratedGlobals = useMemo(
+    () => new Set(tracks.flatMap((track) => track.globals)),
+    [tracks],
+  )
   const hasAudio = isLive && tracks.length > 0
+  const hasEstimatedAlignment = tracks.some(
+    (track) => track.alignmentSource === 'estimated',
+  )
 
   const spokenRef = useRef(spoken)
   useEffect(() => {
     spokenRef.current = spoken
   }, [spoken])
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const activeTrackIndexRef = useRef(-1)
+  const playTrackRef = useRef<
+    ((index: number, seekTo: number | null) => Promise<void>) | null
+  >(null)
+  const playingRef = useRef(playing)
+  const animationFrameRef = useRef<number | null>(null)
   const speedRef = useRef<number>(speed)
   useEffect(() => {
     speedRef.current = speed
   }, [speed])
-  const urlCacheRef = useRef(new Map<string, string>())
+  const urlCacheRef = useRef(
+    new Map<string, { url: string; expiresAt: number }>(),
+  )
 
   useEffect(() => {
     urlCacheRef.current = new Map()
-    setAudioError(null)
   }, [sourceId])
 
   // Simulated cadence (no synthesized audio).
@@ -713,32 +732,73 @@ export function ReaderView({
       setSpoken((i) => {
         if (i + 1 >= total) {
           setPlaying(false)
+          setActiveSpoken(total - 1)
           return total - 1
         }
-        return i + 1
+        const next = i + 1
+        setPreciseHighlight(false)
+        setActiveSpoken(next)
+        return next
       })
     }, msPerWord)
     return () => window.clearInterval(tick)
   }, [playing, speed, total, hasAudio])
 
-  // Synthesized audio playback. The effect owns the audio element for the
-  // whole play session; pausing or switching sources tears it down.
+  // The media element survives pause/resume. Media time is the source of truth;
+  // word indexes are only a rendering projection of that clock.
   useEffect(() => {
-    if (!playing || !hasAudio || !workspaceId || !sourceId) return
+    if (!hasAudio || !workspaceId || !sourceId) return
 
     let disposed = false
     const audio = new Audio()
     audio.playbackRate = speedRef.current
     audioRef.current = audio
-    let trackIndex = 0
-    setAudioError(null)
+    activeTrackIndexRef.current = -1
 
     const fetchUrl = async (clip: NarrationClip): Promise<string> => {
       const cached = urlCacheRef.current.get(clip.audioKey)
-      if (cached) return cached
-      const res = await getNarrationAudioUrl(workspaceId, sourceId, clip.fetchSegmentId)
-      urlCacheRef.current.set(clip.audioKey, res.audio_url)
+      if (cached && cached.expiresAt > Date.now() + 30_000) return cached.url
+      const res = await getNarrationAudioUrl(
+        workspaceId,
+        sourceId,
+        clip.fetchNarrationId,
+      )
+      urlCacheRef.current.set(clip.audioKey, {
+        url: res.audio_url,
+        expiresAt: Date.now() + res.expires_in * 1000,
+      })
       return res.audio_url
+    }
+
+    const syncHighlight = () => {
+      const track = tracks[activeTrackIndexRef.current]
+      if (!track) return
+      const index = timingIndexAt(track.timings, audio.currentTime)
+      if (index < 0) {
+        setActiveSpoken(-1)
+        return
+      }
+      const global = track.globals[index]
+      setSpoken((current) => (current === global ? current : global))
+      setPreciseHighlight(track.alignmentSource !== 'estimated')
+      setActiveSpoken(
+        audio.currentTime < track.timings[index].e ? global : -1,
+      )
+    }
+
+    const animate = () => {
+      if (disposed || audio.paused || !playingRef.current) {
+        animationFrameRef.current = null
+        return
+      }
+      syncHighlight()
+      animationFrameRef.current = window.requestAnimationFrame(animate)
+    }
+
+    const startAnimation = () => {
+      if (animationFrameRef.current == null && !document.hidden) {
+        animationFrameRef.current = window.requestAnimationFrame(animate)
+      }
     }
 
     const playIndex = async (index: number, seekTo: number | null) => {
@@ -747,39 +807,31 @@ export function ReaderView({
         if (!disposed) setPlaying(false)
         return
       }
-      trackIndex = index
+      activeTrackIndexRef.current = index
       try {
         const url = await fetchUrl(track)
         if (disposed) return
         audio.src = url
         audio.playbackRate = speedRef.current
         const startAt = seekTo ?? 0
-        if (startAt > 0) {
-          if (audio.readyState >= 1) {
-            audio.currentTime = startAt
-          } else {
-            await new Promise<void>((resolve, reject) => {
-              const onReady = () => {
-                audio.removeEventListener('loadedmetadata', onReady)
-                audio.currentTime = startAt
-                resolve()
-              }
-              audio.addEventListener('loadedmetadata', onReady)
-              audio.addEventListener(
-                'error',
-                () => reject(new Error('audio load failed')),
-                { once: true },
-              )
-            })
-          }
+        if (audio.readyState < 1) {
+          await new Promise<void>((resolve, reject) => {
+            const onReady = () => {
+              audio.removeEventListener('error', onError)
+              resolve()
+            }
+            const onError = () => {
+              audio.removeEventListener('loadedmetadata', onReady)
+              reject(new Error('audio load failed'))
+            }
+            audio.addEventListener('loadedmetadata', onReady, { once: true })
+            audio.addEventListener('error', onError, { once: true })
+          })
+          if (disposed) return
         }
-        let wordOffset = 0
-        if (startAt > 0) {
-          const found = track.timings.findIndex((t) => t.s >= startAt - 0.02)
-          wordOffset = found < 0 ? Math.max(0, track.timings.length - 1) : found
-        }
-        setSpoken(track.base + wordOffset)
-        await audio.play()
+        audio.currentTime = startAt
+        syncHighlight()
+        if (playingRef.current) await audio.play()
         if (tracks[index + 1]) {
           void fetchUrl(tracks[index + 1]).catch((error: unknown) => {
             if (disposed) return
@@ -801,41 +853,68 @@ export function ReaderView({
         }
       }
     }
+    playTrackRef.current = playIndex
 
-    audio.ontimeupdate = () => {
-      const track = tracks[trackIndex]
-      if (!track) return
-      const t = audio.currentTime
-      let idx = 0
-      for (let i = 0; i < track.timings.length; i += 1) {
-        if (track.timings[i].s <= t) idx = i
-        else break
-      }
-      setSpoken(track.base + Math.min(idx, track.count - 1))
-    }
+    audio.ontimeupdate = syncHighlight
+    audio.onplay = startAnimation
     audio.onended = () => {
-      void playIndex(trackIndex + 1, 0)
+      setActiveSpoken(-1)
+      void playIndex(activeTrackIndexRef.current + 1, 0)
     }
-
-    // Resume from the clip holding the current word; otherwise the next
-    // narrated clip after it; from the top when finished or not started.
-    const resumeAt = spokenRef.current
-    let start = tracks.findIndex((tr) => resumeAt >= tr.base && resumeAt < tr.base + tr.count)
-    if (start < 0) start = tracks.findIndex((tr) => tr.base > resumeAt)
-    if (start < 0) start = 0
-    const clip = tracks[start]
-    const offset = resumeAt - (clip?.base ?? 0)
-    const seekTo =
-      clip && offset > 0 && offset < clip.timings.length ? clip.timings[offset].s : 0
-    void playIndex(start, seekTo)
+    const onVisibilityChange = () => {
+      syncHighlight()
+      if (!document.hidden) startAnimation()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
 
     return () => {
       disposed = true
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      if (animationFrameRef.current != null) {
+        window.cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
       audio.pause()
       audio.removeAttribute('src')
+      playTrackRef.current = null
+      activeTrackIndexRef.current = -1
       audioRef.current = null
     }
-  }, [playing, hasAudio, tracks, workspaceId, sourceId])
+  }, [hasAudio, tracks, workspaceId, sourceId])
+
+  useEffect(() => {
+    playingRef.current = playing
+    const audio = audioRef.current
+    if (!audio || !hasAudio) return
+    if (!playing) {
+      audio.pause()
+      return
+    }
+    if (audio.src && !audio.ended) {
+      void audio.play().catch((error: unknown) => {
+        setPlaying(false)
+        setAudioError(
+          error instanceof Error
+            ? `Narration playback failed: ${error.message}`
+            : 'Narration playback failed.',
+        )
+      })
+      return
+    }
+
+    const resumeAt = spokenRef.current
+    let start = tracks.findIndex((track) => track.globals.includes(resumeAt))
+    if (start < 0) {
+      start = tracks.findIndex((track) =>
+        track.globals.some((global) => global > resumeAt),
+      )
+    }
+    if (start < 0) start = 0
+    const track = tracks[start]
+    const offset = track?.globals.indexOf(resumeAt) ?? -1
+    const seekTo = offset >= 0 ? track.timings[offset].s : 0
+    void playTrackRef.current?.(start, seekTo)
+  }, [playing, hasAudio, tracks])
 
   // Speed changes apply to the live audio element without restarting it.
   useEffect(() => {
@@ -867,27 +946,36 @@ export function ReaderView({
   }, [spoken, playing, colStride, wordBlocks, goToSpread, isFlipping])
 
   const togglePlay = useCallback(() => {
+    if (!playing) setAudioError(null)
     setPlaying((p) => {
       const next = !p
       if (next && spoken + 1 >= total) setSpoken(-1) // restart from top at the end
       return next
     })
-  }, [spoken, total])
+  }, [playing, spoken, total])
 
   const restartNarration = useCallback(() => {
     setPlaying(false)
     setSpoken(-1)
+    setActiveSpoken(-1)
+    setPreciseHighlight(false)
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      audio.removeAttribute('src')
+      activeTrackIndexRef.current = -1
+    }
   }, [])
 
   // The active sentence, used to draw the soft "reading band" ahead of the word.
   const speakingSentence = useMemo(() => {
-    if (spoken < 0) return -1
+    if (activeSpoken < 0) return -1
     for (const wb of wordBlocks) {
-      const hit = wb.words.find((w) => w.global === spoken)
+      const hit = wb.words.find((w) => w.global === activeSpoken)
       if (hit) return hit.sentence
     }
     return -1
-  }, [spoken, wordBlocks])
+  }, [activeSpoken, wordBlocks])
 
   // --- Fullscreen ---------------------------------------------------------
   const toggleFullscreen = useCallback(async () => {
@@ -1119,6 +1207,9 @@ export function ReaderView({
                   block={block}
                   words={words}
                   spoken={spoken}
+                  activeSpoken={activeSpoken}
+                  preciseHighlight={preciseHighlight}
+                  narratedGlobals={narratedGlobals}
                   speakingSentence={speakingSentence}
                   chapterStart={block.isChapterStart && i > 0}
                   isTarget={targetSeq != null && block.seq === targetSeq}
@@ -1236,7 +1327,9 @@ export function ReaderView({
             <Volume2 size={14} aria-hidden="true" />
             {spoken < 0
               ? hasAudio
-                ? 'Audio narration'
+                ? hasEstimatedAlignment
+                  ? 'Audio narration · sentence sync'
+                  : 'Audio narration'
                 : 'Narration'
               : `${Math.min(spoken + 1, total)} / ${total} words`}
           </span>
@@ -1489,6 +1582,9 @@ function ReaderBlock({
   block,
   words,
   spoken,
+  activeSpoken,
+  preciseHighlight,
+  narratedGlobals,
   speakingSentence,
   chapterStart,
   isTarget,
@@ -1499,6 +1595,9 @@ function ReaderBlock({
   block: Block
   words: SpokenWord[]
   spoken: number
+  activeSpoken: number
+  preciseHighlight: boolean
+  narratedGlobals: Set<number>
   speakingSentence: number
   chapterStart: boolean
   isTarget: boolean
@@ -1525,9 +1624,9 @@ function ReaderBlock({
     <p ref={registerRef} className={`reader__para${variantCls}${cls}`} data-segment-id={block.id}>
       {words.map((w) => {
         const state =
-          w.global === spoken
+          preciseHighlight && w.global === activeSpoken
             ? ' is-speaking'
-            : w.global < spoken
+            : w.global < spoken && narratedGlobals.has(w.global)
               ? ' is-read'
               : w.sentence === speakingSentence
                 ? ' is-band'

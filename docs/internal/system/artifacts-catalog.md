@@ -39,12 +39,12 @@ The create-ebook step itself is currently a deterministic render of the structur
 - **Identifier:** `narration_audio`
 - **Definition:** An audiovisual narration designed to be used in Academy as a voiceover for other educational artifacts.
 - **Format:** A set of sequential audio clips that combine to form a complete transcription.
-- **Model:** Simba 3.2 (Speechify; ElevenLabs remains an alternative)
+- **Model:** Simba 3.2 (Speechify default). ElevenLabs v3, Cartesia Sonic 3.6, and Gemini 3.1 Flash TTS are selectable alternatives.
 - **Academy use:** Listen on its own, or play as a voiceover while another artifact is on screen (book, explainer, and later types).
 
-Today the pipeline synthesizes one MP3 per chapter (splitting a chapter only when joined paragraph text exceeds the TTS character cap), stores word-level timings on each paragraph row, and publishes a JSON manifest as the downloadable artifact. Paragraphs in the same clip share `audio_path`; timings are seconds on that clip so the Reader can seek and highlight. Clips are audio-only (MP3), not MP4 video.
+Today the pipeline synthesizes one clip per chapter (splitting a chapter only when joined paragraph text exceeds the TTS character cap), stores word-level timings on each paragraph row, and publishes a JSON manifest as the downloadable artifact. Paragraphs in the same clip share `audio_path`; timings are seconds on that clip so the Reader can seek and highlight. Speechify and ElevenLabs clips are MP3. Cartesia and Gemini clips are WAV (those APIs return PCM).
 
-Word timings come from the TTS provider and land on the same `words` array in `narration_segments` and the published manifest. ElevenLabs returns per-character alignment that we group into words. Speechify returns speech marks (word-level `start_time` / `end_time` in milliseconds) from `POST /v1/audio/speech` and `POST /v1/audio/stream/with-timestamps`; the client converts those to seconds so the Reader contract is identical. A paragraph longer than the provider cap is skipped rather than truncated.
+Word timings land on the same `words` array in `narration_segments` and the published manifest, with source character spans and alignment-quality metadata. ElevenLabs returns per-character alignment that maps directly to source tokens. Speechify returns speech marks with source character offsets and millisecond timestamps; the client maps overlapping marks instead of assuming provider and display tokens have the same indexes. Cartesia SSE returns word timestamps in seconds, requests original-text timestamps, and uses ordered text alignment when token boundaries differ. Gemini TTS does not return alignments, so the worker uses forced alignment when ElevenLabs alignment is configured. Without it, Gemini remains explicitly estimated and the Reader uses sentence-level progress rather than claiming exact word sync. A paragraph longer than the provider cap is skipped rather than truncated.
 
 The important product rule is composition, not container: narration is a timed voice track aligned to source text, reusable as a voiceover rather than a standalone “audiobook dump.”
 

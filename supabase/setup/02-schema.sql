@@ -69,7 +69,7 @@ create table public.workspace_stage_settings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint workspace_stage_settings_provider_check
-    check (provider in ('openai', 'anthropic', 'speechify', 'elevenlabs')),
+    check (provider in ('openai', 'anthropic', 'google', 'speechify', 'elevenlabs', 'cartesia')),
   constraint workspace_stage_settings_reasoning_tokens_check
     check (reasoning_tokens is null or reasoning_tokens > 0),
   constraint workspace_stage_settings_workspace_action_key
@@ -397,22 +397,35 @@ create table public.narration_segments (
   source_id uuid not null references public.sources (id) on delete cascade,
   chapter_id uuid references public.document_chapters (id) on delete set null,
   segment_id uuid not null references public.ndr_segments (id) on delete cascade,
+  provider text not null,
   voice_id text not null,
   model_id text not null,
+  text_hash text not null,
   audio_path text not null,
   duration_seconds double precision not null default 0,
   words jsonb not null default '[]',
+  alignment_source text not null default 'provider'
+    check (alignment_source in ('provider', 'forced', 'estimated')),
+  alignment_quality jsonb not null default '{}',
   request_id text,
   character_count integer not null default 0,
   created_at timestamptz not null default now(),
-  constraint narration_segments_segment_voice_key
-    unique (segment_id, voice_id)
+  updated_at timestamptz not null default now(),
+  constraint narration_segments_variant_key
+    unique (segment_id, model_id, voice_id)
 );
 
 create index narration_segments_source_id_idx
 on public.narration_segments (source_id);
 create index narration_segments_workspace_id_idx
 on public.narration_segments (workspace_id);
+create index narration_segments_active_variant_idx
+on public.narration_segments (source_id, updated_at desc, model_id, voice_id);
+
+create trigger narration_segments_set_updated_at
+before update on public.narration_segments
+for each row
+execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
 -- Assessment sets and promoted QnGen entities

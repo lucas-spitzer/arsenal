@@ -27,7 +27,8 @@ SUPABASE_PUBLISHABLE_KEY (or legacy SUPABASE_ANON_KEY)
 SUPABASE_SERVICE_ROLE_KEY
 OPENAI_API_KEY
 ANTHROPIC_API_KEY
-GEMINI_API_KEY (optional; required only if a stage uses Gemini)
+GEMINI_API_KEY (optional; required only if a stage uses Gemini, including Gemini TTS)
+CARTESIA_API_KEY (optional; required only if a stage uses Cartesia Sonic TTS)
 LLAMAPARSE_API_KEY
 ```
 
@@ -43,7 +44,7 @@ Infrastructure variables have defaults (see `.env.example`).
 | `extract-knowledge` | `ANTHROPIC_API_KEY`, `LLM_EXTRACT_KNOWLEDGE_PROVIDER`, `LLM_EXTRACT_KNOWLEDGE_MODEL`, `EXTRACT_MAX_ENTRIES_PER_{CHAPTER,DOCUMENT}`, `EXTRACT_MIN_{CONFIDENCE,SELECTION_SCORE}`, `EXTRACT_{ESSENTIAL,SUPPORTING}_FRACTION`, `EXTRACT_EMBEDDING_DEDUP`, `EXTRACT_EMBEDDING_{MODEL,SIMILARITY_THRESHOLD}` | LLM factory action + wiki-entry selection bands (0 = no cap/gate) + comparative importance fractions + optional embedding dedup |
 | `generate-flashcards` / `generate-questions` / `generate-scenarios` | `DRAFT_MODEL`, `CRITIQUE_MODEL`, `LLM_QNGEN_{DRAFT,CRITIQUE}_PROVIDER`, `CONCEPT_BATCH_SIZE`, `QNGEN_MAX_REPAIR_TURNS`, `QNGEN_FLASHCARDS_PER_CHAPTER_{MIN,MAX}`, `QNGEN_SCENARIOS_PER_CHAPTER_{MIN,MAX}` | Blueprint-driven generation (per-chapter count bands) + draft + critique + grounding-repair passes |
 | `create-ebook` | — | Deterministic EPUB build |
-| `generate-narration` | `SPEECHIFY_API_KEY` or `ELEVENLABS_API_KEY`, `AUDIO_NARRATION_MODEL`, `AUDIO_NARRATION_VOICE_ID` | Default TTS is Speechify (`simba-3.2` / `hugh_32`). Set the model to `eleven*` to use ElevenLabs. |
+| `generate-narration` | `SPEECHIFY_API_KEY`, `ELEVENLABS_API_KEY`, `CARTESIA_API_KEY`, and/or `GEMINI_API_KEY`; `AUDIO_NARRATION_MODEL`, `AUDIO_NARRATION_VOICE_ID` | Default TTS is Speechify (`simba-3.2` / `hugh_32`). Model prefix selects the provider: `eleven*` → ElevenLabs, `sonic*` → Cartesia, `gemini*` → Gemini TTS. |
 
 Each LLM action has a dedicated model env var (`SOURCE_RESEARCH_MODEL`, `SOURCE_WEB_ENRICHMENT_MODEL`, `WIKI_STRUCTURING_MODEL`, `WIKI_REVISE_MODEL`, `DRAFT_MODEL`, `CRITIQUE_MODEL`, `READER_DEFINE_MODEL`, `STUDY_SHEET_MODEL`). Optional `LLM_<ACTION>_PROVIDER` overrides the registry provider. Defaults and supported actions live in [`app/llm_actions.py`](app/llm_actions.py).
 

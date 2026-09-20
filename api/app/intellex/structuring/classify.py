@@ -5,17 +5,28 @@ where the three KEEP rules are applied and where chapter grouping happens -- so
 it replaces the old deconstruct-document step as well as the structural half of
 prepare-document.
 
-  H1 chapters: a heading matching the chapter pattern. A bare "Chapter N" is
-      merged with the following heading into "Chapter N <Title>"; a marker that
-      already embeds a title is used as-is.
+  H1 chapters: a heading matching the chapter pattern ("Chapter 1",
+      "CHAPTER ONE", "Chapter IV"). A bare marker is merged with following
+      title-line headings (and a short title-case text line, when LlamaParse
+      failed to mark it as a heading) until the first ALL-CAPS subsection.
+      Doctrine books keep the familiar "Chapter N Title" form; multi-line
+      academic titles join with a colon.
   H2 sections: EVERY other in-body heading, regardless of LlamaParse `level`
-      (which is too noisy to separate chapters from sections).
+      (which is too noisy to separate chapters from sections). A heading with
+      no body before the next title-case line is treated as one section
+      ("OPLAN 316: When the Cold War Almost Went Hot"), matching doctrine
+      vignette titles like "ANZIO: A MODEL OF TACTICAL INDECISIVENESS".
   Body: every `text` element in reading order, attached to its section (or to
       the chapter intro before the first section). Text split by a PDF page
       boundary or an omitted visual is rejoined conservatively. Footnote/citation
       superscript markers are stripped by default because they point into a
-      removed notes section and would otherwise dangle. Chapter epigraphs stay
-      as separate paragraphs (quote vs attribution) so EPUB spacing is preserved.
+      removed notes section and would otherwise dangle. Page-level footnote
+      bodies (LlamaParse `footnote` layout, or a leading <sup>n</sup> marker),
+      "Source:" citation callouts, and unlabeled photo-credit lines after a
+      dropped figure are omitted the same way captions are, so they cannot
+      appear in the EPUB or glue themselves onto the previous sentence.
+      Chapter epigraphs stay as separate paragraphs (quote vs attribution)
+      so EPUB spacing is preserved.
 
 Non-text, non-heading elements (lists, code/diagrams, images) are not one of the
 three KEEP types and are dropped, with counts reported. Standalone captions for
@@ -27,12 +38,9 @@ from __future__ import annotations
 
 import re
 
-from app.intellex.structuring.boundaries import is_chapter_marker
+from app.intellex.heading_classification import is_doctrinal_subsection_heading
+from app.intellex.structuring.boundaries import DEFAULT_CHAPTER_RE, is_chapter_marker
 from app.intellex.structuring.models import Book, Chapter, Element, Paragraph, Section
-
-DEFAULT_CHAPTER_RE = r"^\s*chapter\s+\d+\s*$"
-_EMBEDDED_TITLE_RE = re.compile(r"^\s*chapter\s+\d+\s*[.:\-]\s*(.+)$", re.IGNORECASE)
-_CHAPTER_NUM_RE = re.compile(r"^\s*(chapter\s+\d+)", re.IGNORECASE)
 
 _SUP_TAG_RE = re.compile(r"<sup>.*?</sup>", re.IGNORECASE | re.DOTALL)
 _UNICODE_SUP_RE = re.compile(r"[\u00b2\u00b3\u00b9\u2070\u2074-\u2079]+")
@@ -47,13 +55,31 @@ _LEADING_EMPHASIS_RE = re.compile(r"^[*_]+")
 _ATTRIBUTION_LINE_RE = re.compile(r"^\s*[—–\-]\s*\S")
 _ATTRIBUTION_SPLIT_RE = re.compile(r"\n+(?=\s*[*_]*[—–\-]\s*\S)")
 _MAX_CAPTION_LENGTH = 200
+_MAX_ORPHAN_TITLE_LENGTH = 90
+_MAX_ORPHAN_TITLE_WORDS = 14
+_ORPHAN_TITLE_START_RE = re.compile(r"""^["“'‘]?[A-Z]""")
+_TITLE_END_PUNCT_RE = re.compile(r"""[.:?!]["“'’”]*$""")
+_SMALL_TITLE_WORDS = frozenset({
+    "a", "an", "the", "and", "or", "of", "to", "for", "in", "on", "at",
+    "by", "from", "after", "into", "with",
+})
 _OMITTED_VISUAL_TYPES = frozenset(
     {"image", "figure", "diagram", "chart", "illustration", "photo", "code"}
 )
 _VISUAL_LAYOUT_LABELS = frozenset(
     {"image", "figure", "diagram", "chart", "illustration", "photo", "caption", "table"}
 )
-_NON_SECTION_LAYOUT_LABELS = _VISUAL_LAYOUT_LABELS | {"header", "footer"}
+_NON_SECTION_LAYOUT_LABELS = _VISUAL_LAYOUT_LABELS | {
+    "header",
+    "footer",
+    "footnote",
+    "endnote",
+}
+_FOOTNOTE_LAYOUT_LABELS = frozenset({"footnote", "endnote"})
+_FOOTNOTE_START_RE = re.compile(r"^\s*<sup>\s*\d+\s*</sup>", re.IGNORECASE)
+_SOURCE_NOTE_RE = re.compile(r"^\s*[*_]*Source\s*:", re.IGNORECASE)
+_MAX_VISUAL_CREDIT_WORDS = 20
+_MAX_VISUAL_CREDIT_LENGTH = 160
 _FRAGMENTED_VISUAL_MAX_CONFIDENCE = 0.5
 _FRAGMENTED_VISUAL_MIN_BOXES = 4
 
@@ -144,6 +170,33 @@ def _is_visual_description(
     )
 
 
+def _is_page_footnote(element: Element) -> bool:
+    """True for bottom-of-page notes, not in-body citations."""
+    if set(element.layout_labels) & _FOOTNOTE_LAYOUT_LABELS:
+        return True
+    source = element.md or element.text or ""
+    return bool(_FOOTNOTE_START_RE.match(source))
+
+
+def _is_source_note(text: str) -> bool:
+    """True for boxed bibliographic callouts such as 'Source: Coram, Boyd, 45.'"""
+    return bool(_SOURCE_NOTE_RE.match(text.strip()))
+
+
+def _looks_like_visual_credit(text: str) -> bool:
+    """Short credit line that LlamaParse emitted as body after a dropped figure."""
+    stripped = text.strip()
+    if not stripped or "\n" in stripped:
+        return False
+    if len(stripped) > _MAX_VISUAL_CREDIT_LENGTH:
+        return False
+    if len(stripped.split()) > _MAX_VISUAL_CREDIT_WORDS:
+        return False
+    if _paragraph_looks_complete(stripped) or stripped[:1].islower():
+        return False
+    return True
+
+
 def _is_visual_heading(
     element: Element,
     *,
@@ -199,15 +252,113 @@ def _join_markdown(left: str, right: str) -> str:
     return f"{left.rstrip()} {right.lstrip()}"
 
 
-def _chapter_title(marker_text: str, next_heading_text: str | None) -> tuple[str, bool]:
-    """Return (title, consumed_next_heading)."""
-    m = _EMBEDDED_TITLE_RE.match(marker_text)
-    if m and m.group(1).strip():
-        num = _CHAPTER_NUM_RE.match(marker_text).group(1).strip()
-        return f"{num} {m.group(1).strip()}", False
-    if next_heading_text:
-        return f"{marker_text.strip()} {next_heading_text.strip()}", True
-    return marker_text.strip(), False
+def _title_end_has_punct(text: str) -> bool:
+    return bool(_TITLE_END_PUNCT_RE.search(text.rstrip()))
+
+
+def _join_title_parts(parts: list[str], *, chapter_re: str) -> str:
+    """Join a chapter/section marker with following title lines.
+
+    Bare doctrine markers keep a space ("Chapter 1 The Nature of War").
+    Extra title lines that are not the first after a chapter marker join with
+    a colon, matching MCU Press TOC form ("Tending to Produce: John Boyd...").
+    """
+    cleaned = [part.strip() for part in parts if part and part.strip()]
+    if not cleaned:
+        return ""
+    title = cleaned[0]
+    rest = cleaned[1:]
+    if not rest:
+        return title
+    first, *more = rest
+    if is_chapter_marker(cleaned[0], chapter_re) or _title_end_has_punct(title):
+        title = f"{title} {first}"
+    else:
+        title = f"{title}: {first}"
+    for part in more:
+        if _title_end_has_punct(title):
+            title = f"{title} {part}"
+        else:
+            title = f"{title}: {part}"
+    return title
+
+
+def _is_title_continuation_heading(
+    element: Element,
+    *,
+    chapter_re: str,
+    fragmented_visual_pages: set[int | None],
+) -> bool:
+    """True for a title-case heading that belongs to the previous title."""
+    if element.type != "heading" or not element.text.strip():
+        return False
+    if is_chapter_marker(element.text, chapter_re):
+        return False
+    if _is_visual_heading(element, fragmented_visual_pages=fragmented_visual_pages):
+        return False
+    return not is_doctrinal_subsection_heading(element.text)
+
+
+def _looks_like_title_case(text: str) -> bool:
+    """True when most significant words are capitalized, as in a chapter subtitle."""
+    words = [
+        word.strip("\"“”'’")
+        for word in re.split(r"\s+", text.replace("—", " "))
+        if word.strip("\"“”'’")
+    ]
+    if len(words) < 2:
+        return False
+    significant = [word for word in words if word.lower() not in _SMALL_TITLE_WORDS]
+    if not significant:
+        return False
+    capitalized = sum(1 for word in significant if word[:1].isupper())
+    return capitalized / len(significant) >= 0.7
+
+
+def _is_orphan_title_text(element: Element) -> bool:
+    """Short title-case prose that LlamaParse emitted as `text`, not a heading."""
+    if element.type != "text":
+        return False
+    text = (element.text or "").strip()
+    if not text or "\n" in text or len(text) > _MAX_ORPHAN_TITLE_LENGTH:
+        return False
+    if len(text.split()) > _MAX_ORPHAN_TITLE_WORDS:
+        return False
+    if _paragraph_looks_complete(text) or _is_attribution_line(text):
+        return False
+    if is_standalone_visual_caption(text):
+        return False
+    if _is_source_note(text) or _is_page_footnote(element):
+        return False
+    if not _ORPHAN_TITLE_START_RE.match(text):
+        return False
+    return _looks_like_title_case(text)
+
+
+def _collect_heading_title(
+    elements: list[Element],
+    start_index: int,
+    *,
+    chapter_re: str,
+    fragmented_visual_pages: set[int | None],
+    absorb_orphan_title_text: bool,
+) -> tuple[str, int]:
+    """Return (joined title, last consumed index)."""
+    parts = [elements[start_index].text]
+    index = start_index + 1
+    count = len(elements)
+    while index < count and _is_title_continuation_heading(
+        elements[index],
+        chapter_re=chapter_re,
+        fragmented_visual_pages=fragmented_visual_pages,
+    ):
+        parts.append(elements[index].text)
+        index += 1
+    if absorb_orphan_title_text:
+        while index < count and _is_orphan_title_text(elements[index]):
+            parts.append(elements[index].text)
+            index += 1
+    return _join_title_parts(parts, chapter_re=chapter_re), index - 1
 
 
 def _append_paragraph(
@@ -234,37 +385,28 @@ def classify(
     book = Book()
     current_chapter: Chapter | None = None
     current_section: Section | None = None
-    consume_next_heading = False
+    consumed_through = -1
     previous_body_element: Element | None = None
     previous_paragraph: Paragraph | None = None
-    n = len(elements)
+    after_omitted_visual = False
     fragmented_visual_pages = _fragmented_visual_pages(elements)
     explicit_visual_pages = _explicit_visual_pages(elements)
 
     for idx, el in enumerate(elements):
+        if idx <= consumed_through:
+            continue
         if el.type == "heading":
-            if consume_next_heading:
-                previous_body_element = None
-                previous_paragraph = None
-                consume_next_heading = False  # already merged into the chapter title
-                continue
-
             if is_chapter_marker(el.text, chapter_re):
-                next_element = elements[idx + 1] if idx + 1 < n else None
-                next_text = None
-                if (
-                    next_element is not None
-                    and next_element.type == "heading"
-                    and not _is_visual_heading(
-                        next_element,
-                        fragmented_visual_pages=fragmented_visual_pages,
-                    )
-                ):
-                    next_text = next_element.text
-                title, consumed = _chapter_title(el.text, next_text)
-                consume_next_heading = consumed
+                title, consumed_through = _collect_heading_title(
+                    elements,
+                    idx,
+                    chapter_re=chapter_re,
+                    fragmented_visual_pages=fragmented_visual_pages,
+                    absorb_orphan_title_text=True,
+                )
                 previous_body_element = None
                 previous_paragraph = None
+                after_omitted_visual = False
                 current_chapter = Chapter(title=title, page=el.page)
                 current_section = None
                 book.chapters.append(current_chapter)
@@ -278,22 +420,38 @@ def classify(
                     )
                     # Like an omitted caption, a visual heading does not break
                     # the surrounding authored reading flow.
+                    after_omitted_visual = True
                     continue
+                title, consumed_through = _collect_heading_title(
+                    elements,
+                    idx,
+                    chapter_re=chapter_re,
+                    fragmented_visual_pages=fragmented_visual_pages,
+                    absorb_orphan_title_text=False,
+                )
                 previous_body_element = None
                 previous_paragraph = None
+                after_omitted_visual = False
                 if current_chapter is None:  # safety net (shouldn't happen post-trim)
                     current_chapter = Chapter(title="(untitled)", page=el.page)
                     book.chapters.append(current_chapter)
-                current_section = Section(title=el.text.strip(), page=el.page)
+                current_section = Section(title=title, page=el.page)
                 current_chapter.sections.append(current_section)
 
         elif el.type == "text":
+            if _is_page_footnote(el):
+                book.dropped_nontext["footnote"] = (
+                    book.dropped_nontext.get("footnote", 0) + 1
+                )
+                # Page notes sit between halves of a sentence; keep continuity.
+                continue
             md = el.md or el.text
             if strip_markers:
                 md = strip_footnote_markers(md)
             if not md.strip() or current_chapter is None:
                 previous_body_element = None
                 previous_paragraph = None
+                after_omitted_visual = False
                 continue
             if _is_visual_description(
                 el,
@@ -305,10 +463,22 @@ def classify(
                 )
                 # Generated descriptions of omitted visuals are not source
                 # prose and remain transparent to reading order.
+                after_omitted_visual = True
                 continue
             if is_standalone_visual_caption(el.text or md):
                 book.dropped_nontext["caption"] = book.dropped_nontext.get("caption", 0) + 1
                 # Captions for omitted visuals are transparent to continuity.
+                after_omitted_visual = True
+                continue
+            if _is_source_note(md):
+                book.dropped_nontext["reference"] = (
+                    book.dropped_nontext.get("reference", 0) + 1
+                )
+                continue
+            if after_omitted_visual and _looks_like_visual_credit(el.text or md):
+                book.dropped_nontext["caption"] = (
+                    book.dropped_nontext.get("caption", 0) + 1
+                )
                 continue
             if (
                 previous_body_element is not None
@@ -330,11 +500,15 @@ def classify(
                 )
             previous_body_element = el
             previous_paragraph = last_para
+            after_omitted_visual = False
 
         else:  # list / code / image / etc -- not a KEEP type
             book.dropped_nontext[el.type] = book.dropped_nontext.get(el.type, 0) + 1
-            if el.type not in _OMITTED_VISUAL_TYPES:
+            if el.type in _OMITTED_VISUAL_TYPES:
+                after_omitted_visual = True
+            else:
                 previous_body_element = None
                 previous_paragraph = None
+                after_omitted_visual = False
 
     return book

@@ -13,26 +13,46 @@ class NarrationSegmentRepository:
         workspace_id: str,
         owner_id: str,
         *,
+        model_id: str | None = None,
+        voice_id: str | None = None,
         limit: int = 1000,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         await self._assert_source_access(source_id, workspace_id, owner_id)
+
+        if not model_id or not voice_id:
+            latest = await self.db.select_many(
+                "narration_segments",
+                filters={
+                    "source_id": f"eq.{source_id}",
+                    "workspace_id": f"eq.{workspace_id}",
+                },
+                columns="model_id,voice_id",
+                order="updated_at.desc,id.desc",
+                limit=1,
+            )
+            if not latest:
+                return []
+            model_id = str(latest[0]["model_id"])
+            voice_id = str(latest[0]["voice_id"])
 
         return await self.db.select_many(
             "narration_segments",
             filters={
                 "source_id": f"eq.{source_id}",
                 "workspace_id": f"eq.{workspace_id}",
+                "model_id": f"eq.{model_id}",
+                "voice_id": f"eq.{voice_id}",
             },
-            order="created_at.asc",
+            order="created_at.asc,id.asc",
             limit=limit,
             offset=offset,
         )
 
-    async def get_for_segment(
+    async def get_by_id(
         self,
         source_id: str,
-        segment_id: str,
+        narration_id: str,
         workspace_id: str,
         owner_id: str,
     ) -> dict[str, Any] | None:
@@ -41,8 +61,8 @@ class NarrationSegmentRepository:
         return await self.db.select_one(
             "narration_segments",
             filters={
+                "id": f"eq.{narration_id}",
                 "source_id": f"eq.{source_id}",
-                "segment_id": f"eq.{segment_id}",
                 "workspace_id": f"eq.{workspace_id}",
             },
         )

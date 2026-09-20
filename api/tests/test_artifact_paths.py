@@ -6,6 +6,7 @@ from app.artifact_paths import (
     audio_clip_path,
     downloadable_artifact_path,
     drafts_path,
+    narration_clip_path,
     next_available_slug,
     original_path,
     pages_work_path,
@@ -49,11 +50,30 @@ def test_library_paths() -> None:
     assert downloadable_artifact_path(source, "study_sheet") == (
         "ocs-prep/mcdp-1-3-tactics/sheet.pdf"
     )
-    assert audio_clip_path("ocs-prep", "mcdp-1-3-tactics", "hugh_32", "ch-1-00.mp3") == (
-        "ocs-prep/mcdp-1-3-tactics/audio/hugh_32/ch-1-00.mp3"
+    assert audio_clip_path(
+        "ocs-prep",
+        "mcdp-1-3-tactics",
+        "speechify",
+        "simba-3.2",
+        "hugh_32",
+        "ch-1-00.mp3",
+    ) == (
+        "ocs-prep/mcdp-1-3-tactics/audio/speechify/simba-3-2/hugh-32/ch-1-00.mp3"
     )
     assert drafts_path("ocs-prep", "chapter-three", "00_notes.md") == (
         "ocs-prep/drafts/chapter-three/00_notes.md"
+    )
+    assert narration_clip_path(
+        source,
+        "google",
+        "gemini-3.1-flash-tts-preview",
+        "Kore",
+        "ch-1",
+        0,
+        extension="wav",
+    ) == (
+        "ocs-prep/mcdp-1-3-tactics/audio/google/"
+        "gemini-3-1-flash-tts-preview/kore/ch-1-00.wav"
     )
 
 

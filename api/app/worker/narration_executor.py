@@ -1,23 +1,25 @@
 """Generate Narration stage: per-chapter TTS with word timings.
 
 Walks each source's document_chapters in reading order and synthesizes one
-MP3 per chapter for the configured voice (idempotent re-runs). If a chapter's
+clip per chapter for the configured voice (idempotent re-runs). If a chapter's
 joined paragraph text exceeds the provider character cap, it is packed into
 the fewest clips that fit, always splitting on paragraph boundaries. A single
 paragraph over the cap is skipped.
 
-Audio is stored at `{workspace}/{source}/audio/{voice_id}/{chapter}-{clip}.mp3`.
+Audio is stored at `{workspace}/{source}/audio/{voice_id}/{chapter}-{clip}.{mp3|wav}`.
 Each paragraph keeps a `narration_segments` row pointing at that shared file,
 with word timings on the clip timeline so the Reader can highlight and seek.
 
 The downloadable artifact is a small JSON manifest (chapter grouping, timings,
-and sources-bucket audio paths) — not a zip of MP3s.
+and sources-bucket audio paths) — not a zip of clips.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -28,9 +30,14 @@ from app.artifact_paths import (
     narration_clip_path,
 )
 from app.services.api_pricing import cost_tts_usage
-from app.services.elevenlabs_client import ElevenLabsError, WordTiming
+from app.services.cartesia_client import CartesiaError
+from app.config import get_settings
+from app.services.elevenlabs_client import ElevenLabsError, force_align_audio
+from app.services.gemini_tts_client import GeminiTtsError
 from app.services.speechify_client import SpeechifyError
+from app.services.tts.alignment import timing_quality
 from app.services.tts.factory import TtsClient, get_tts_client
+from app.services.tts.types import WordTiming
 from app.services.stage_run_billing import stage_run_completion_fields
 from app.worker.db import WorkerDatabase
 from app.worker.storage import WorkerStorage
@@ -45,13 +52,43 @@ def utc_now_iso() -> str:
 _CLIP_JOIN = "\n\n"
 
 
+def _audio_extension(client: TtsClient) -> str:
+    content_type = getattr(client, "audio_content_type", "audio/mpeg")
+    if content_type == "audio/wav":
+        return "wav"
+    return "mp3"
+
+
 def _paragraph_text(row: dict[str, Any]) -> str:
     return str(row.get("text") or "").strip()
 
 
+def _is_speakable(text: str) -> bool:
+    return any(character.isalnum() for character in text)
+
+
 def _joined_clip_text(paragraphs: list[dict[str, Any]]) -> str:
     return _CLIP_JOIN.join(
-        text for text in (_paragraph_text(row) for row in paragraphs) if text
+        text
+        for text in (_paragraph_text(row) for row in paragraphs)
+        if _is_speakable(text)
+    )
+
+
+def _can_skip_gemini_clip(
+    exc: BaseException, *, narrated: int, reused: int
+) -> bool:
+    """Skip a mid-run Gemini flake instead of failing the whole stage.
+
+    A 400 on the first synthesis is more likely a bad voice/model and should
+    still fail the stage. After at least one clip has landed, the same generic
+    INVALID_ARGUMENT is a known preview-model flake.
+    """
+    if narrated == 0 and reused == 0:
+        return False
+    message = str(exc)
+    return "INVALID_ARGUMENT" in message or "INTERNAL" in message or (
+        "missing audio inline data" in message
     )
 
 
@@ -72,7 +109,7 @@ def pack_chapter_clips(
 
     for row in paragraphs:
         text = _paragraph_text(row)
-        if not text:
+        if not _is_speakable(text):
             empty_count += 1
             continue
         if len(text) > max_chars:
@@ -100,25 +137,57 @@ def assign_words_to_paragraphs(
     paragraphs: list[dict[str, Any]],
     words: list[WordTiming],
 ) -> list[list[WordTiming]]:
-    """Slice clip-level word timings onto each paragraph's token stream."""
+    """Assign clip-level timings by source character span, never list position."""
+    if words and any(
+        word.start_char is None or word.end_char is None for word in words
+    ):
+        raise ValueError("Word timings are missing source character spans.")
+
     assigned: list[list[WordTiming]] = []
-    cursor = 0
+    paragraph_start = 0
+    assigned_count = 0
     for row in paragraphs:
-        n = len(_paragraph_text(row).split())
-        chunk = words[cursor : cursor + n]
+        text = _paragraph_text(row)
+        paragraph_end = paragraph_start + len(text)
+        chunk = [
+            word
+            for word in words
+            if word.start_char is not None
+            and paragraph_start <= word.start_char < paragraph_end
+        ]
+        expected_count = len(text.split())
+        if len(chunk) != expected_count:
+            raise ValueError(
+                f"Alignment mapped {len(chunk)} words to paragraph {row.get('id')} "
+                f"but expected {expected_count}."
+            )
         assigned.append(
             [
-                WordTiming(index=i, word=word.word, start=word.start, end=word.end)
+                WordTiming(
+                    index=i,
+                    word=word.word,
+                    start=word.start,
+                    end=word.end,
+                    start_char=(
+                        word.start_char - paragraph_start
+                        if word.start_char is not None
+                        else None
+                    ),
+                    end_char=(
+                        word.end_char - paragraph_start
+                        if word.end_char is not None
+                        else None
+                    ),
+                )
                 for i, word in enumerate(chunk)
             ]
         )
-        cursor += n
-    if cursor != len(words):
-        logger.warning(
-            "Clip alignment produced %d words for %d expected tokens; "
-            "highlighting may drift in this chapter clip.",
-            len(words),
-            cursor,
+        assigned_count += len(chunk)
+        paragraph_start = paragraph_end + len(_CLIP_JOIN)
+    if assigned_count != len(words):
+        raise ValueError(
+            "Clip alignment contains words outside the source paragraph ranges: "
+            f"{len(words)} timings, {assigned_count} assigned."
         )
     return assigned
 
@@ -318,10 +387,18 @@ class NarrationStageExecutor:
     ) -> tuple[dict[str, Any], int, dict[str, Any]]:
         if not self.client.enabled:
             provider = getattr(self.client, "provider", "tts")
-            key_name = (
-                "SPEECHIFY_API_KEY" if provider == "speechify" else "ELEVENLABS_API_KEY"
-            )
-            error_cls = SpeechifyError if provider == "speechify" else ElevenLabsError
+            key_name = {
+                "speechify": "SPEECHIFY_API_KEY",
+                "elevenlabs": "ELEVENLABS_API_KEY",
+                "cartesia": "CARTESIA_API_KEY",
+                "google": "GEMINI_API_KEY",
+            }.get(provider, "TTS_API_KEY")
+            error_cls = {
+                "speechify": SpeechifyError,
+                "elevenlabs": ElevenLabsError,
+                "cartesia": CartesiaError,
+                "google": GeminiTtsError,
+            }.get(provider, RuntimeError)
             raise error_cls(
                 f"{key_name} is not configured; cannot generate narration."
             )
@@ -341,7 +418,9 @@ class NarrationStageExecutor:
         existing_rows = {
             row["segment_id"]: row
             for row in self.db.list_narration_segments_for_source(
-                source_id, self.client.voice_id
+                source_id,
+                self.client.voice_id,
+                self.client.model_id,
             )
         }
 
@@ -393,12 +472,22 @@ class NarrationStageExecutor:
             last_chapter_id = chapter_id
 
             audio_path = narration_clip_path(
-                source, self.client.voice_id, chapter_id, clip_index
+                source,
+                getattr(self.client, "provider", "tts"),
+                self.client.model_id,
+                self.client.voice_id,
+                chapter_id,
+                clip_index,
+                extension=_audio_extension(self.client),
             )
             clip_ids = [str(row["id"]) for row in clip_rows]
             if clip_ids and all(
-                existing_rows.get(segment_id, {}).get("audio_path") == audio_path
-                for segment_id in clip_ids
+                existing_rows.get(str(row["id"]), {}).get("audio_path") == audio_path
+                and existing_rows.get(str(row["id"]), {}).get("model_id")
+                == self.client.model_id
+                and existing_rows.get(str(row["id"]), {}).get("text_hash")
+                == hashlib.sha256(_paragraph_text(row).encode("utf-8")).hexdigest()
+                for row in clip_rows
             ):
                 reused += 1
                 previous_request_ids = []
@@ -407,17 +496,78 @@ class NarrationStageExecutor:
                 continue
 
             text = _joined_clip_text(clip_rows)
-            result = self.client.synthesize_with_timestamps(
+            try:
+                result = self.client.synthesize_with_timestamps(
+                    text,
+                    previous_request_ids=previous_request_ids,
+                )
+            except GeminiTtsError as exc:
+                if not _can_skip_gemini_clip(
+                    exc, narrated=narrated, reused=reused
+                ):
+                    raise
+                logger.warning(
+                    "Skipping Gemini clip %d for source %s chapter %s "
+                    "(%d chars): %s",
+                    clip_index,
+                    source_id,
+                    chapter_id,
+                    len(text),
+                    exc,
+                )
+                skipped += 1
+                previous_request_ids = []
+                done += 1
+                output = publish()
+                continue
+            quality = result.alignment_quality or timing_quality(
                 text,
-                previous_request_ids=previous_request_ids,
+                result.words,
+                result.duration_seconds,
             )
+            needs_forced_alignment = (
+                result.alignment_source == "estimated"
+                or not bool(quality.get("valid"))
+            )
+            elevenlabs_key = get_settings().narration.elevenlabs_api_key
+            if needs_forced_alignment and elevenlabs_key:
+                try:
+                    aligned_words, forced_quality = force_align_audio(
+                        audio=result.audio,
+                        text=text,
+                        api_key=elevenlabs_key,
+                        content_type=getattr(
+                            self.client,
+                            "audio_content_type",
+                            "audio/mpeg",
+                        ),
+                    )
+                    result = replace(
+                        result,
+                        words=aligned_words,
+                        alignment_source="forced",
+                        alignment_quality=forced_quality,
+                    )
+                    quality = forced_quality
+                except ElevenLabsError:
+                    logger.exception(
+                        "Forced alignment failed for source %s chapter %s clip %d.",
+                        source_id,
+                        chapter_id,
+                        clip_index,
+                    )
+            if result.alignment_source != "estimated" and not quality.get("valid"):
+                raise RuntimeError(
+                    f"Invalid {getattr(self.client, 'provider', 'TTS')} alignment "
+                    f"for chapter {chapter_id} clip {clip_index}: {quality}"
+                )
             per_paragraph_words = assign_words_to_paragraphs(clip_rows, result.words)
 
             self.storage.upload(
                 audio_path,
                 result.audio,
                 bucket=self.storage.sources_bucket,
-                content_type="audio/mpeg",
+                content_type=getattr(self.client, "audio_content_type", "audio/mpeg"),
             )
             for row, words in zip(clip_rows, per_paragraph_words, strict=True):
                 self.db.upsert_narration_segment(
@@ -426,13 +576,20 @@ class NarrationStageExecutor:
                         "source_id": source_id,
                         "chapter_id": chapter.get("id"),
                         "segment_id": row["id"],
+                        "provider": getattr(self.client, "provider", "tts"),
                         "voice_id": self.client.voice_id,
                         "model_id": self.client.model_id,
+                        "text_hash": hashlib.sha256(
+                            _paragraph_text(row).encode("utf-8")
+                        ).hexdigest(),
                         "audio_path": audio_path,
                         "duration_seconds": result.duration_seconds,
                         "words": [word.to_dict() for word in words],
+                        "alignment_source": result.alignment_source,
+                        "alignment_quality": quality,
                         "request_id": result.request_id,
                         "character_count": result.character_cost,
+                        "updated_at": utc_now_iso(),
                     }
                 )
                 existing_rows[str(row["id"])] = {"audio_path": audio_path}
@@ -485,7 +642,9 @@ class NarrationStageExecutor:
                 for row in self.db.list_ndr_segments_for_source(source_id)
             }
         rows = self.db.list_narration_segments_for_source(
-            source_id, self.client.voice_id
+            source_id,
+            self.client.voice_id,
+            self.client.model_id,
         )
         by_segment = {row["segment_id"]: row for row in rows}
         if not by_segment:
@@ -520,6 +679,9 @@ class NarrationStageExecutor:
                         "audio_path": row.get("audio_path"),
                         "duration_seconds": duration,
                         "character_count": row.get("character_count"),
+                        "text_hash": row.get("text_hash"),
+                        "alignment_source": row.get("alignment_source", "provider"),
+                        "alignment_quality": row.get("alignment_quality") or {},
                         "words": row.get("words") or [],
                     }
                 )
@@ -535,6 +697,7 @@ class NarrationStageExecutor:
         manifest = {
             "source_id": source["id"],
             "title": title,
+            "provider": getattr(self.client, "provider", "tts"),
             "voice_id": self.client.voice_id,
             "model_id": self.client.model_id,
             "generated_at": utc_now_iso(),

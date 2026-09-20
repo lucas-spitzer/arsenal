@@ -12,7 +12,8 @@ values
       'text/markdown',
       'application/epub+zip',
       'application/json',
-      'audio/mpeg'
+      'audio/mpeg',
+      'audio/wav'
     ]
   )
 on conflict (id) do nothing;

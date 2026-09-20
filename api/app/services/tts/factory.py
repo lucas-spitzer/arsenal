@@ -11,8 +11,12 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.config import get_settings
-from app.services.elevenlabs_client import ElevenLabsClient, NarrationResult
+from app.services.cartesia_client import CartesiaClient
+from app.services.elevenlabs_client import ElevenLabsClient
+from app.services.gemini_tts_client import GeminiTtsClient
 from app.services.speechify_client import SpeechifyClient
+from app.services.tts.catalog import TTS_SELECTABLE_PROVIDERS
+from app.services.tts.types import NarrationResult
 from app.tts_defaults import AUDIO_NARRATION_ACTION, tts_provider_for_model
 
 
@@ -21,6 +25,7 @@ class TtsClient(Protocol):
     voice_id: str
     model_id: str
     max_segment_chars: int
+    audio_content_type: str
 
     @property
     def enabled(self) -> bool: ...
@@ -71,7 +76,7 @@ def narration_override_from_rows(
         provider = str(row.get("provider") or "").strip().lower()
         model = str(row.get("model") or "").strip()
         voice_id = str(row.get("voice_id") or "").strip()
-        if provider not in {"speechify", "elevenlabs"} or not model or not voice_id:
+        if provider not in TTS_SELECTABLE_PROVIDERS or not model or not voice_id:
             return None
         return NarrationOverride(provider=provider, model=model, voice_id=voice_id)
     return None
@@ -98,4 +103,8 @@ def get_tts_client(
 
     if provider == "elevenlabs":
         return ElevenLabsClient(model_id=resolved_model, voice_id=resolved_voice)
+    if provider == "cartesia":
+        return CartesiaClient(model_id=resolved_model, voice_id=resolved_voice)
+    if provider == "google":
+        return GeminiTtsClient(model_id=resolved_model, voice_id=resolved_voice)
     return SpeechifyClient(model_id=resolved_model, voice_id=resolved_voice)

@@ -273,18 +273,20 @@ class WorkerDatabase:
             self._request("POST", "ndr_segments", json_body=batch)
 
     def list_narration_segments_for_source(
-        self, source_id: str, voice_id: str
+        self,
+        source_id: str,
+        voice_id: str,
+        model_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        rows = self._request(
-            "GET",
-            "narration_segments",
-            params={
-                "select": "*",
-                "source_id": f"eq.{source_id}",
-                "voice_id": f"eq.{voice_id}",
-                "order": "created_at.asc",
-            },
-        )
+        params = {
+            "select": "*",
+            "source_id": f"eq.{source_id}",
+            "voice_id": f"eq.{voice_id}",
+            "order": "updated_at.asc,id.asc",
+        }
+        if model_id:
+            params["model_id"] = f"eq.{model_id}"
+        rows = self._request("GET", "narration_segments", params=params)
         return rows or []
 
     def list_narrated_segment_ids_for_source(
@@ -314,7 +316,9 @@ class WorkerDatabase:
                 "POST",
                 f"{self.base_url}/narration_segments",
                 headers=headers,
-                params={"on_conflict": "segment_id,voice_id"},
+                params={
+                    "on_conflict": "segment_id,model_id,voice_id",
+                },
                 json=payload,
             )
         if response.status_code >= 400:

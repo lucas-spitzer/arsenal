@@ -48,9 +48,49 @@ Run these only on databases that already have a Foundry schema and need a target
 | `alter-library-slugs.sql` | DB was created before frozen workspace/source slugs. Adds `workspaces.slug`, unique workspace names, and `sources.slug`. |
 | `alter-wiki-knowledge-pipeline.sql` | DB was created before wiki ingest as a production-run target. Adds `wiki_ingest_batches.production_run_id`. Re-run `03-seed-stages.sql` for the new wiki stages. |
 | `alter-stage-settings-tts.sql` | DB was created before Speechify narration settings. Widens `workspace_stage_settings.provider` to include `speechify` / `elevenlabs` and adds nullable `voice_id`. |
+| `alter-stage-settings-providers.sql` | DB was created before Google and Cartesia stage settings. Widens `workspace_stage_settings.provider` to include `google` / `cartesia`. |
+| `alter-sources-bucket-wav.sql` | DB was created before Cartesia/Gemini WAV clips. Adds `audio/wav` to the `sources` bucket allowlist. |
 | `alter-drop-artifacts-bucket.sql` | Operator note only (SQL no-op). Supabase blocks dropping `storage.buckets` / `storage.objects` from SQL. After migrating objects into the `sources` bucket, purge the legacy `artifacts` bucket via the Storage API or Dashboard. |
 | `alter-discussion-threads.sql` | DB was created before persisted discussion threads. Adds `discussion_threads` and `discussion_messages` with RLS + role revokes. Idempotent. |
 | `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. |
+| `../maintenance/delete-production-run.sql` | Operator utility. Deletes one production run and the rows it created. Storage files cannot be deleted from SQL. |
+| `../maintenance/delete-source.sql` | Operator utility. Deletes one source and the rows it created. Storage files cannot be deleted from SQL. |
+
+### Delete a production run
+
+`production_runs` children use `ON DELETE SET NULL`, so deleting the run row leaves assessments, artifacts, wiki batches, and stage runs behind. Use this instead.
+
+1. Open `supabase/maintenance/delete-production-run.sql`.
+2. Set `target_run_id`.
+3. Leave `dry_run true` and run it. That run errors on purpose and lists what would be removed.
+4. Set `dry_run false` and run it again. Success in the SQL editor only means the delete ran if `dry_run` is false.
+
+The script does not delete source rows or original uploads. Intellex segments, chapters, and `work/` files stay unless `purge_ingest` is true, and then only for sources no other production run still lists. Tables that exist in `02-schema.sql` but not on the live database are skipped.
+
+Supabase forbids `DELETE` on `storage.objects` from SQL. After a successful row delete, leftover keys appear in notices and in `pg_temp.purge_storage_paths`. Remove those files from the `sources` bucket in Dashboard → Storage, or with the Storage API.
+
+If the run is still queued or running, stop the worker job first.
+
+```bash
+supabase db execute --file supabase/maintenance/delete-production-run.sql
+```
+
+### Delete a source
+
+Most source children use `ON DELETE SET NULL`, so deleting the source row leaves assessments, artifacts, wiki batches, disputes, and discussion threads behind. Use this instead.
+
+1. Open `supabase/maintenance/delete-source.sql`.
+2. Set `target_source_id`.
+3. Leave `dry_run true` and run it. That run errors on purpose and lists what would be removed.
+4. Set `dry_run false` and run it again.
+
+Tables that exist in `02-schema.sql` but not on the live database (for example `assessment_sets`) are skipped. `ndr_segments`, `document_chapters`, and `narration_segments` cascade with the source. Wiki entries owned only by this source are deleted; shared entries drop this source from `evidence`. Production runs keep their other sources; this script only removes the id from `source_ids`.
+
+Supabase forbids `DELETE` on `storage.objects` from SQL. After a successful row delete, leftover keys appear in notices and in `pg_temp.purge_storage_paths`. Remove those files from the `sources` bucket in Dashboard → Storage, or with the Storage API.
+
+```bash
+supabase db execute --file supabase/maintenance/delete-source.sql
+```
 
 ### Wiki file-ingest columns
 
@@ -75,6 +115,18 @@ supabase db execute --file supabase/setup/03-seed-stages.sql
 
 ```bash
 supabase db execute --file supabase/setup/alter-stage-settings-tts.sql
+```
+
+### Stage settings Google and Cartesia providers
+
+```bash
+supabase db execute --file supabase/setup/alter-stage-settings-providers.sql
+```
+
+### Sources bucket WAV clips
+
+```bash
+supabase db execute --file supabase/setup/alter-sources-bucket-wav.sql
 ```
 
 ### Legacy `artifacts` storage bucket
@@ -132,10 +184,11 @@ cd api && python -m scripts.publish_narration_artifacts
 ### Mathesys outputs
 
 - `artifacts` — `electronic_book`, `narration_audio`, `wiki_json`, `study_sheet` (table rows; files live under `sources`)
-- `narration_segments` — per-paragraph rows pointing at chapter (or chapter-split) audio paths and word timings
+- `narration_segments` — per-paragraph rows keyed by model, voice, and source-text hash, pointing at chapter (or chapter-split) audio paths and validated word timings
 - Storage bucket: `sources` — `{workspace_slug}/{source_slug}/` holds the
   original upload, downloadable outputs (`book.epub`, `narration.json`,
-  `wiki.json`, `sheet.pdf`), Reader audio under `audio/{voice_id}/`, and
+  `wiki.json`, `sheet.pdf`), Reader audio under
+  `audio/{provider}/{model_id}/{voice_id}/`, and
   pipeline scratch under `work/`. Wiki note drafts: `{workspace_slug}/drafts/`.
   Frozen unique slugs; API ids stay UUIDs.
 
