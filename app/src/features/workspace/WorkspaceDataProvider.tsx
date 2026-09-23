@@ -21,6 +21,7 @@ import {
   type Source,
   type WikiEntry,
 } from '../../lib/workspaceApi'
+import { collapseDuplicateNarrationArtifacts } from '../../lib/foundryMappers'
 import { useWorkspace } from './workspaceContext'
 import { WorkspaceDataContext } from './workspaceDataContext'
 
@@ -91,7 +92,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       setSources(nextSources)
       setProductionRuns(nextRuns)
       setStageRunsByRunId(Object.fromEntries(stageRunEntries))
-      setArtifacts(nextArtifacts)
+      setArtifacts(collapseDuplicateNarrationArtifacts(nextArtifacts))
       setWikiEntries(nextWikiEntries)
       setFlashcards(nextFlashcards)
       setQuizzes(nextQuizzes)

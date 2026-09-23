@@ -92,6 +92,62 @@ export function artifactCardTitle(artifact: Artifact, source: Source | undefined
   return `${name} ${artifactKindShortLabel(artifact.artifact_type)}`
 }
 
+export function narrationArtifactStatusLabel(artifact: Artifact): string | null {
+  if (artifact.artifact_type !== 'narration_audio') return null
+  if (artifact.manifest.status !== 'in_progress') return null
+  const done = Number(artifact.manifest.clip_count)
+  const total = Number(artifact.manifest.clips_total)
+  if (Number.isFinite(done) && Number.isFinite(total) && total > 0) {
+    return `In progress · ${done}/${total} clips`
+  }
+  return 'In progress'
+}
+
+function narrationArtifactKey(artifact: Artifact): string {
+  return [
+    artifact.source_id ?? '',
+    String(artifact.manifest.voice_id ?? ''),
+    String(artifact.manifest.model_id ?? ''),
+  ].join('\0')
+}
+
+function narrationArtifactStamp(artifact: Artifact): string {
+  const updated = artifact.manifest.updated_at
+  return typeof updated === 'string' && updated ? updated : artifact.created_at
+}
+
+function isNewerNarrationArtifact(candidate: Artifact, current: Artifact): boolean {
+  const candidateStamp = narrationArtifactStamp(candidate)
+  const currentStamp = narrationArtifactStamp(current)
+  if (candidateStamp !== currentStamp) return candidateStamp > currentStamp
+  return candidate.id > current.id
+}
+
+/** One card per source+model+voice. Extra rows from failed restarts share narration.json. */
+export function collapseDuplicateNarrationArtifacts(artifacts: Artifact[]): Artifact[] {
+  const winners = new Map<string, Artifact>()
+  const visible: Artifact[] = []
+
+  for (const artifact of artifacts) {
+    if (artifact.artifact_type !== 'narration_audio') {
+      visible.push(artifact)
+      continue
+    }
+    const key = narrationArtifactKey(artifact)
+    const existing = winners.get(key)
+    if (!existing) {
+      winners.set(key, artifact)
+      visible.push(artifact)
+      continue
+    }
+    if (!isNewerNarrationArtifact(artifact, existing)) continue
+    visible[visible.indexOf(existing)] = artifact
+    winners.set(key, artifact)
+  }
+
+  return visible
+}
+
 export function sourcePages(source: Source): number | null {
   const parse = parseMetadata(source)
   if (typeof parse?.page_count === 'number') return parse.page_count

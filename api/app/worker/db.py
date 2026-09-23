@@ -457,6 +457,13 @@ class WorkerDatabase:
         )
         return rows[0]
 
+    def delete_artifact(self, artifact_id: str) -> None:
+        self._request(
+            "DELETE",
+            "artifacts",
+            params={"id": f"eq.{artifact_id}"},
+        )
+
     def list_artifacts_for_workspace(self, workspace_id: str) -> list[dict[str, Any]]:
         rows = self._request(
             "GET",

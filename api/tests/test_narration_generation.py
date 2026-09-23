@@ -189,9 +189,12 @@ class _FakeWorkerDb:
         self.narration_rows = narration_rows
         self.created_artifacts: list[dict[str, Any]] = []
         self.updated_artifacts: list[tuple[str, dict[str, Any]]] = []
+        self.deleted_artifact_ids: list[str] = []
+        self.artifacts: list[dict[str, Any]] = []
         self.updated_stage_runs: list[tuple[str, dict[str, Any]]] = []
         self.chapters: list[dict[str, Any]] = []
         self.ndr_segments: list[dict[str, Any]] = []
+        self._artifact_seq = 0
 
     def create_stage_run(self, payload: dict[str, Any]) -> dict[str, Any]:
         return {**payload, "id": "sr-1"}
@@ -222,12 +225,40 @@ class _FakeWorkerDb:
         return payload
 
     def create_artifact(self, payload: dict[str, Any]) -> dict[str, Any]:
-        self.created_artifacts.append(payload)
-        return {**payload, "id": "art-1"}
+        self._artifact_seq += 1
+        row = {
+            **payload,
+            "id": f"art-{self._artifact_seq}",
+            "created_at": f"2026-01-01T00:00:{self._artifact_seq:02d}Z",
+        }
+        self.created_artifacts.append(row)
+        self.artifacts.append(row)
+        return row
 
     def update_artifact(self, artifact_id: str, payload: dict[str, Any]):
-        self.updated_artifacts.append((artifact_id, payload))
-        return payload
+        updated = {**payload, "id": artifact_id}
+        self.updated_artifacts.append((artifact_id, updated))
+        for index, row in enumerate(self.artifacts):
+            if row.get("id") == artifact_id:
+                merged = {**row, **updated}
+                self.artifacts[index] = merged
+                return merged
+        return updated
+
+    def delete_artifact(self, artifact_id: str) -> None:
+        self.deleted_artifact_ids.append(artifact_id)
+        self.artifacts = [row for row in self.artifacts if row.get("id") != artifact_id]
+
+    def list_artifacts_for_source(
+        self,
+        source_id: str,
+        *,
+        artifact_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        rows = [row for row in self.artifacts if row.get("source_id") == source_id]
+        if artifact_type:
+            rows = [row for row in rows if row.get("artifact_type") == artifact_type]
+        return sorted(rows, key=lambda row: str(row.get("created_at") or ""), reverse=True)
 
 
 class _FakeWorkerStorage:
@@ -318,11 +349,17 @@ def test_publish_artifact_writes_json_manifest() -> None:
     assert created["format"] == "json"
     assert created["manifest"]["segment_count"] == 2
     assert created["manifest"]["chapter_titles"] == ["Chapter One"]
+    assert created["manifest"]["status"] == "complete"
+    assert created["manifest"]["clips_total"] == 2
+    assert created["manifest"]["updated_at"]
 
     body = storage.uploads[file_info["storage_path"]]
     assert storage.upload_content_types[file_info["storage_path"]] == "application/json"
     manifest = json.loads(body.decode("utf-8"))
     assert manifest["voice_id"] == "voice-1"
+    assert manifest["status"] == "complete"
+    assert manifest["clips_total"] == 2
+    assert manifest["updated_at"]
     assert manifest["total_duration_seconds"] == 5.5
     assert manifest["segment_count"] == 2
     first = manifest["chapters"][0]["segments"][0]
@@ -330,6 +367,32 @@ def test_publish_artifact_writes_json_manifest() -> None:
     assert first["audio_path"] == "workspaces/ws-1/sources/src-1/narration/v/seg-a.mp3"
     assert first["words"][0]["w"] == "Hello"
     assert "file" not in first
+
+
+def test_matching_narration_artifacts_oldest_first() -> None:
+    from app.worker.narration_executor import matching_narration_artifacts
+
+    rows = [
+        {
+            "id": "b",
+            "created_at": "2026-01-02T00:00:00Z",
+            "manifest": {"voice_id": "kore", "model_id": "gemini"},
+        },
+        {
+            "id": "a",
+            "created_at": "2026-01-01T00:00:00Z",
+            "manifest": {"voice_id": "kore", "model_id": "gemini"},
+        },
+        {
+            "id": "other",
+            "created_at": "2026-01-01T00:00:00Z",
+            "manifest": {"voice_id": "kore", "model_id": "speechify"},
+        },
+    ]
+    matched = matching_narration_artifacts(
+        rows, voice_id="kore", model_id="gemini"
+    )
+    assert [row["id"] for row in matched] == ["a", "b"]
 
 
 def test_publish_artifact_none_when_no_narration() -> None:
@@ -352,6 +415,192 @@ def test_publish_artifact_none_when_no_narration() -> None:
         )
         is None
     )
+
+
+def test_publish_artifact_updates_same_voice_and_model() -> None:
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    row = {
+        "segment_id": "seg-a",
+        "audio_path": "ocs-prep/src-1/audio/el/v/seg-a.mp3",
+        "duration_seconds": 2.5,
+        "character_count": 40,
+        "words": [{"i": 0, "w": "Hello", "s": 0.0, "e": 0.5}],
+    }
+    db = _FakeWorkerDb([row])
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v3"),
+        max_segment_chars=9500,
+    )
+    kwargs: dict[str, Any] = {
+        "workspace_id": "ws-1",
+        "production_run_id": "run-1",
+        "stage_run_id": "sr-1",
+        "source": {
+            "id": "src-1",
+            "slug": "src-1",
+            "workspace_slug": "ocs-prep",
+            "filename": "warfighting.pdf",
+            "storage_path": "ocs-prep/src-1/file.pdf",
+            "source_metadata": {},
+        },
+        "chapters": [
+            {
+                "id": "ch-1",
+                "title": "Chapter One",
+                "sequence_index": 0,
+                "segment_ids": ["seg-a"],
+            }
+        ],
+        "segments": {"seg-a": {"sequence_index": 1}},
+    }
+    first = executor._publish_artifact(**kwargs)
+    second = executor._publish_artifact(
+        **{
+            **kwargs,
+            "production_run_id": "run-2",
+            "stage_run_id": "sr-2",
+            "complete": False,
+            "clips_total": 8,
+        }
+    )
+    assert first is not None and second is not None
+    assert first["artifact_id"] == second["artifact_id"] == "art-1"
+    assert len(db.created_artifacts) == 1
+    assert len(db.updated_artifacts) == 1
+    updated = db.updated_artifacts[0][1]
+    assert updated["manifest"]["status"] == "in_progress"
+    assert updated["manifest"]["clips_total"] == 8
+    assert updated["production_run_id"] == "run-2"
+    assert (
+        updated["manifest"]["generated_at"]
+        == db.created_artifacts[0]["manifest"]["generated_at"]
+    )
+
+
+def test_publish_artifact_creates_row_for_different_model() -> None:
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    row = {
+        "segment_id": "seg-a",
+        "audio_path": "ocs-prep/src-1/audio/el/v/seg-a.mp3",
+        "duration_seconds": 1.0,
+        "character_count": 5,
+        "words": [{"i": 0, "w": "Hi", "s": 0.0, "e": 0.2}],
+    }
+    db = _FakeWorkerDb([row])
+    storage = _FakeWorkerStorage()
+    source = {
+        "id": "src-1",
+        "slug": "src-1",
+        "workspace_slug": "ocs-prep",
+        "filename": "file.pdf",
+        "storage_path": "ocs-prep/src-1/file.pdf",
+        "source_metadata": {},
+    }
+    chapters = [
+        {
+            "id": "ch-1",
+            "title": "One",
+            "sequence_index": 0,
+            "segment_ids": ["seg-a"],
+        }
+    ]
+    kwargs: dict[str, Any] = {
+        "workspace_id": "ws-1",
+        "production_run_id": "run-1",
+        "stage_run_id": "sr-1",
+        "source": source,
+        "chapters": chapters,
+        "segments": {"seg-a": {"sequence_index": 1}},
+    }
+    NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=storage,  # type: ignore[arg-type]
+        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v3"),
+        max_segment_chars=9500,
+    )._publish_artifact(**kwargs)
+    NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=storage,  # type: ignore[arg-type]
+        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_multilingual_v2"),
+        max_segment_chars=9500,
+    )._publish_artifact(**kwargs)
+    assert len(db.created_artifacts) == 2
+    assert {row["manifest"]["model_id"] for row in db.created_artifacts} == {
+        "eleven_v3",
+        "eleven_multilingual_v2",
+    }
+
+
+def test_publish_artifact_deletes_duplicate_voice_model_rows() -> None:
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    row = {
+        "segment_id": "seg-a",
+        "audio_path": "ocs-prep/src-1/audio/el/v/seg-a.mp3",
+        "duration_seconds": 1.0,
+        "character_count": 5,
+        "words": [{"i": 0, "w": "Hi", "s": 0.0, "e": 0.2}],
+    }
+    db = _FakeWorkerDb([row])
+    db.artifacts = [
+        {
+            "id": "old",
+            "source_id": "src-1",
+            "artifact_type": "narration_audio",
+            "created_at": "2026-01-01T00:00:00Z",
+            "manifest": {
+                "voice_id": "voice-1",
+                "model_id": "eleven_v3",
+                "generated_at": "2026-01-01T00:00:00Z",
+            },
+        },
+        {
+            "id": "newer",
+            "source_id": "src-1",
+            "artifact_type": "narration_audio",
+            "created_at": "2026-01-02T00:00:00Z",
+            "manifest": {"voice_id": "voice-1", "model_id": "eleven_v3"},
+        },
+    ]
+    file_info = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v3"),
+        max_segment_chars=9500,
+    )._publish_artifact(
+        workspace_id="ws-1",
+        production_run_id="run-9",
+        stage_run_id="sr-9",
+        source={
+            "id": "src-1",
+            "slug": "src-1",
+            "workspace_slug": "ocs-prep",
+            "filename": "file.pdf",
+            "storage_path": "ocs-prep/src-1/file.pdf",
+            "source_metadata": {},
+        },
+        chapters=[
+            {
+                "id": "ch-1",
+                "title": "One",
+                "sequence_index": 0,
+                "segment_ids": ["seg-a"],
+            }
+        ],
+        segments={"seg-a": {"sequence_index": 1}},
+        complete=False,
+        clips_total=12,
+    )
+    assert file_info is not None
+    assert file_info["artifact_id"] == "old"
+    assert db.deleted_artifact_ids == ["newer"]
+    assert [row["id"] for row in db.artifacts] == ["old"]
+    assert db.updated_artifacts[0][1]["manifest"]["status"] == "in_progress"
+    assert db.updated_artifacts[0][1]["manifest"]["generated_at"] == "2026-01-01T00:00:00Z"
 
 
 def test_failed_run_still_publishes_artifact() -> None:
@@ -404,6 +653,7 @@ def test_failed_run_still_publishes_artifact() -> None:
         )
 
     assert db.created_artifacts[0]["artifact_type"] == "narration_audio"
+    assert db.created_artifacts[0]["manifest"]["status"] == "in_progress"
     fail_update = db.updated_stage_runs[-1][1]
     assert fail_update["status"] == "failed"
     assert fail_update["promoted"]["artifact_ids"] == ["art-1"]
@@ -781,4 +1031,86 @@ def test_narrate_source_fails_first_gemini_invalid_argument() -> None:
             },
             stage_run_id="sr-1",
         )
+
+
+def test_narrate_source_keeps_estimated_when_forced_alignment_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace as replace_result
+
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "el-key")
+    from app.config import get_settings
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    get_settings.cache_clear()
+
+    class _EstimatedTts(_FakeTts):
+        provider = "google"
+        model_id = "gemini-3.1-flash-tts-preview"
+        audio_content_type = "audio/wav"
+
+        def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
+            result = super().synthesize_with_timestamps(text, **kwargs)
+            return replace_result(result, alignment_source="estimated")
+
+    def _invalid_force_align(**kwargs: Any) -> tuple[list[Any], dict[str, Any]]:
+        from app.services.tts.types import WordTiming
+
+        return (
+            [
+                WordTiming(0, "Hello", 0.5, 0.5, 0, 5),
+                WordTiming(1, "there.", 0.2, 0.4, 6, 12),
+            ],
+            {
+                "valid": False,
+                "monotonic": False,
+                "positive_intervals": False,
+                "expected_words": 2,
+                "timing_words": 2,
+                "identity_ratio": 1.0,
+                "loss": 2.25,
+            },
+        )
+
+    monkeypatch.setattr(
+        "app.worker.narration_executor.force_align_audio",
+        _invalid_force_align,
+    )
+    db = _FakeWorkerDb([])
+    db.chapters = [
+        {
+            "id": "ch-1",
+            "title": "One",
+            "sequence_index": 0,
+            "segment_ids": ["p1"],
+        }
+    ]
+    db.ndr_segments = [
+        {"id": "p1", "kind": "paragraph", "text": "Hello there."},
+    ]
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=_EstimatedTts(),  # type: ignore[arg-type]
+        max_segment_chars=200,
+    )
+    try:
+        output, chars, _ctx = executor._narrate_source(
+            workspace_id="ws-1",
+            source={
+                "id": "src-1",
+                "slug": "src-1",
+                "workspace_slug": "ocs-prep",
+                "storage_path": "ocs-prep/src-1/file.pdf",
+            },
+            stage_run_id="sr-1",
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert output["segments_narrated"] == 1
+    assert output["segments_skipped"] == 0
+    assert chars == len("Hello there.")
+    assert db.narration_rows[0]["alignment_source"] == "estimated"
+    assert db.narration_rows[0]["alignment_quality"]["valid"] is True
 

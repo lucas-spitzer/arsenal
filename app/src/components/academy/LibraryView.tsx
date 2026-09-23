@@ -1,4 +1,4 @@
-import { BookMarked, Headphones, HelpCircle, Layers, Lightbulb, Star } from 'lucide-react'
+import { BookMarked, BookOpen, FileText, Headphones, HelpCircle, Layers, Lightbulb, Star } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
@@ -6,6 +6,7 @@ import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { isFocused, useLibraryFocus, type LibraryFocusState } from '../../lib/libraryFocus'
 import {
   filterOutputs,
+  outputChipLabel,
   sortOutputs,
   useOutputs,
   type OutputItem,
@@ -18,13 +19,20 @@ import type { AcademyPage, AcademyScope } from './types'
 
 const KIND_META: Record<
   OutputItem['kind'],
-  { label: string; cls: string; icon: typeof Layers }
+  { cls: string; icon: typeof Layers }
 > = {
-  artifact: { label: 'Artifact', cls: 'lib__tchip--art', icon: Headphones },
-  flashcard: { label: 'Flashcard', cls: 'lib__tchip--flash', icon: Layers },
-  question: { label: 'Question', cls: 'lib__tchip--q', icon: HelpCircle },
-  scenario: { label: 'Scenario', cls: 'lib__tchip--scn', icon: Lightbulb },
-  wiki: { label: 'Wiki', cls: 'lib__tchip--wiki', icon: BookMarked },
+  artifact: { cls: 'lib__tchip--art', icon: Headphones },
+  flashcard: { cls: 'lib__tchip--flash', icon: Layers },
+  question: { cls: 'lib__tchip--q', icon: HelpCircle },
+  scenario: { cls: 'lib__tchip--scn', icon: Lightbulb },
+  wiki: { cls: 'lib__tchip--wiki', icon: BookMarked },
+}
+
+function cardIcon(item: OutputItem): typeof Layers {
+  if (item.kind !== 'artifact') return KIND_META[item.kind].icon
+  if (item.isEbook) return BookOpen
+  if (item.isStudySheet) return FileText
+  return Headphones
 }
 
 function openLabel(item: OutputItem): string {
@@ -147,14 +155,16 @@ function CardGrid({
     <div className="lib__grid">
       {items.map((item) => {
         const meta = KIND_META[item.kind]
-        const Icon = meta.icon
+        const Icon = cardIcon(item)
         const focused = isFocused(focus, item)
+        const chip = outputChipLabel(item)
+        const spec = item.kind === 'artifact'
         return (
           <article key={`${item.kind}-${item.id}`} className="lib__card">
             <div className="lib__card-top">
               <span className={`lib__tchip ${meta.cls}`}>
                 <Icon size={12} aria-hidden="true" />
-                {meta.label}
+                {chip}
               </span>
               <button
                 type="button"
@@ -173,7 +183,9 @@ function CardGrid({
                 <Star size={14} aria-hidden="true" />
               </button>
             </div>
-            <p className="lib__pv">{item.title}</p>
+            {item.title ? (
+              <p className={spec ? 'lib__pv lib__pv--fact' : 'lib__pv'}>{item.title}</p>
+            ) : null}
             <div className="lib__fill" />
             <div className="lib__foot">
               <div className="lib__meta">

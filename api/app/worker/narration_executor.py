@@ -49,6 +49,27 @@ def utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def matching_narration_artifacts(
+    rows: list[dict[str, Any]],
+    *,
+    voice_id: str,
+    model_id: str,
+) -> list[dict[str, Any]]:
+    """Return narration_audio rows for this voice/model, oldest first."""
+    matched: list[dict[str, Any]] = []
+    for row in rows:
+        manifest = row.get("manifest") or {}
+        if not isinstance(manifest, dict):
+            continue
+        if str(manifest.get("voice_id") or "") != voice_id:
+            continue
+        if str(manifest.get("model_id") or "") != model_id:
+            continue
+        matched.append(row)
+    matched.sort(key=lambda row: str(row.get("created_at") or ""))
+    return matched
+
+
 _CLIP_JOIN = "\n\n"
 
 
@@ -246,6 +267,7 @@ class NarrationStageExecutor:
         self.storage = storage or WorkerStorage()
         self._client = client
         self._max_segment_chars = max_segment_chars
+        self._last_progress: dict[str, Any] | None = None
 
     @property
     def client(self) -> TtsClient:
@@ -295,6 +317,8 @@ class NarrationStageExecutor:
                 production_run_id=production_run_id,
                 stage_run_id=stage_run_id,
                 source=source,
+                complete=True,
+                clips_total=int(output.get("segments_total") or 0) or None,
                 **publish_context,
             )
             promoted: dict[str, Any] = {"source_ids": [source["id"]]}
@@ -334,11 +358,14 @@ class NarrationStageExecutor:
                 "completed_at": utc_now_iso(),
             }
             try:
+                progress = self._last_progress or {}
                 artifact_file = self._publish_artifact(
                     workspace_id=workspace_id,
                     production_run_id=production_run_id,
                     stage_run_id=stage_run_id,
                     source=source,
+                    complete=False,
+                    clips_total=int(progress.get("segments_total") or 0) or None,
                 )
             except Exception:
                 logger.exception(
@@ -375,6 +402,7 @@ class NarrationStageExecutor:
             voice_id=self.client.voice_id,
             model_id=self.client.model_id,
         )
+        self._last_progress = output
         self.db.update_stage_run(stage_run_id, {"output": output})
         return output
 
@@ -525,6 +553,8 @@ class NarrationStageExecutor:
                 result.words,
                 result.duration_seconds,
             )
+            estimated_result = result
+            estimated_quality = quality
             needs_forced_alignment = (
                 result.alignment_source == "estimated"
                 or not bool(quality.get("valid"))
@@ -542,13 +572,24 @@ class NarrationStageExecutor:
                             "audio/mpeg",
                         ),
                     )
-                    result = replace(
-                        result,
-                        words=aligned_words,
-                        alignment_source="forced",
-                        alignment_quality=forced_quality,
-                    )
-                    quality = forced_quality
+                    if forced_quality.get("valid"):
+                        result = replace(
+                            result,
+                            words=aligned_words,
+                            alignment_source="forced",
+                            alignment_quality=forced_quality,
+                        )
+                        quality = forced_quality
+                    else:
+                        logger.warning(
+                            "Forced alignment was invalid for source %s chapter %s "
+                            "clip %d; keeping %s timings. %s",
+                            source_id,
+                            chapter_id,
+                            clip_index,
+                            result.alignment_source,
+                            forced_quality,
+                        )
                 except ElevenLabsError:
                     logger.exception(
                         "Forced alignment failed for source %s chapter %s clip %d.",
@@ -557,10 +598,22 @@ class NarrationStageExecutor:
                         clip_index,
                     )
             if result.alignment_source != "estimated" and not quality.get("valid"):
-                raise RuntimeError(
-                    f"Invalid {getattr(self.client, 'provider', 'TTS')} alignment "
-                    f"for chapter {chapter_id} clip {clip_index}: {quality}"
-                )
+                if estimated_result.alignment_source == "estimated":
+                    logger.warning(
+                        "Reverting to estimated alignment for source %s chapter %s "
+                        "clip %d. %s",
+                        source_id,
+                        chapter_id,
+                        clip_index,
+                        quality,
+                    )
+                    result = estimated_result
+                    quality = estimated_quality
+                else:
+                    raise RuntimeError(
+                        f"Invalid {getattr(self.client, 'provider', 'TTS')} alignment "
+                        f"for chapter {chapter_id} clip {clip_index}: {quality}"
+                    )
             per_paragraph_words = assign_words_to_paragraphs(clip_rows, result.words)
 
             self.storage.upload(
@@ -623,6 +676,8 @@ class NarrationStageExecutor:
         source: dict[str, Any],
         chapters: list[dict[str, Any]] | None = None,
         segments: dict[str, dict[str, Any]] | None = None,
+        complete: bool = True,
+        clips_total: int | None = None,
     ) -> dict[str, Any] | None:
         """Publish a JSON manifest of narrated chapter clips as the downloadable artifact.
 
@@ -630,8 +685,8 @@ class NarrationStageExecutor:
         artifact is a small export: chapter grouping, word timings, and each
         paragraph's shared audio_path — usable without embedding audio bytes.
 
-        Called on success and after a partial failure so clips already written
-        still get an `artifacts` row.
+        Upserts one row per source+model+voice. Called on success and after a
+        partial failure so clips already written still have an `artifacts` row.
         """
         source_id = source["id"]
         if chapters is None:
@@ -694,15 +749,42 @@ class NarrationStageExecutor:
                     }
                 )
 
+        now = utc_now_iso()
+        status = "complete" if complete else "in_progress"
+        clip_count = len(billed_paths)
+        resolved_clips_total = clips_total if clips_total and clips_total > 0 else clip_count
+        existing_rows = matching_narration_artifacts(
+            self.db.list_artifacts_for_source(
+                source_id, artifact_type="narration_audio"
+            ),
+            voice_id=self.client.voice_id,
+            model_id=self.client.model_id,
+        )
+        keep = existing_rows[0] if existing_rows else None
+        generated_at = now
+        if keep:
+            previous_manifest = keep.get("manifest") or {}
+            if isinstance(previous_manifest, dict):
+                previous_generated = str(previous_manifest.get("generated_at") or "")
+                if previous_generated:
+                    generated_at = previous_generated
+            for extra in existing_rows[1:]:
+                extra_id = str(extra.get("id") or "")
+                if extra_id:
+                    self.db.delete_artifact(extra_id)
+
         manifest = {
             "source_id": source["id"],
             "title": title,
             "provider": getattr(self.client, "provider", "tts"),
             "voice_id": self.client.voice_id,
             "model_id": self.client.model_id,
-            "generated_at": utc_now_iso(),
+            "status": status,
+            "generated_at": generated_at,
+            "updated_at": now,
             "segment_count": segment_total,
-            "clip_count": len(billed_paths),
+            "clip_count": clip_count,
+            "clips_total": resolved_clips_total,
             "total_duration_seconds": round(total_duration, 3),
             "chapters": manifest_chapters,
         }
@@ -710,33 +792,38 @@ class NarrationStageExecutor:
             "utf-8"
         )
         storage_path = downloadable_artifact_path(source, "narration_audio")
-
-        artifact = self.db.create_artifact(
-            {
-                "workspace_id": workspace_id,
-                "source_id": source["id"],
-                "production_run_id": production_run_id,
-                "artifact_type": "narration_audio",
-                "format": "json",
-                "filename": filename,
-                "storage_path": storage_path,
-                "file_size_bytes": len(manifest_bytes),
-                "manifest": {
-                    "voice_id": self.client.voice_id,
-                    "model_id": self.client.model_id,
-                    "segment_count": segment_total,
-                    "clip_count": len(billed_paths),
-                    "chapter_count": len(manifest_chapters),
-                    "chapter_titles": [c["title"] for c in manifest_chapters],
-                    "total_duration_seconds": round(total_duration, 3),
-                },
-                "origin": {
-                    "stage_run_id": stage_run_id,
-                    "stage_id": self.STAGE_ID,
-                    "stage_version": self.STAGE_VERSION,
-                },
-            }
-        )
+        payload = {
+            "workspace_id": workspace_id,
+            "source_id": source["id"],
+            "production_run_id": production_run_id,
+            "artifact_type": "narration_audio",
+            "format": "json",
+            "filename": filename,
+            "storage_path": storage_path,
+            "file_size_bytes": len(manifest_bytes),
+            "manifest": {
+                "voice_id": self.client.voice_id,
+                "model_id": self.client.model_id,
+                "status": status,
+                "generated_at": generated_at,
+                "updated_at": now,
+                "segment_count": segment_total,
+                "clip_count": clip_count,
+                "clips_total": resolved_clips_total,
+                "chapter_count": len(manifest_chapters),
+                "chapter_titles": [c["title"] for c in manifest_chapters],
+                "total_duration_seconds": round(total_duration, 3),
+            },
+            "origin": {
+                "stage_run_id": stage_run_id,
+                "stage_id": self.STAGE_ID,
+                "stage_version": self.STAGE_VERSION,
+            },
+        }
+        if keep:
+            artifact = self.db.update_artifact(str(keep["id"]), payload)
+        else:
+            artifact = self.db.create_artifact(payload)
         artifact_id = artifact["id"]
         self.storage.upload(
             storage_path,

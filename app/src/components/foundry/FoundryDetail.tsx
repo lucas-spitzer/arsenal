@@ -16,6 +16,8 @@ import {
   productionRunLabel,
   productionRunProgress,
   productionRunTargetLabel,
+  collapseDuplicateNarrationArtifacts,
+  narrationArtifactStatusLabel,
   narrationSegmentProgress,
 } from '../../lib/foundryMappers'
 import type { ProductionRun } from '../../lib/workspaceApi'
@@ -28,7 +30,9 @@ interface FoundryDetailProps {
 export function FoundryDetail({ run }: FoundryDetailProps) {
   const { sources, stageRunsByRunId, artifacts, wikiEntries, downloadArtifact } = useWorkspaceData()
   const stageRuns = stageRunsByRunId[run.id] ?? []
-  const runArtifacts = artifacts.filter((artifact) => artifact.production_run_id === run.id)
+  const runArtifacts = collapseDuplicateNarrationArtifacts(artifacts).filter(
+    (artifact) => artifact.production_run_id === run.id,
+  )
   const sourceById = new Map(sources.map((source) => [source.id, source]))
   const hasLiveDuration =
     run.status === 'queued' ||
@@ -131,7 +135,10 @@ export function FoundryDetail({ run }: FoundryDetailProps) {
                 <span className="ic">{artifactFormatLabel(artifact.format)}</span>
                 <span>
                   <div className="t">{artifactCardTitle(artifact, source)}</div>
-                  <div className="s">{artifact.filename}</div>
+                  <div className="s">
+                    {narrationArtifactStatusLabel(artifact)
+                      ?? artifact.filename}
+                  </div>
                 </span>
               </button>
               )

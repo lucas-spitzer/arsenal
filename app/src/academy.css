@@ -2358,6 +2358,10 @@
   color: var(--text-primary);
 }
 
+.lib__pv--fact {
+  color: var(--text-secondary, #5c5c5c);
+}
+
 .lib__fill {
   flex: 1;
   min-height: var(--space-3);

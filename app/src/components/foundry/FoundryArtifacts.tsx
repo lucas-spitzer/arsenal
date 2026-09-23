@@ -5,6 +5,8 @@ import { artifactFormatLabel, artifactKindShortLabel, formatBytes } from '../../
 import {
   artifactCardTitle,
   artifactModule,
+  collapseDuplicateNarrationArtifacts,
+  narrationArtifactStatusLabel,
   sourceTitle,
 } from '../../lib/foundryMappers'
 import { sourceBibliographicTitle, sourceDisplayName } from '../../lib/sourceDisplay'
@@ -69,7 +71,7 @@ export function FoundryArtifacts() {
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase()
-    return artifacts.filter((artifact) => {
+    return collapseDuplicateNarrationArtifacts(artifacts).filter((artifact) => {
       const source = artifact.source_id ? sourceById.get(artifact.source_id) : undefined
       const displayName = source ? sourceDisplayName(source) : ''
       const bibliographic = source ? (sourceBibliographicTitle(source) ?? '') : ''
@@ -147,6 +149,7 @@ export function FoundryArtifacts() {
                   const source = artifact.source_id
                     ? sourceById.get(artifact.source_id)
                     : undefined
+                  const progressLabel = narrationArtifactStatusLabel(artifact)
 
                   return (
                   <tr key={artifact.id}>
@@ -154,6 +157,9 @@ export function FoundryArtifacts() {
                       <div className="as-console__listname">
                         <span>
                           <div className="t">{artifactCardTitle(artifact, source)}</div>
+                          {progressLabel ? (
+                            <div className="s">{progressLabel}</div>
+                          ) : null}
                           <button
                             type="button"
                             className="as-console__card-filename as-console__card-filename--list"
@@ -179,6 +185,7 @@ export function FoundryArtifacts() {
           <div className="as-console__sources">
             {filtered.map((artifact) => {
               const source = artifact.source_id ? sourceById.get(artifact.source_id) : undefined
+              const progressLabel = narrationArtifactStatusLabel(artifact)
 
               return (
                 <div
@@ -190,6 +197,9 @@ export function FoundryArtifacts() {
                     <div style={{ fontFamily: 'var(--as-grotesk)', fontWeight: 600, color: '#fff' }}>
                       {artifactCardTitle(artifact, source)}
                     </div>
+                    {progressLabel ? (
+                      <div className="s">{progressLabel}</div>
+                    ) : null}
                   </div>
                   <button
                     type="button"
@@ -200,6 +210,11 @@ export function FoundryArtifacts() {
                   </button>
                   <div className="as-console__card-fill" aria-hidden="true" />
                   <div className="as-console__artifact-foot">
+                    {progressLabel ? (
+                      <span className="as-console__statepill as-state--running">
+                        In progress
+                      </span>
+                    ) : null}
                     <span className="seg">{formatBytes(artifact.file_size_bytes)}</span>
                     <span className="seg">{artifactFormatLabel(artifact.format)}</span>
                     <span className="seg">
