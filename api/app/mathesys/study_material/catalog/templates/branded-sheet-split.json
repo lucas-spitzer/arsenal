@@ -1,0 +1,50 @@
+{
+  "id": "branded-sheet-split",
+  "name": "Branded Sheet Split",
+  "description": "Title and logo band over two equal columns. Best for comparisons or a concept beside its diagram.",
+  "orientation": "portrait",
+  "page": { "size": "Letter", "width_in": 8.5, "height_in": 11, "margin_in": 0.4 },
+  "type": { "body_pt": 10, "title_pt": 26 },
+  "disclaimer": "footer",
+  "cut_lines": false,
+  "sections": [
+    {
+      "id": "title",
+      "label": "Title",
+      "kind": "strict",
+      "content": "title",
+      "box": { "x": 0, "y": 0, "w": 100, "h": 10 }
+    },
+    {
+      "id": "logo_band",
+      "label": "Logo band",
+      "kind": "strict",
+      "content": "logo",
+      "box": { "x": 0, "y": 10, "w": 100, "h": 5 }
+    },
+    {
+      "id": "body_left",
+      "label": "Left column",
+      "kind": "flexible",
+      "allowed_types": ["text", "diagram", "image"],
+      "max_components": 4,
+      "box": { "x": 0, "y": 15, "w": 50, "h": 80 }
+    },
+    {
+      "id": "body_right",
+      "label": "Right column",
+      "kind": "flexible",
+      "allowed_types": ["text", "diagram", "image"],
+      "max_components": 4,
+      "box": { "x": 50, "y": 15, "w": 50, "h": 80 }
+    },
+    {
+      "id": "footer",
+      "label": "Footer",
+      "kind": "strict",
+      "content": "footer",
+      "max_words": 20,
+      "box": { "x": 0, "y": 95, "w": 100, "h": 5 }
+    }
+  ]
+}

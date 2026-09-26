@@ -1,7 +1,7 @@
 """Shared TTS defaults — kept outside app.services to avoid import cycles with config."""
 
-DEFAULT_NARRATION_MODEL = "simba-3.2"
-DEFAULT_NARRATION_VOICE_ID = "hugh_32"
+DEFAULT_NARRATION_MODEL = "gemini-3.8-flash-tts"
+DEFAULT_NARRATION_VOICE_ID = "Sadaltager"
 
 SPEECHIFY_BATCH_MAX_CHARS = 2000
 SPEECHIFY_STREAM_MAX_CHARS = 20_000

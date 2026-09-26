@@ -126,6 +126,8 @@ create table public.production_runs (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces (id) on delete cascade,
   owner_id uuid not null references auth.users (id) on delete cascade,
+  -- Display name for runs without sources (Study Material uses its title).
+  label text,
   source_ids uuid[] not null default '{}',
   target_artifacts text[] not null default '{}',
   pipeline jsonb not null default '[]',
@@ -378,7 +380,7 @@ create table public.artifacts (
         'electronic_book',
         'narration_audio',
         'wiki_json',
-        'study_sheet'
+        'study_material'
       )
     )
 );
@@ -386,6 +388,101 @@ create table public.artifacts (
 create index artifacts_workspace_id_idx on public.artifacts (workspace_id);
 create index artifacts_source_id_idx on public.artifacts (source_id);
 create index artifacts_production_run_id_idx on public.artifacts (production_run_id);
+
+-- ---------------------------------------------------------------------------
+-- Study Material (Foundry Design tab): template + theme + generated components
+-- ---------------------------------------------------------------------------
+
+create table public.study_materials (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  owner_id uuid not null references auth.users (id) on delete cascade,
+  title text not null,
+  slug text not null,
+  theme_id text not null,
+  template_id text not null,
+  -- {logo_locked, logo_id, footer_text, section_notes}
+  options jsonb not null default '{}',
+  status text not null default 'configuring',
+  -- Orchestrator plan per template section, after the fit loop.
+  layout jsonb not null default '{}',
+  validation jsonb not null default '{}',
+  production_run_id uuid references public.production_runs (id) on delete set null,
+  artifact_id uuid references public.artifacts (id) on delete set null,
+  final_html_path text,
+  error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  finalized_at timestamptz,
+  constraint study_materials_status_check
+    check (status in ('configuring', 'generating', 'draft', 'finalizing', 'finalized', 'failed')),
+  constraint study_materials_workspace_slug_key
+    unique (workspace_id, slug)
+);
+
+create index study_materials_workspace_id_idx on public.study_materials (workspace_id);
+create index study_materials_production_run_id_idx on public.study_materials (production_run_id);
+
+create trigger study_materials_set_updated_at
+before update on public.study_materials
+for each row
+execute function public.set_updated_at();
+
+create table public.study_material_components (
+  id uuid primary key default gen_random_uuid(),
+  study_material_id uuid not null references public.study_materials (id) on delete cascade,
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  section_id text not null,
+  component_type text not null,
+  position integer not null default 0,
+  instructions text not null default '',
+  settings jsonb not null default '{}',
+  -- Uploaded inputs: [{id, filename, mime_type, storage_path, file_size_bytes}]
+  files jsonb not null default '[]',
+  active_version_id uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint study_material_components_type_check
+    check (component_type in ('text', 'diagram', 'image'))
+);
+
+create index study_material_components_material_idx
+on public.study_material_components (study_material_id);
+
+create trigger study_material_components_set_updated_at
+before update on public.study_material_components
+for each row
+execute function public.set_updated_at();
+
+create table public.study_material_component_versions (
+  id uuid primary key default gen_random_uuid(),
+  component_id uuid not null references public.study_material_components (id) on delete cascade,
+  study_material_id uuid not null references public.study_materials (id) on delete cascade,
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  version integer not null,
+  -- text: {html, summary, word_count}; diagram: {svg, spec, aspect, caption}; image: {mime_type, width, height, alt, prompt}
+  output jsonb not null default '{}',
+  output_path text,
+  instructions text not null default '',
+  model text,
+  provider text,
+  settings jsonb not null default '{}',
+  theme_id text not null,
+  file_refs jsonb not null default '[]',
+  stage_run_id uuid references public.stage_runs (id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint study_material_component_versions_key
+    unique (component_id, version)
+);
+
+create index study_material_component_versions_material_idx
+on public.study_material_component_versions (study_material_id);
+
+alter table public.study_material_components
+add constraint study_material_components_active_version_fk
+foreign key (active_version_id)
+references public.study_material_component_versions (id)
+on delete set null;
 
 -- ---------------------------------------------------------------------------
 -- Narration segments (per-paragraph audio + word timings for the Reader)

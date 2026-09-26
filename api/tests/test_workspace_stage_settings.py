@@ -42,12 +42,12 @@ def test_resolve_falls_through_when_no_override(monkeypatch: pytest.MonkeyPatch)
     # First resolve reloads .env with override=True; set the env after that.
     resolve_action("qngen_draft")
     monkeypatch.setenv("LLM_QNGEN_DRAFT_PROVIDER", "openai")
-    monkeypatch.setenv("DRAFT_MODEL", "gpt-5.6-sol")
+    monkeypatch.setenv("DRAFT_MODEL", "gpt-6-sol")
 
     provider, model = resolve_action("qngen_draft")
 
     assert provider == "openai"
-    assert model == "gpt-5.6-sol"
+    assert model == "gpt-6-sol"
 
 
 def test_get_llm_client_honors_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -125,7 +125,7 @@ def test_overrides_from_rows_allows_uncatalogued_model() -> None:
 
 
 def test_validate_selection_accepts_known_and_unknown_models() -> None:
-    assert validate_selection("anthropic", "claude-opus-5") is None
+    assert validate_selection("anthropic", "claude-opus-5-5") is None
     # A model not yet in the catalog is still selectable.
     assert validate_selection("openai", "gpt-6-future") is None
 
@@ -134,4 +134,4 @@ def test_validate_selection_rejects_bad_input() -> None:
     assert validate_selection("cohere", "command-r") is not None
     assert validate_selection("openai", "") is not None
     # Known model paired with the wrong provider is rejected.
-    assert validate_selection("openai", "claude-opus-5") is not None
+    assert validate_selection("openai", "claude-opus-5-5") is not None

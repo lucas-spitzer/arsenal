@@ -710,6 +710,50 @@ values
     '{"type":"object","properties":{"production_run_id":{"type":"string"},"batch_id":{"type":"string"}}}'::jsonb,
     '{"type":"object","properties":{"entry_count":{"type":"integer"},"inserted_ids":{"type":"array"},"updated_ids":{"type":"array"}}}'::jsonb,
     '{"system":"Structure reader notes into wiki entries without inventing facts.","user_template":"Structure notes for production run {{production_run_id}}."}'::jsonb
+  ),
+  (
+    'generate-diagrams',
+    '1.0',
+    'mathesys',
+    'Generate Diagrams',
+    'Study Material: the model describes nodes and connections; code lays them out and renders themed SVG. One stage run per diagram component.',
+    array['text'],
+    '{"type":"object","properties":{"study_material_id":{"type":"string"},"component_id":{"type":"string"},"section_id":{"type":"string"}}}'::jsonb,
+    '{"type":"object","properties":{"component_id":{"type":"string"},"version_id":{"type":"string"},"version":{"type":"integer"}}}'::jsonb,
+    '{"system":"Describe one diagram as nodes and connections; never give coordinates.","user_template":"Diagram component {{component_id}} for study material {{study_material_id}}."}'::jsonb
+  ),
+  (
+    'generate-images',
+    '1.0',
+    'mathesys',
+    'Generate Images',
+    'Study Material: generate one image per image component (OpenAI GPT Image or Gemini image models) with the theme illustration style applied.',
+    array['text', 'image'],
+    '{"type":"object","properties":{"study_material_id":{"type":"string"},"component_id":{"type":"string"},"section_id":{"type":"string"}}}'::jsonb,
+    '{"type":"object","properties":{"component_id":{"type":"string"},"version_id":{"type":"string"},"version":{"type":"integer"}}}'::jsonb,
+    '{}'::jsonb
+  ),
+  (
+    'generate-text',
+    '1.0',
+    'mathesys',
+    'Generate Text',
+    'Study Material: write one sanitized HTML text block per text component, sized to its word budget and aware of the visuals in its section.',
+    array['text'],
+    '{"type":"object","properties":{"study_material_id":{"type":"string"},"component_id":{"type":"string"},"section_id":{"type":"string"}}}'::jsonb,
+    '{"type":"object","properties":{"component_id":{"type":"string"},"version_id":{"type":"string"},"version":{"type":"integer"}}}'::jsonb,
+    '{"system":"Write one structured HTML text component within its word budget.","user_template":"Text component {{component_id}} for study material {{study_material_id}}."}'::jsonb
+  ),
+  (
+    'orchestrate-layout',
+    '1.0',
+    'mathesys',
+    'Orchestrate Layout',
+    'Study Material: plan order, size, spacing, and emphasis inside each template section, then tighten sizes and text density in Chromium until the page fits.',
+    array['text'],
+    '{"type":"object","properties":{"study_material_id":{"type":"string"},"component_count":{"type":"integer"}}}'::jsonb,
+    '{"type":"object","properties":{"sections":{"type":"integer"},"issues":{"type":"array"}}}'::jsonb,
+    '{"system":"Arrange existing components inside fixed template sections.","user_template":"Lay out study material {{study_material_id}}."}'::jsonb
   )
 on conflict (stage_id, version) do update
 set

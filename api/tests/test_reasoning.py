@@ -61,7 +61,7 @@ def test_overrides_from_rows_no_reasoning_is_none() -> None:
 
 
 def test_supports_adaptive_by_family() -> None:
-    assert _supports_adaptive("claude-opus-5")
+    assert _supports_adaptive("claude-opus-5-5")
     assert _supports_adaptive("claude-sonnet-5")
     assert _supports_adaptive("claude-opus-4-8")
     assert _supports_adaptive("claude-sonnet-4-6")

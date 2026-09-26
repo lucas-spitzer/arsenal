@@ -25,30 +25,30 @@ def _float_env(name: str, default: float) -> float:
 
 # Published list prices; override via env when your contract differs.
 OPENAI_MODEL_RATES: dict[str, TokenRates] = {
-    "gpt-5.6-sol": TokenRates(
-        input_per_million=_float_env("OPENAI_GPT56_SOL_INPUT_PER_M", 5.00),
-        output_per_million=_float_env("OPENAI_GPT56_SOL_OUTPUT_PER_M", 30.00),
+    "gpt-6-astra": TokenRates(
+        input_per_million=_float_env("OPENAI_GPT6_ASTRA_INPUT_PER_M", 10.00),
+        output_per_million=_float_env("OPENAI_GPT6_ASTRA_OUTPUT_PER_M", 50.00),
     ),
-    "gpt-5.6-terra": TokenRates(
-        input_per_million=_float_env("OPENAI_GPT56_TERRA_INPUT_PER_M", 2.00),
-        output_per_million=_float_env("OPENAI_GPT56_TERRA_OUTPUT_PER_M", 12.00),
+    "gpt-6-sol": TokenRates(
+        input_per_million=_float_env("OPENAI_GPT6_SOL_INPUT_PER_M", 2.00),
+        output_per_million=_float_env("OPENAI_GPT6_SOL_OUTPUT_PER_M", 10.00),
     ),
-    "gpt-5.6-luna": TokenRates(
-        input_per_million=_float_env("OPENAI_GPT56_LUNA_INPUT_PER_M", 0.20),
-        output_per_million=_float_env("OPENAI_GPT56_LUNA_OUTPUT_PER_M", 1.20),
+    "gpt-6-luna": TokenRates(
+        input_per_million=_float_env("OPENAI_GPT6_LUNA_INPUT_PER_M", 0.10),
+        output_per_million=_float_env("OPENAI_GPT6_LUNA_OUTPUT_PER_M", 0.50),
     ),
 }
 
 DEFAULT_OPENAI_RATES = TokenRates(
-    input_per_million=_float_env("OPENAI_DEFAULT_INPUT_PER_M", 0.20),
-    output_per_million=_float_env("OPENAI_DEFAULT_OUTPUT_PER_M", 1.20),
+    input_per_million=_float_env("OPENAI_DEFAULT_INPUT_PER_M", 0.10),
+    output_per_million=_float_env("OPENAI_DEFAULT_OUTPUT_PER_M", 0.50),
 )
 
 # Published list prices — override via env before relying on cost_usd for billing.
 ANTHROPIC_MODEL_RATES: dict[str, TokenRates] = {
-    "claude-opus-5": TokenRates(
-        input_per_million=_float_env("ANTHROPIC_OPUS_INPUT_PER_M", 5.00),
-        output_per_million=_float_env("ANTHROPIC_OPUS_OUTPUT_PER_M", 25.00),
+    "claude-opus-5-5": TokenRates(
+        input_per_million=_float_env("ANTHROPIC_OPUS_INPUT_PER_M", 4.00),
+        output_per_million=_float_env("ANTHROPIC_OPUS_OUTPUT_PER_M", 20.00),
     ),
     "claude-sonnet-5": TokenRates(
         input_per_million=_float_env("ANTHROPIC_SONNET_INPUT_PER_M", 2.00),
@@ -79,6 +79,32 @@ DEFAULT_GOOGLE_RATES = TokenRates(
 
 LLAMAPARSE_PRICE_PER_CREDIT = _float_env("LLAMAPARSE_PRICE_PER_CREDIT", 0.00125)
 
+# Image generation list prices per 1M tokens: input is text/reference-image
+# tokens, output is generated-image tokens.
+IMAGE_MODEL_RATES: dict[str, TokenRates] = {
+    "gpt-image-2.5-flare": TokenRates(
+        input_per_million=_float_env("OPENAI_IMAGE_FLARE_INPUT_PER_M", 5.00),
+        output_per_million=_float_env("OPENAI_IMAGE_FLARE_OUTPUT_PER_M", 30.00),
+    ),
+    "gpt-image-2.5-sunburst": TokenRates(
+        input_per_million=_float_env("OPENAI_IMAGE_SUNBURST_INPUT_PER_M", 5.00),
+        output_per_million=_float_env("OPENAI_IMAGE_SUNBURST_OUTPUT_PER_M", 30.00),
+    ),
+    "gemini-3.1-flash-image": TokenRates(
+        input_per_million=_float_env("GOOGLE_FLASH_IMAGE_INPUT_PER_M", 0.50),
+        output_per_million=_float_env("GOOGLE_FLASH_IMAGE_OUTPUT_PER_M", 60.00),
+    ),
+    "gemini-3-pro-image": TokenRates(
+        input_per_million=_float_env("GOOGLE_PRO_IMAGE_INPUT_PER_M", 2.00),
+        output_per_million=_float_env("GOOGLE_PRO_IMAGE_OUTPUT_PER_M", 120.00),
+    ),
+}
+
+DEFAULT_IMAGE_RATES = TokenRates(
+    input_per_million=_float_env("IMAGE_DEFAULT_INPUT_PER_M", 5.00),
+    output_per_million=_float_env("IMAGE_DEFAULT_OUTPUT_PER_M", 60.00),
+)
+
 # Server-side web search is billed per search on top of tokens ($10 / 1k
 # searches at both providers' list price).
 ANTHROPIC_WEB_SEARCH_PRICE_PER_SEARCH = _float_env("ANTHROPIC_WEB_SEARCH_PRICE_PER_SEARCH", 0.01)
@@ -95,8 +121,10 @@ SPEECHIFY_PRICE_PER_CHARACTER = _float_env("SPEECHIFY_PRICE_PER_CHARACTER", 0.00
 # Cartesia Pro sticker: $5 / 100K credits ≈ $50 / 1M characters.
 CARTESIA_PRICE_PER_CHARACTER = _float_env("CARTESIA_PRICE_PER_CHARACTER", 0.00005)
 
-# Gemini 3.1 Flash TTS converted sticker: $40 / 1M characters.
-GOOGLE_TTS_PRICE_PER_CHARACTER = _float_env("GOOGLE_TTS_PRICE_PER_CHARACTER", 0.00004)
+# Fallback when a Google TTS model is missing from the catalog. Catalog
+# stickers are $18 / 1M (Flash) and $12 / 1M (Flash-Lite) through 2026-12-31.
+# This env override, when set, replaces both.
+GOOGLE_TTS_PRICE_PER_CHARACTER = _float_env("GOOGLE_TTS_PRICE_PER_CHARACTER", 0.000018)
 
 _TTS_PRICE_ENV: dict[str, str] = {
     "speechify": "SPEECHIFY_PRICE_PER_CHARACTER",
@@ -123,7 +151,7 @@ def openai_rates_for_model(model: str | None) -> TokenRates:
     if normalized in OPENAI_MODEL_RATES:
         return OPENAI_MODEL_RATES[normalized]
 
-    # Longest prefix first so "gpt-5.6-luna-..." beats a shorter family prefix.
+    # Longest prefix first so "gpt-6-luna-..." beats a shorter family prefix.
     for key, rates in sorted(
         OPENAI_MODEL_RATES.items(), key=lambda item: len(item[0]), reverse=True
     ):
@@ -264,6 +292,33 @@ def cost_llm_usage(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
     )
+
+
+def cost_image_usage(
+    *,
+    provider: str,
+    model: str | None,
+    input_tokens: int,
+    output_tokens: int,
+) -> dict[str, Any]:
+    normalized = (model or "").strip().lower()
+    rates = DEFAULT_IMAGE_RATES
+    for key, candidate in sorted(IMAGE_MODEL_RATES.items(), key=lambda item: len(item[0]), reverse=True):
+        if normalized.startswith(key):
+            rates = candidate
+            break
+    input_cost = (input_tokens / 1_000_000) * rates.input_per_million
+    output_cost = (output_tokens / 1_000_000) * rates.output_per_million
+
+    return {
+        "provider": provider,
+        "model": model or "unknown",
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "input_cost_usd": _round_usd(input_cost),
+        "output_cost_usd": _round_usd(output_cost),
+        "cost_usd": _round_usd(input_cost + output_cost),
+    }
 
 
 def cost_web_search_usage(*, provider: str, search_count: int) -> dict[str, Any]:

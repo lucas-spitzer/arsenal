@@ -13,10 +13,10 @@ Identifiers use `snake_case` to match `artifact_type` in the API and database.
 | Artifact | Identifier | Format | Default model | Academy role |
 |---|---|---|---|---|
 | Electronic Book | `electronic_book` | Single EPUB | GPT-5 nano | Read the curated source as a simple book |
-| Audio Narration | `narration_audio` | Sequential audio clips + manifest | Simba 3.2 | Listen, and voice over other artifacts |
+| Audio Narration | `narration_audio` | Sequential audio clips + manifest | Gemini 3.8 Flash TTS | Listen, and voice over other artifacts |
 | Wiki Export | `wiki_json` | Single JSON document | None (deterministic snapshot) | Portable curated knowledge for a source |
-| Web Explainer | `web_explainer` | HTML + CSS + JS | Claude Opus 5 | Answer one question with interactive visuals |
-| Study Sheet | `study_sheet` | Printable PDF (one or two pages) | Gemini 3.7 Flash | Memorize a subject from a double-sided sheet |
+| Web Explainer | `web_explainer` | HTML + CSS + JS | Claude Opus 5.5 | Answer one question with interactive visuals |
+| Study Material | `study_material` | Printable one-page PDF (US Letter) | GPT-6 Sol (diagrams and text), GPT Image 2.5 Flare (images), GPT-6 Sol (layout) | Print a templated, themed reference sheet or cut-out cards |
 
 ---
 
@@ -39,10 +39,10 @@ The create-ebook step itself is currently a deterministic render of the structur
 - **Identifier:** `narration_audio`
 - **Definition:** An audiovisual narration designed to be used in Academy as a voiceover for other educational artifacts.
 - **Format:** A set of sequential audio clips that combine to form a complete transcription.
-- **Model:** Simba 3.2 (Speechify default). ElevenLabs v3, Cartesia Sonic 3.6, and Gemini 3.1 Flash TTS are selectable alternatives.
+- **Model:** Gemini 3.8 Flash TTS (default, Sadaltager). Simba 3.2, ElevenLabs v3, Cartesia Sonic 3.6, and Gemini 3.8 Flash-Lite TTS are selectable alternatives.
 - **Academy use:** Listen on its own, or play as a voiceover while another artifact is on screen (book, explainer, and later types).
 
-Today the pipeline synthesizes one clip per chapter (splitting a chapter only when joined paragraph text exceeds the TTS character cap), stores word-level timings on each paragraph row, and publishes a JSON manifest as the downloadable artifact. Paragraphs in the same clip share `audio_path`; timings are seconds on that clip so the Reader can seek and highlight. Speechify and ElevenLabs clips are MP3. Cartesia and Gemini clips are WAV (those APIs return PCM).
+Today the pipeline synthesizes one clip per chapter (splitting a chapter only when joined paragraph text exceeds the TTS character cap), stores word-level timings on each paragraph row, and publishes a JSON manifest as the downloadable artifact. Paragraphs in the same clip share `audio_path`; timings are seconds on that clip so the Reader can seek and highlight. Speechify and ElevenLabs clips are MP3. Cartesia and Gemini clips are WAV. Cartesia returns PCM, which the worker wraps. Gemini 3.8 returns WAV.
 
 Word timings land on the same `words` array in `narration_segments` and the published manifest, with source character spans and alignment-quality metadata. ElevenLabs returns per-character alignment that maps directly to source tokens. Speechify returns speech marks with source character offsets and millisecond timestamps; the client maps overlapping marks instead of assuming provider and display tokens have the same indexes. Cartesia SSE returns word timestamps in seconds, requests original-text timestamps, and uses ordered text alignment when token boundaries differ. Gemini TTS does not return alignments, so the worker uses forced alignment when ElevenLabs alignment is configured. Without it, Gemini remains explicitly estimated and the Reader uses sentence-level progress rather than claiming exact word sync. A paragraph longer than the provider cap is skipped rather than truncated.
 
@@ -69,7 +69,7 @@ Production requires canonical wiki entries for the source. An empty wiki is not 
 - **Identifier:** `web_explainer`
 - **Definition:** A concise webpage explainer that visually answers one question with interactive animations and text that can be read aloud as audio.
 - **Format:** HTML for structure, CSS for style, and JS for animation and interaction.
-- **Model:** Claude Opus 5
+- **Model:** Claude Opus 5.5
 - **Academy use:** Short, focused visual lesson. One question in, one explainer out. Text on the page is narratable.
 
 ### Design intent
@@ -86,27 +86,27 @@ The three-file split (HTML / CSS / JS) is the generation contract. Packaging for
 - **Safety.** Generated JS must run in Academy inside a sandbox (no parent DOM, no network, no storage). Treat the bundle as untrusted.
 - **Motion.** Honor reduced-motion preferences; animation should explain, not decorate.
 - **Visual system.** Learner-facing explainers may need a pedagogical visual language related to, but not identical to, the Foundry console style guide.
-- **Model pin.** Catalog today has Claude Opus 4.8, not Opus 5. Record the intended tier here; pin the exact model id when the stage is built.
+- **Model pin.** The selectable catalog model is `claude-opus-5-5`. Pin that id when the stage is built.
 
 ---
 
-## Study Sheet
+## Study Material
 
-- **Identifier:** `study_sheet`
-- **Definition:** A printable double-sided document (two pages) that contains key study material for a specified subject to be memorized.
-- **Format:** PDF (US Letter, duplex on the long edge).
-- **Model:** Gemini 3.7 Flash
-- **Academy use:** Download and print. Do not open the Reader.
+- **Identifier:** `study_material`
+- **Definition:** A printable page built from a predefined template, a predefined theme, and generated Text, Diagram, and Image components. Replaces the retired Study Sheet.
+- **Format:** One-page PDF (US Letter) plus the finalized HTML it was printed from.
+- **Model:** Diagrams and text share the workspace-configurable `study_material` action (default GPT 6 Sol). Layout uses `study_material_orchestrator` (default GPT 6 Sol). Images default to OpenAI `gpt-image-2.5-flare`; each image component can switch to Google `gemini-3.1-flash-image` or either provider's premium model.
+- **Academy use:** Download and print from the Library's Study Material group. Not source-bound.
 
 ### Design intent
 
-A study sheet is a physical memory object. The hard constraint is the point: two sides, one sheet, dense but readable, meant to be studied until the page is unnecessary. It complements flashcards (prompt/response drill) rather than replacing them. Flashcards test retrieval; the sheet is the map of what is worth retrieving.
+Template defines where content can exist. Theme defines how it looks. Components define what exists. The orchestrator arranges components inside their sections; code enforces geometry, constraints, versioning, rendering, and export.
 
-This artifact is a **Mathesys production-run stage** (`generate-study-sheet`). Select Study Sheet on a new production run. Gemini reads the library source file (PDF or markdown) and writes body HTML; Foundry wraps it in owned print chrome (letter page, margins, scarlet headings, gold rules) and prints to PDF. If the print is more than two pages, the model is asked to cut material (up to three attempts) and the stage fails if it still overflows. One page is allowed. Facts must come from the file; the model may recreate a source diagram as simple SVG but must not invent mnemonics or examples.
+Built in the Foundry **Design** tab (DSN): title, theme, and template first, then components per template section, then generation. Diagrams and images generate before text so text is written around them. The model describes diagrams as nodes and connections only; code lays them out and renders SVG. The orchestrator plans order, size, spacing, and emphasis per section, then a Chromium fit loop tightens visual sizes and text density until nothing is clipped. Finalize re-checks page size, clipping, image resolution (150 DPI minimum), fonts, and assets, prints with headless Chromium, and adds the PDF to the Library.
 
-The operator curates the input by choosing the source. A field-manual PDF that cannot compress onto two pages fails on purpose. Do not treat a list-heavy notes file as the only valid shape: prose, tables, and mixed sources must use the same block types.
+Themes (`usmc`, `field-manual`) and templates (`branded-sheet`, `branded-sheet-split`, `index-card-cutout`) are JSON files in `api/app/mathesys/study_material/catalog/`. The USMC theme follows the Marines.mil style guide, ships the Eagle, Globe, and Anchor and MARINES wordmark (the author chooses whether to lock one into the logo band), and always prints the disclaimer “Unofficial knowledge for educational use; not endorsed by the USMC or DoD.” in the footer, or on every card for Index Card Cutout.
 
-Canonical print size is US Letter, duplex on the long edge, with margins that survive home printers. DOCX is out of scope.
+Every generated component keeps a version row (output, instructions, model, settings, theme, reference files, time). Phase 2 adds regeneration with side-by-side comparison and section re-layout instructions.
 
 ---
 

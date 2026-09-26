@@ -1,9 +1,10 @@
-import { ArrowDownUp, BookMarked, Headphones, HelpCircle, Layers, LayoutGrid, Lightbulb, Search } from 'lucide-react'
+import { ArrowDownUp, BookMarked, FileText, Headphones, HelpCircle, Layers, LayoutGrid, Lightbulb, Search } from 'lucide-react'
 import type { OutputSort, OutputType } from '../../lib/academyOutputs'
 
 const TYPE_CHIPS: { value: OutputType; label: string; icon: typeof LayoutGrid }[] = [
   { value: 'all', label: 'All', icon: LayoutGrid },
   { value: 'artifact', label: 'Artifacts', icon: Headphones },
+  { value: 'material', label: 'Study Material', icon: FileText },
   { value: 'wiki', label: 'Wiki', icon: BookMarked },
   { value: 'flashcard', label: 'Flashcards', icon: Layers },
   { value: 'question', label: 'Questions', icon: HelpCircle },

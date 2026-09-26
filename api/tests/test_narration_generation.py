@@ -936,7 +936,7 @@ def test_narrate_source_skips_mid_run_gemini_invalid_argument() -> None:
 
     class _FlakyGemini(_FakeTts):
         provider = "google"
-        model_id = "gemini-3.1-flash-tts-preview"
+        model_id = "gemini-3.8-flash-tts"
         audio_content_type = "audio/wav"
 
         def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
@@ -993,7 +993,7 @@ def test_narrate_source_fails_first_gemini_invalid_argument() -> None:
 
     class _BrokenGemini(_FakeTts):
         provider = "google"
-        model_id = "gemini-3.1-flash-tts-preview"
+        model_id = "gemini-3.8-flash-tts"
 
         def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
             raise GeminiTtsError(
@@ -1046,7 +1046,7 @@ def test_narrate_source_keeps_estimated_when_forced_alignment_invalid(
 
     class _EstimatedTts(_FakeTts):
         provider = "google"
-        model_id = "gemini-3.1-flash-tts-preview"
+        model_id = "gemini-3.8-flash-tts"
         audio_content_type = "audio/wav"
 
         def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:

@@ -12,4 +12,4 @@ rq
 uvicorn[standard]
 pytest
 llama-cloud
-weasyprint
+playwright

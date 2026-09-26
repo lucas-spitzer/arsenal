@@ -44,9 +44,10 @@ Infrastructure variables have defaults (see `.env.example`).
 | `extract-knowledge` | `ANTHROPIC_API_KEY`, `LLM_EXTRACT_KNOWLEDGE_PROVIDER`, `LLM_EXTRACT_KNOWLEDGE_MODEL`, `EXTRACT_MAX_ENTRIES_PER_{CHAPTER,DOCUMENT}`, `EXTRACT_MIN_{CONFIDENCE,SELECTION_SCORE}`, `EXTRACT_{ESSENTIAL,SUPPORTING}_FRACTION`, `EXTRACT_EMBEDDING_DEDUP`, `EXTRACT_EMBEDDING_{MODEL,SIMILARITY_THRESHOLD}` | LLM factory action + wiki-entry selection bands (0 = no cap/gate) + comparative importance fractions + optional embedding dedup |
 | `generate-flashcards` / `generate-questions` / `generate-scenarios` | `DRAFT_MODEL`, `CRITIQUE_MODEL`, `LLM_QNGEN_{DRAFT,CRITIQUE}_PROVIDER`, `CONCEPT_BATCH_SIZE`, `QNGEN_MAX_REPAIR_TURNS`, `QNGEN_FLASHCARDS_PER_CHAPTER_{MIN,MAX}`, `QNGEN_SCENARIOS_PER_CHAPTER_{MIN,MAX}` | Blueprint-driven generation (per-chapter count bands) + draft + critique + grounding-repair passes |
 | `create-ebook` | — | Deterministic EPUB build |
-| `generate-narration` | `SPEECHIFY_API_KEY`, `ELEVENLABS_API_KEY`, `CARTESIA_API_KEY`, and/or `GEMINI_API_KEY`; `AUDIO_NARRATION_MODEL`, `AUDIO_NARRATION_VOICE_ID` | Default TTS is Speechify (`simba-3.2` / `hugh_32`). Model prefix selects the provider: `eleven*` → ElevenLabs, `sonic*` → Cartesia, `gemini*` → Gemini TTS. |
+| `generate-narration` | `SPEECHIFY_API_KEY`, `ELEVENLABS_API_KEY`, `CARTESIA_API_KEY`, and/or `GEMINI_API_KEY`; `AUDIO_NARRATION_MODEL`, `AUDIO_NARRATION_VOICE_ID` | Default TTS is Gemini 3.8 Flash TTS (`gemini-3.8-flash-tts` / `Sadaltager`). Model prefix selects the provider: `eleven*` → ElevenLabs, `sonic*` → Cartesia, `gemini*` → Gemini TTS. |
+| Study Material (Design tab) | `STUDY_MATERIAL_MODEL`, `STUDY_MATERIAL_ORCHESTRATOR_MODEL`, `STUDY_MATERIAL_IMAGE_PROVIDER`, `STUDY_MATERIAL_{OPENAI,GOOGLE}_IMAGE_MODEL`, `STUDY_MATERIAL_MAX_FILE_BYTES`, `STUDY_MATERIAL_MAX_FILES_PER_COMPONENT`, `STUDY_MATERIAL_JOB_TIMEOUT` | Diagrams and text share `STUDY_MATERIAL_MODEL` (default `gpt-6-sol`). Images default to OpenAI `gpt-image-2.5-flare` (Google default `gemini-3.1-flash-image`). Rendering and PDF need Playwright Chromium (see below). |
 
-Each LLM action has a dedicated model env var (`SOURCE_RESEARCH_MODEL`, `SOURCE_WEB_ENRICHMENT_MODEL`, `WIKI_STRUCTURING_MODEL`, `WIKI_REVISE_MODEL`, `DRAFT_MODEL`, `CRITIQUE_MODEL`, `READER_DEFINE_MODEL`, `STUDY_SHEET_MODEL`). Optional `LLM_<ACTION>_PROVIDER` overrides the registry provider. Defaults and supported actions live in [`app/llm_actions.py`](app/llm_actions.py).
+Each LLM action has a dedicated model env var (`SOURCE_RESEARCH_MODEL`, `SOURCE_WEB_ENRICHMENT_MODEL`, `WIKI_STRUCTURING_MODEL`, `WIKI_REVISE_MODEL`, `DRAFT_MODEL`, `CRITIQUE_MODEL`, `READER_DEFINE_MODEL`, `STUDY_MATERIAL_MODEL`, `STUDY_MATERIAL_ORCHESTRATOR_MODEL`). Optional `LLM_<ACTION>_PROVIDER` overrides the registry provider. Defaults and supported actions live in [`app/llm_actions.py`](app/llm_actions.py).
 
 `SUPABASE_ANON_KEY` may be used instead of `SUPABASE_PUBLISHABLE_KEY` for older Supabase projects.
 
@@ -223,20 +224,53 @@ Supported `target_artifacts` values:
 - `narration_audio` — Mathesys generate-narration (timed clips + manifest per source)
 - `wiki_json` — Mathesys export-wiki-json (curated wiki snapshot per source)
 - `wiki_knowledge` — Intellex transcribe-wiki-notes + structure-wiki-notes (canonical wiki entries from each selected source file)
-- `study_sheet` — Mathesys generate-study-sheet (one- or two-page PDF from the source file)
 - `flashcards` — QnGen generate-flashcards
 - `quizzes` — QnGen generate-questions
 - `scenarios` — QnGen generate-scenarios
 
-The PDF lands at `{workspace_slug}/{source_slug}/sheet.pdf`. Markdown sources skip Intellex ingest and still generate a sheet from the original file.
-
 Full pipeline worker behavior:
 
-- always completes Intellex ingest (`store`, `parse`, `normalize-document`, `trim-document-boundaries`, `structure-document`, `validate-structure`, `chunk`, `source-research`, `web-enrichment`); reuses prior ingest/Intellex results when a source was already processed; skips Intellex for markdown sources (study sheets still generate from the original file)
+- always completes Intellex ingest (`store`, `parse`, `normalize-document`, `trim-document-boundaries`, `structure-document`, `validate-structure`, `chunk`, `source-research`, `web-enrichment`); reuses prior ingest/Intellex results when a source was already processed; skips Intellex for markdown sources
 - when `wiki_knowledge` is a target, inserts one ingest batch per source (attachments point at the existing source object), then runs `transcribe-wiki-notes` (markdown passthrough; skipped when notes are already filled or there are no files) then `structure-wiki-notes` (writes canonical wiki entries)
 - optionally runs Mathesys stages and QnGen stages based on `target_artifacts`
 - promotes artifacts and assessment entities
 - marks production run `completed` when finished
+
+## Study Material
+
+The Foundry **Design** tab builds printable study material from a predefined template, a predefined theme, and generated Text, Diagram, and Image components. Themes and templates are JSON in [`app/mathesys/study_material/catalog/`](app/mathesys/study_material/catalog/).
+
+Rendering and PDF output use headless Chromium through Playwright. Install the browser once per machine (the worker and API both render):
+
+```bash
+cd api
+source .venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+```
+
+Endpoints:
+
+```text
+GET    /study-material/catalog
+GET    /study-material/assets/{path}                 (public theme logos)
+GET    /workspaces/{workspace_id}/study-materials
+POST   /workspaces/{workspace_id}/study-materials
+GET    /study-materials/{id}
+PATCH  /study-materials/{id}
+DELETE /study-materials/{id}
+POST   /study-materials/{id}/components
+PATCH  /study-materials/{id}/components/{component_id}
+DELETE /study-materials/{id}/components/{component_id}
+POST   /study-materials/{id}/components/{component_id}/files
+DELETE /study-materials/{id}/components/{component_id}/files/{file_id}
+POST   /study-materials/{id}/generate                 (production run, worker job)
+GET    /study-materials/{id}/draft                    (rendered HTML preview)
+POST   /study-materials/{id}/finalize                 (validate, print PDF, add to Library)
+POST   /study-materials/{id}/reopen
+```
+
+Generate creates a sourceless production run (`target_artifacts: ["study_material"]`, `label` = title) with steps `generate-diagrams`, `generate-images`, `generate-text`, `introduce-theme`, `organize-components`, `orchestrate-layout`. Components that already have an active version are kept; editing a component's instructions, settings, or files clears it so the next run regenerates it. Finalize appends `render-pdf` to the same run and writes `{workspace_slug}/study-material/{slug}/material.pdf` and `material.html`.
 
 ## Tests
 

@@ -12,14 +12,13 @@ from dataclasses import dataclass
 from app.tts_defaults import (
     AUDIO_NARRATION_ACTION,
     DEFAULT_NARRATION_MODEL,
-    DEFAULT_NARRATION_VOICE_ID,
     tts_provider_for_model,
 )
 
 ELEVENLABS_DEFAULT_VOICE_ID = "4YYIPFl9wE5c4L2eu2Gb"
 CARTESIA_DEFAULT_VOICE_ID = "4df027cb-2920-4a1f-8c34-f21529d5c3fe"
 CARTESIA_JAMESON_VOICE_ID = "a5136bf9-224c-4d76-b823-52bd5efcffcc"
-GEMINI_DEFAULT_VOICE_ID = "Kore"
+GEMINI_DEFAULT_VOICE_ID = "Sadaltager"
 GEMINI_SADALTAGER_VOICE_ID = "Sadaltager"
 
 # Speechify Starter / PAYG list: $10 / 1M characters.
@@ -34,11 +33,17 @@ ELEVENLABS_V3_LIST_PRICE_PER_MILLION = 100.00
 # https://docs.cartesia.ai/pricing — Scale is ~$37.38 ($299 / 8M credits).
 CARTESIA_SONIC_LIST_PRICE_PER_MILLION = 50.00
 
-# Gemini 3.1 Flash TTS has no per-character list price. Paid tier is $1.00 / 1M
-# text-input tokens and $20.00 / 1M audio-output tokens (25 audio tokens/sec
-# ≈ $0.03/min). At 750 chars/min that converts to $40 / 1M characters.
+# Gemini TTS has no per-character list price. Paid standard audio output is
+# billed at 25 tokens/sec. At 750 chars/min that converts output to a
+# per-character sticker (input tokens are a rounding error next to audio).
+# Rates below are the introductory paid tier through 2026-12-31. On 2027-01-01
+# both output prices double ($18 and $12 per 1M audio tokens), which would
+# make these stickers $36 and $24.
 # https://ai.google.dev/gemini-api/docs/pricing
-GEMINI_FLASH_TTS_LIST_PRICE_PER_MILLION = 40.00
+# Flash: $9 / 1M audio tokens ≈ $0.0135/min → $18 / 1M characters.
+GEMINI_38_FLASH_TTS_LIST_PRICE_PER_MILLION = 18.00
+# Flash-Lite: $6 / 1M audio tokens ≈ $0.009/min → $12 / 1M characters.
+GEMINI_38_FLASH_LITE_TTS_LIST_PRICE_PER_MILLION = 12.00
 
 SIMBA_32_VOICES: tuple[tuple[str, str], ...] = (
     ("hugh_32", "Hugh"),
@@ -78,7 +83,7 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         model="simba-3.2",
         provider="speechify",
         display_name="Simba 3.2",
-        default_voice_id=DEFAULT_NARRATION_VOICE_ID,
+        default_voice_id="hugh_32",
         voices=_voices(*SIMBA_32_VOICES),
         price_per_million=SPEECHIFY_LIST_PRICE_PER_MILLION,
         capability_tier=1,
@@ -105,16 +110,28 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         capability_tier=4,
     ),
     TtsCatalogModel(
-        model="gemini-3.1-flash-tts-preview",
+        model="gemini-3.8-flash-tts",
         provider="google",
-        display_name="Gemini 3.1 Flash TTS",
+        display_name="Gemini 3.8 Flash TTS",
         default_voice_id=GEMINI_DEFAULT_VOICE_ID,
         voices=_voices(
-            (GEMINI_DEFAULT_VOICE_ID, "Kore"),
+            ("Kore", "Kore"),
             (GEMINI_SADALTAGER_VOICE_ID, "Sadaltager"),
         ),
-        price_per_million=GEMINI_FLASH_TTS_LIST_PRICE_PER_MILLION,
+        price_per_million=GEMINI_38_FLASH_TTS_LIST_PRICE_PER_MILLION,
         capability_tier=3,
+    ),
+    TtsCatalogModel(
+        model="gemini-3.8-flash-lite-tts",
+        provider="google",
+        display_name="Gemini 3.8 Flash-Lite TTS",
+        default_voice_id=GEMINI_DEFAULT_VOICE_ID,
+        voices=_voices(
+            ("Kore", "Kore"),
+            (GEMINI_SADALTAGER_VOICE_ID, "Sadaltager"),
+        ),
+        price_per_million=GEMINI_38_FLASH_LITE_TTS_LIST_PRICE_PER_MILLION,
+        capability_tier=2,
     ),
 )
 
@@ -148,7 +165,7 @@ def default_voice_for_model(model: str | None) -> str:
         return CARTESIA_DEFAULT_VOICE_ID
     if provider == "google":
         return GEMINI_DEFAULT_VOICE_ID
-    return DEFAULT_NARRATION_VOICE_ID
+    return "hugh_32"
 
 
 def tts_catalog_list_price(model: str | None) -> float | None:

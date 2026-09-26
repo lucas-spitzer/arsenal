@@ -15,6 +15,7 @@ from app.repositories.sources import SourceRepository
 from app.repositories.stage_runs import StageRunRepository
 from app.repositories.stage_settings import StageSettingsRepository
 from app.repositories.stages import StageRepository
+from app.repositories.study_materials import StudyMaterialRepository
 from app.repositories.wiki_entries import WikiEntryRepository
 from app.repositories.wiki_ingest_batches import WikiIngestBatchRepository
 from app.repositories.workspaces import WorkspaceRepository
@@ -101,6 +102,12 @@ def get_artifact_repository(
     db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
 ) -> ArtifactRepository:
     return ArtifactRepository(db)
+
+
+def get_study_material_repository(
+    db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
+) -> StudyMaterialRepository:
+    return StudyMaterialRepository(db)
 
 
 def get_assessment_repository(

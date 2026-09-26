@@ -6,7 +6,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from app.llm_actions import LLM_ACTION_BY_KEY, LLM_GLOBAL_DEFAULT
-from app.llm_defaults import DEFAULT_OPENAI_MODEL
+from app.llm_defaults import (
+    DEFAULT_OPENAI_MODEL,
+    GEMINI_31_FLASH_IMAGE_MODEL,
+    OPENAI_IMAGE_FLARE_MODEL,
+)
 from app.tts_defaults import (
     CARTESIA_MAX_SEGMENT_CHARS,
     DEFAULT_NARRATION_MODEL,
@@ -213,8 +217,14 @@ class NarrationSettings:
 
 
 @dataclass(frozen=True)
-class StudySheetSettings:
-    max_attempts: int
+class StudyMaterialSettings:
+    # Image components default to this provider; each component can switch.
+    image_provider: str
+    openai_image_model: str
+    google_image_model: str
+    max_file_bytes: int
+    max_files_per_component: int
+    job_timeout: str
 
 
 @dataclass(frozen=True)
@@ -238,7 +248,7 @@ class Settings:
     assistant: AssistantSettings
     narration: NarrationSettings
     qngen: QnGenSettings
-    study_sheet: StudySheetSettings
+    study_material: StudyMaterialSettings
 
     # Backward-compatible flat accessors for existing call sites.
     @property
@@ -383,8 +393,21 @@ def _get_settings_cached() -> Settings:
             scenarios_per_chapter_min=int(os.getenv("QNGEN_SCENARIOS_PER_CHAPTER_MIN", "1")),
             scenarios_per_chapter_max=int(os.getenv("QNGEN_SCENARIOS_PER_CHAPTER_MAX", "3")),
         ),
-        study_sheet=StudySheetSettings(
-            max_attempts=int(os.getenv("STUDY_SHEET_MAX_ATTEMPTS", "3")),
+        study_material=StudyMaterialSettings(
+            image_provider=os.getenv("STUDY_MATERIAL_IMAGE_PROVIDER", "openai").strip().lower(),
+            openai_image_model=os.getenv(
+                "STUDY_MATERIAL_OPENAI_IMAGE_MODEL",
+                OPENAI_IMAGE_FLARE_MODEL,
+            ),
+            google_image_model=os.getenv(
+                "STUDY_MATERIAL_GOOGLE_IMAGE_MODEL",
+                GEMINI_31_FLASH_IMAGE_MODEL,
+            ),
+            max_file_bytes=int(
+                os.getenv("STUDY_MATERIAL_MAX_FILE_BYTES", str(20 * 1024 * 1024)),
+            ),
+            max_files_per_component=int(os.getenv("STUDY_MATERIAL_MAX_FILES_PER_COMPONENT", "5")),
+            job_timeout=os.getenv("STUDY_MATERIAL_JOB_TIMEOUT", "30m"),
         ),
     )
 

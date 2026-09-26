@@ -60,7 +60,7 @@ describe('narration artifact progress', () => {
     ).toBe(false)
     expect(
       isIncompleteNarrationArtifact(
-        artifact({ artifact_type: 'study_sheet', manifest: { status: 'in_progress' } }),
+        artifact({ artifact_type: 'study_material', manifest: { status: 'in_progress' } }),
       ),
     ).toBe(false)
   })
@@ -71,7 +71,7 @@ describe('narration artifact progress', () => {
         id: `art-${n}`,
         production_run_id: `run-${n}`,
         created_at: `2026-01-0${n}T00:00:00Z`,
-        manifest: { voice_id: 'Kore', model_id: 'gemini-3.1-flash-tts-preview' },
+        manifest: { voice_id: 'Kore', model_id: 'gemini-3.8-flash-tts' },
       }),
     )
     const visible = collapseDuplicateNarrationArtifacts(rows).filter(
@@ -127,7 +127,7 @@ describe('library artifact cards', () => {
     ).toBe('1m 30s')
   })
 
-  it('names ebooks and study sheets by count', () => {
+  it('names ebooks by count and study material by title', () => {
     expect(
       artifactLibraryCard(
         artifact({
@@ -142,12 +142,13 @@ describe('library artifact cards', () => {
     expect(
       artifactLibraryCard(
         artifact({
-          artifact_type: 'study_sheet',
+          artifact_type: 'study_material',
+          source_id: null,
           format: 'pdf',
-          filename: 'sheet.pdf',
-          manifest: { title: 'Warfighting', page_count: 8 },
+          filename: 'material.pdf',
+          manifest: { title: 'Land Navigation', template_name: 'Branded Sheet' },
         }),
       ),
-    ).toMatchObject({ chipLabel: 'Sheet', title: '8 pages', isStudySheet: true })
+    ).toMatchObject({ chipLabel: 'Material', title: 'Land Navigation', isStudyMaterial: true })
   })
 })

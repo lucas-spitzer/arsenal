@@ -6,10 +6,12 @@ Layout (no UUIDs in keys):
     {workspace_slug}/{source_slug}/book.epub
     {workspace_slug}/{source_slug}/narration.json
     {workspace_slug}/{source_slug}/wiki.json
-    {workspace_slug}/{source_slug}/sheet.pdf
     {workspace_slug}/{source_slug}/audio/{provider}/{model_id}/{voice_id}/{clip}
     {workspace_slug}/{source_slug}/work/{parse.md|pages.json|normalized.json|trimmed.json|book.json}
     {workspace_slug}/drafts/{batch_slug}/{file}
+    {workspace_slug}/study-material/{material_slug}/files/{component_id}/{file}
+    {workspace_slug}/study-material/{material_slug}/components/{component_id}/v{n}.{png|svg|html}
+    {workspace_slug}/study-material/{material_slug}/{draft.html|material.html|material.pdf}
 """
 
 from __future__ import annotations
@@ -23,8 +25,11 @@ OUTPUT_FILENAMES = {
     "electronic_book": "book.epub",
     "narration_audio": "narration.json",
     "wiki_json": "wiki.json",
-    "study_sheet": "sheet.pdf",
 }
+
+STUDY_MATERIAL_DRAFT = "draft.html"
+STUDY_MATERIAL_FINAL_HTML = "material.html"
+STUDY_MATERIAL_FINAL_PDF = "material.pdf"
 
 WORK_PARSE = "parse.md"
 WORK_PAGES = "pages.json"
@@ -99,6 +104,35 @@ def audio_clip_path(
 
 def drafts_path(workspace_slug: str, batch_slug: str, filename: str) -> str:
     return f"{workspace_slug}/drafts/{batch_slug}/{filename}"
+
+
+def study_material_folder(workspace_slug: str, material_slug: str) -> str:
+    return f"{workspace_slug}/study-material/{material_slug}"
+
+
+def study_material_file_path(
+    workspace_slug: str,
+    material_slug: str,
+    component_id: str,
+    filename: str,
+) -> str:
+    folder = study_material_folder(workspace_slug, material_slug)
+    return f"{folder}/files/{component_id}/{filename}"
+
+
+def study_material_component_output_path(
+    workspace_slug: str,
+    material_slug: str,
+    component_id: str,
+    version: int,
+    extension: str,
+) -> str:
+    folder = study_material_folder(workspace_slug, material_slug)
+    return f"{folder}/components/{component_id}/v{version}.{extension.lstrip('.')}"
+
+
+def study_material_output_path(workspace_slug: str, material_slug: str, filename: str) -> str:
+    return f"{study_material_folder(workspace_slug, material_slug)}/{filename}"
 
 
 def location_from_source(source: dict[str, Any]) -> tuple[str, str]:

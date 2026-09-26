@@ -31,7 +31,8 @@ def test_tts_provider_for_model() -> None:
     assert tts_provider_for_model("eleven_v3") == "elevenlabs"
     assert tts_provider_for_model("eleven_multilingual_v2") == "elevenlabs"
     assert tts_provider_for_model("sonic-3.6") == "cartesia"
-    assert tts_provider_for_model("gemini-3.1-flash-tts-preview") == "google"
+    assert tts_provider_for_model("gemini-3.8-flash-tts") == "google"
+    assert tts_provider_for_model("gemini-3.8-flash-lite-tts") == "google"
 
 
 def test_tts_catalog_ships_simba_eleven_sonic_and_gemini() -> None:
@@ -40,12 +41,14 @@ def test_tts_catalog_ships_simba_eleven_sonic_and_gemini() -> None:
         "simba-3.2",
         "eleven_v3",
         "sonic-3.6",
-        "gemini-3.1-flash-tts-preview",
+        "gemini-3.8-flash-tts",
+        "gemini-3.8-flash-lite-tts",
     }
     simba = get_tts_catalog_model("simba-3.2")
     eleven = get_tts_catalog_model("eleven_v3")
     sonic = get_tts_catalog_model("sonic-3.6")
-    gemini = get_tts_catalog_model("gemini-3.1-flash-tts-preview")
+    flash = get_tts_catalog_model("gemini-3.8-flash-tts")
+    lite = get_tts_catalog_model("gemini-3.8-flash-lite-tts")
     assert simba is not None and simba.price_per_million == 10.0
     assert simba.capability_tier == 1
     assert eleven is not None and eleven.price_per_million == 100.0
@@ -56,10 +59,14 @@ def test_tts_catalog_ships_simba_eleven_sonic_and_gemini() -> None:
     assert sonic.capability_tier == 4
     assert sonic.provider == "cartesia"
     assert [voice.display_name for voice in sonic.voices] == ["Carson", "Jameson"]
-    assert gemini is not None and gemini.price_per_million == 40.0
-    assert gemini.capability_tier == 3
-    assert gemini.provider == "google"
-    assert [voice.display_name for voice in gemini.voices] == ["Kore", "Sadaltager"]
+    assert flash is not None and flash.price_per_million == 18.0
+    assert flash.capability_tier == 3
+    assert flash.provider == "google"
+    assert flash.display_name == "Gemini 3.8 Flash TTS"
+    assert [voice.display_name for voice in flash.voices] == ["Kore", "Sadaltager"]
+    assert lite is not None and lite.price_per_million == 12.0
+    assert lite.capability_tier == 2
+    assert lite.display_name == "Gemini 3.8 Flash-Lite TTS"
     assert get_tts_catalog_model("simba-3.0") is None
     assert get_tts_catalog_model("eleven_multilingual_v2") is None
 
@@ -79,14 +86,20 @@ def test_tts_list_prices_per_million_characters(monkeypatch: pytest.MonkeyPatch)
     )
     gemini = cost_tts_usage(
         provider="google",
-        model="gemini-3.1-flash-tts-preview",
+        model="gemini-3.8-flash-tts",
+        character_count=1_000_000,
+    )
+    lite = cost_tts_usage(
+        provider="google",
+        model="gemini-3.8-flash-lite-tts",
         character_count=1_000_000,
     )
 
     assert speechify["cost_usd"] == 10.0
     assert eleven["cost_usd"] == 100.0
     assert cartesia["cost_usd"] == 50.0
-    assert gemini["cost_usd"] == 40.0
+    assert gemini["cost_usd"] == 18.0
+    assert lite["cost_usd"] == 12.0
 
 
 def test_words_from_speech_marks_converts_ms_to_seconds() -> None:
@@ -176,7 +189,7 @@ def test_get_tts_client_routes_by_model(monkeypatch: pytest.MonkeyPatch) -> None
         model="sonic-3.6",
         voice_id="4df027cb-2920-4a1f-8c34-f21529d5c3fe",
     )
-    gemini = get_tts_client(model="gemini-3.1-flash-tts-preview", voice_id="Kore")
+    gemini = get_tts_client(model="gemini-3.8-flash-tts", voice_id="Kore")
 
     assert speechify.provider == "speechify"
     assert speechify.voice_id == "hugh_32"
@@ -403,7 +416,7 @@ def test_gemini_tts_even_spread(monkeypatch: pytest.MonkeyPatch) -> None:
 
     class _FakeModels:
         def generate_content(self, **kwargs: Any) -> _Response:
-            assert kwargs["model"] == "gemini-3.1-flash-tts-preview"
+            assert kwargs["model"] == "gemini-3.8-flash-tts"
             assert kwargs["contents"] == "Hello world"
             return _Response()
 
@@ -413,7 +426,7 @@ def test_gemini_tts_even_spread(monkeypatch: pytest.MonkeyPatch) -> None:
     client = GeminiTtsClient(
         api_key="k",
         voice_id="Kore",
-        model_id="gemini-3.1-flash-tts-preview",
+        model_id="gemini-3.8-flash-tts",
         client=_FakeGenai(),
     )
     result = client.synthesize_with_timestamps("Hello world")
@@ -426,6 +439,52 @@ def test_gemini_tts_even_spread(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.duration_seconds == 1.0
     assert result.character_cost == 11
     assert result.alignment_source == "estimated"
+
+    get_settings.cache_clear()
+
+
+def test_gemini_tts_keeps_wav_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+
+    wav = pcm_s16le_to_wav(b"\x00\x00" * 24000, sample_rate=24000)
+
+    class _Inline:
+        data = wav
+        mime_type = "audio/wav"
+
+    class _Part:
+        inline_data = _Inline()
+
+    class _Content:
+        parts = [_Part()]
+
+    class _Candidate:
+        content = _Content()
+
+    class _Response:
+        candidates = [_Candidate()]
+
+    class _FakeModels:
+        def generate_content(self, **kwargs: Any) -> _Response:
+            del kwargs
+            return _Response()
+
+    class _FakeGenai:
+        models = _FakeModels()
+
+    client = GeminiTtsClient(
+        api_key="k",
+        voice_id="Kore",
+        model_id="gemini-3.8-flash-lite-tts",
+        client=_FakeGenai(),
+    )
+    result = client.synthesize_with_timestamps("Hello world")
+
+    assert result.audio == wav
+    assert result.duration_seconds == 1.0
 
     get_settings.cache_clear()
 
@@ -473,7 +532,7 @@ def test_gemini_tts_retries_invalid_argument(monkeypatch: pytest.MonkeyPatch) ->
     client = GeminiTtsClient(
         api_key="k",
         voice_id="Kore",
-        model_id="gemini-3.1-flash-tts-preview",
+        model_id="gemini-3.8-flash-tts",
         max_retries=3,
         client=_FakeGenai(),
     )

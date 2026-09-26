@@ -53,6 +53,7 @@ Do **not** re-run `01`–`04` on a database that already has Foundry tables. App
 | File | Purpose |
 |------|---------|
 | `alter-wiki-ingest-file-ingest.sql` | Wiki file-ingest columns + transcription statuses on `wiki_ingest_batches` |
+| `../maintenance/alter-study-material.sql` | Study Material tables, stages, bucket MIME types, and the `study_sheet` → `study_material` artifact type swap |
 | `alter-drop-artifacts-bucket.sql` | Docs only — purge legacy `artifacts` storage bucket via Storage API / Dashboard after migrating into `sources` |
 | `restore-stages.sql` | Re-run `03-seed-stages.sql` to repair `stages` |
 

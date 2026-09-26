@@ -13,9 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.llm_defaults import (
-    GEMINI_37_FLASH_MODEL,
-    GPT_56_LUNA_MODEL,
-    GPT_56_TERRA_MODEL,
+    GPT_6_LUNA_MODEL,
+    GPT_6_SOL_MODEL,
     SONNET_5_MODEL,
 )
 
@@ -34,7 +33,7 @@ LLM_ACTIONS: tuple[LLMAction, ...] = (
         "source_research",
         "Source Research",
         "openai",
-        GPT_56_LUNA_MODEL,
+        GPT_6_LUNA_MODEL,
         "SOURCE_RESEARCH_MODEL",
     ),
     # Needs a provider/model with server-side web search support.
@@ -49,21 +48,21 @@ LLM_ACTIONS: tuple[LLMAction, ...] = (
         "wiki_structuring",
         "Wiki Structuring",
         "openai",
-        GPT_56_TERRA_MODEL,
+        GPT_6_SOL_MODEL,
         "WIKI_STRUCTURING_MODEL",
     ),
     LLMAction(
         "wiki_revise",
         "Wiki Revise",
         "openai",
-        GPT_56_TERRA_MODEL,
+        GPT_6_SOL_MODEL,
         "WIKI_REVISE_MODEL",
     ),
     LLMAction(
         "qngen_draft",
         "Assessment Draft",
         "openai",
-        GPT_56_LUNA_MODEL,
+        GPT_6_LUNA_MODEL,
         "DRAFT_MODEL",
     ),
     LLMAction(
@@ -77,15 +76,22 @@ LLM_ACTIONS: tuple[LLMAction, ...] = (
         "reader_define",
         "Reader Define",
         "openai",
-        GPT_56_LUNA_MODEL,
+        GPT_6_LUNA_MODEL,
         "READER_DEFINE_MODEL",
     ),
     LLMAction(
-        "study_sheet",
-        "Study Sheet",
-        "google",
-        GEMINI_37_FLASH_MODEL,
-        "STUDY_SHEET_MODEL",
+        "study_material",
+        "Study Material",
+        "openai",
+        GPT_6_SOL_MODEL,
+        "STUDY_MATERIAL_MODEL",
+    ),
+    LLMAction(
+        "study_material_orchestrator",
+        "Study Material Orchestrator",
+        "openai",
+        GPT_6_SOL_MODEL,
+        "STUDY_MATERIAL_ORCHESTRATOR_MODEL",
     ),
 )
 

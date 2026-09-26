@@ -13,6 +13,7 @@ class ProductionRunResponse(BaseModel):
     id: str
     workspace_id: str
     owner_id: str
+    label: str | None = None
     source_ids: list[str]
     target_artifacts: list[str]
     pipeline: list[dict[str, Any]]

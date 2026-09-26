@@ -1,0 +1,20 @@
+{
+  "id": "index-card-cutout",
+  "name": "Index Card Cutout",
+  "description": "Eight cut-out cards (2 × 4) on one sheet. Each card carries its own fine-print disclaimer so it stays attached after cutting.",
+  "orientation": "portrait",
+  "page": { "size": "Letter", "width_in": 8.5, "height_in": 11, "margin_in": 0.25 },
+  "type": { "body_pt": 9, "title_pt": 14 },
+  "disclaimer": "per_section",
+  "cut_lines": true,
+  "sections": [
+    { "id": "card_1", "label": "Card 1", "kind": "flexible", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 0, "w": 50, "h": 25 } },
+    { "id": "card_2", "label": "Card 2", "kind": "flexible", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 0, "w": 50, "h": 25 } },
+    { "id": "card_3", "label": "Card 3", "kind": "flexible", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 25, "w": 50, "h": 25 } },
+    { "id": "card_4", "label": "Card 4", "kind": "flexible", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 25, "w": 50, "h": 25 } },
+    { "id": "card_5", "label": "Card 5", "kind": "flexible", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 50, "w": 50, "h": 25 } },
+    { "id": "card_6", "label": "Card 6", "kind": "flexible", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 50, "w": 50, "h": 25 } },
+    { "id": "card_7", "label": "Card 7", "kind": "flexible", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 75, "w": 50, "h": 25 } },
+    { "id": "card_8", "label": "Card 8", "kind": "flexible", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 75, "w": 50, "h": 25 } }
+  ]
+}

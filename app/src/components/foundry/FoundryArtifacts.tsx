@@ -9,6 +9,7 @@ import {
   narrationArtifactStatusLabel,
   sourceTitle,
 } from '../../lib/foundryMappers'
+import { isStudyMaterialArtifact } from '../../lib/academyOutputs'
 import { sourceBibliographicTitle, sourceDisplayName } from '../../lib/sourceDisplay'
 import type { Artifact } from '../../lib/workspaceApi'
 import { FoundryViewToggle } from './FoundryViewToggle'
@@ -28,19 +29,16 @@ function isRawAudioArtifact(artifact: Artifact): boolean {
   )
 }
 
-function isStudySheetArtifact(artifact: Artifact): boolean {
-  return artifact.artifact_type === 'study_sheet'
-}
 
 function artifactOpenLabel(artifact: Artifact): string {
-  if (isRawAudioArtifact(artifact) || isStudySheetArtifact(artifact)) return 'Download'
+  if (isRawAudioArtifact(artifact) || isStudyMaterialArtifact(artifact)) return 'Download'
   return 'Open'
 }
 
 function canOpenArtifact(artifact: Artifact): boolean {
   return (
     isRawAudioArtifact(artifact) ||
-    isStudySheetArtifact(artifact) ||
+    isStudyMaterialArtifact(artifact) ||
     Boolean(artifact.source_id)
   )
 }
@@ -96,7 +94,7 @@ export function FoundryArtifacts() {
   }
 
   const handleOpen = (artifact: Artifact) => {
-    if (isRawAudioArtifact(artifact) || isStudySheetArtifact(artifact)) {
+    if (isRawAudioArtifact(artifact) || isStudyMaterialArtifact(artifact)) {
       void handleDownload(artifact.id)
       return
     }

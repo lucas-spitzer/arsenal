@@ -22,6 +22,7 @@ const KIND_META: Record<
   { cls: string; icon: typeof Layers }
 > = {
   artifact: { cls: 'lib__tchip--art', icon: Headphones },
+  material: { cls: 'lib__tchip--mat', icon: FileText },
   flashcard: { cls: 'lib__tchip--flash', icon: Layers },
   question: { cls: 'lib__tchip--q', icon: HelpCircle },
   scenario: { cls: 'lib__tchip--scn', icon: Lightbulb },
@@ -31,13 +32,13 @@ const KIND_META: Record<
 function cardIcon(item: OutputItem): typeof Layers {
   if (item.kind !== 'artifact') return KIND_META[item.kind].icon
   if (item.isEbook) return BookOpen
-  if (item.isStudySheet) return FileText
   return Headphones
 }
 
 function openLabel(item: OutputItem): string {
+  if (item.kind === 'material') return 'Download'
   if (item.kind === 'artifact') {
-    if (item.isAudio || item.isStudySheet) return 'Download'
+    if (item.isAudio) return 'Download'
     return 'Open'
   }
   if (item.kind === 'flashcard') return 'Study'
@@ -82,8 +83,12 @@ export function LibraryView({
   }, [filtered, sort])
 
   const handleOpen = (item: OutputItem) => {
+    if (item.kind === 'material') {
+      void downloadArtifact(item.id)
+      return
+    }
     if (item.kind === 'artifact') {
-      if (item.isAudio || item.isStudySheet) void downloadArtifact(item.id)
+      if (item.isAudio) void downloadArtifact(item.id)
       else if (item.sourceId) navigate(`/app/reader/${item.sourceId}`)
       return
     }
@@ -95,7 +100,7 @@ export function LibraryView({
       <StudyHead
         eyebrow="Workspace catalog"
         title="Library"
-        description="Search, filter, and open every artifact, wiki entry, flashcard, question, and scenario in this workspace."
+        description="Search, filter, and open every artifact, study material, wiki entry, flashcard, question, and scenario in this workspace."
         stats={[
           { value: filtered.length, label: 'outputs' },
           { value: sources.length, label: 'sources' },
@@ -112,7 +117,7 @@ export function LibraryView({
         sort={sort}
         onSort={setSort}
         sources={sources}
-        searchPlaceholder="Search flashcards, questions, scenarios, wiki, artifacts…"
+        searchPlaceholder="Search flashcards, questions, scenarios, wiki, artifacts, study material…"
       />
 
       {filtered.length === 0 ? (
@@ -158,7 +163,7 @@ function CardGrid({
         const Icon = cardIcon(item)
         const focused = isFocused(focus, item)
         const chip = outputChipLabel(item)
-        const spec = item.kind === 'artifact'
+        const spec = item.kind === 'artifact' || item.kind === 'material'
         return (
           <article key={`${item.kind}-${item.id}`} className="lib__card">
             <div className="lib__card-top">

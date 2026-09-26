@@ -1,4 +1,10 @@
-from app.pipeline import build_pipeline, derive_qngen_assessment_types
+from app.pipeline import (
+    STUDY_MATERIAL_TARGET,
+    SUPPORTED_TARGET_ARTIFACTS,
+    build_pipeline,
+    build_study_material_pipeline,
+    derive_qngen_assessment_types,
+)
 
 
 def test_build_pipeline_always_includes_intellex_steps() -> None:
@@ -82,12 +88,23 @@ def test_wiki_json_target_maps_to_export_stage() -> None:
     assert export_step["stage_id"] == "export-wiki-json"
 
 
-def test_study_sheet_target_maps_to_generate_stage() -> None:
-    pipeline = build_pipeline(["study_sheet"])
-    sheet_step = next(step for step in pipeline if step["step"] == "generate-study-sheet")
+def test_study_sheet_is_no_longer_a_target() -> None:
+    assert "study_sheet" not in SUPPORTED_TARGET_ARTIFACTS
+    assert all(step["step"] != "generate-study-sheet" for step in build_pipeline(["study_sheet"]))
 
-    assert sheet_step["module"] == "mathesys"
-    assert sheet_step["stage_id"] == "generate-study-sheet"
+
+def test_study_material_pipeline_generates_visuals_before_text() -> None:
+    steps = [step["step"] for step in build_study_material_pipeline()]
+
+    assert steps == [
+        "generate-diagrams",
+        "generate-images",
+        "generate-text",
+        "introduce-theme",
+        "organize-components",
+        "orchestrate-layout",
+    ]
+    assert STUDY_MATERIAL_TARGET not in SUPPORTED_TARGET_ARTIFACTS
 
 
 def test_derive_qngen_assessment_types() -> None:

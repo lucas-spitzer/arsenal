@@ -2349,6 +2349,7 @@
 .lib__tchip--q { background: #e0e7ea; color: #13384a; }
 .lib__tchip--scn { background: #f3e0e0; color: #7a1414; }
 .lib__tchip--art { background: #ececec; color: #3c3c3c; }
+.lib__tchip--mat { background: #001e2e; color: var(--color-white); }
 .lib__tchip--wiki { background: #e4ece4; color: #1f4a28; }
 
 .lib__pv {

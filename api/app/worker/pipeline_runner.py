@@ -39,7 +39,6 @@ from app.worker.stage_executor import (
     SourceResearchStageExecutor,
     WebEnrichmentStageExecutor,
 )
-from app.worker.study_sheet_executor import CreateStudySheetStageExecutor
 from app.worker.storage import WorkerStorage
 from app.worker.wiki_knowledge_executors import (
     StructureWikiNotesStageExecutor,
@@ -138,7 +137,6 @@ class PipelineRunner:
         create_ebook: CreateEbookStageExecutor | None = None,
         generate_narration: NarrationStageExecutor | None = None,
         export_wiki_json: ExportWikiJsonStageExecutor | None = None,
-        generate_study_sheet: CreateStudySheetStageExecutor | None = None,
         transcribe_wiki_notes: TranscribeWikiNotesStageExecutor | None = None,
         structure_wiki_notes: StructureWikiNotesStageExecutor | None = None,
         flashcard_gen: FlashcardGenStageExecutor | None = None,
@@ -160,10 +158,6 @@ class PipelineRunner:
             self.storage,
         )
         self.export_wiki_json = export_wiki_json or ExportWikiJsonStageExecutor(
-            self.db,
-            self.storage,
-        )
-        self.generate_study_sheet = generate_study_sheet or CreateStudySheetStageExecutor(
             self.db,
             self.storage,
         )
@@ -583,19 +577,6 @@ class PipelineRunner:
             executor=self.export_wiki_json,
         )
 
-    def run_generate_study_sheet_step(
-        self,
-        context: PipelineContext,
-        pipeline: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        return self._run_mathesys_narration_step(
-            context,
-            pipeline,
-            target_artifact="study_sheet",
-            step_name="generate-study-sheet",
-            executor=self.generate_study_sheet,
-        )
-
     def run_generate_narration_step(
         self,
         context: PipelineContext,
@@ -877,9 +858,6 @@ class PipelineRunner:
             self.db.update_production_run(production_run_id, {"pipeline": pipeline})
 
             pipeline = self.run_export_wiki_json_step(context, pipeline)
-            self.db.update_production_run(production_run_id, {"pipeline": pipeline})
-
-            pipeline = self.run_generate_study_sheet_step(context, pipeline)
             self.db.update_production_run(production_run_id, {"pipeline": pipeline})
 
             pipeline = self.run_generate_flashcards_step(context, pipeline)

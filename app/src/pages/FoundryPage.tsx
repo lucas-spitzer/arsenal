@@ -3,6 +3,7 @@ import { WorkspaceGate } from '../components/WorkspaceGate'
 import { WorkspaceDataProvider } from '../features/workspace/WorkspaceDataProvider'
 import '../foundry.css'
 import '../academy.css'
+import '../design.css'
 
 export function FoundryPage() {
   return (

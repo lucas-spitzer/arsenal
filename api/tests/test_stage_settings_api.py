@@ -122,7 +122,7 @@ def test_put_unknown_action_404() -> None:
 def test_put_invalid_selection_422() -> None:
     repo = FakeStageSettingsRepo()
     # Known model paired with the wrong provider.
-    payload = StageSettingUpdate(provider="openai", model="claude-opus-5")
+    payload = StageSettingUpdate(provider="openai", model="claude-opus-5-5")
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(put_stage_setting("wiki_structuring", payload, _workspace(), repo))  # type: ignore[arg-type]

@@ -1,4 +1,4 @@
-"""Gemini 3.1 Flash TTS via the existing Google Generative AI client.
+"""Gemini 3.8 Flash TTS via the existing Google Generative AI client.
 
 Gemini does not return word alignments. Tokens from ``text.split()`` are
 spread evenly across clip duration so the Reader still highlights.
@@ -7,8 +7,10 @@ spread evenly across clip duration so the Reader still highlights.
 from __future__ import annotations
 
 import base64
+import io
 import logging
 import time
+import wave
 from typing import Any
 
 from google import genai
@@ -62,6 +64,26 @@ def _inline_audio(response: Any) -> tuple[bytes, str]:
             if isinstance(data, str) and data:
                 return base64.b64decode(data), mime
     raise GeminiTtsError("Gemini TTS response missing audio inline data.")
+
+
+def _wav_duration_seconds(wav: bytes) -> float:
+    try:
+        with wave.open(io.BytesIO(wav), "rb") as wav_file:
+            rate = wav_file.getframerate()
+            if rate <= 0:
+                return 0.0
+            return wav_file.getnframes() / rate
+    except wave.Error:
+        return 0.0
+
+
+def _as_wav(data: bytes, mime: str) -> tuple[bytes, float]:
+    """Gemini 3.8 unary TTS returns WAV. Earlier models returned raw PCM."""
+    if data.startswith(b"RIFF") or "wav" in mime.lower():
+        return data, _wav_duration_seconds(data)
+    sample_rate = sample_rate_from_mime(mime, default=_DEFAULT_SAMPLE_RATE)
+    duration = pcm_duration_seconds(data, sample_rate=sample_rate)
+    return pcm_s16le_to_wav(data, sample_rate=sample_rate), duration
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -177,9 +199,8 @@ class GeminiTtsClient:
         )
 
     def _parse(self, response: Any, text: str) -> NarrationResult:
-        pcm, mime = _inline_audio(response)
-        sample_rate = sample_rate_from_mime(mime, default=_DEFAULT_SAMPLE_RATE)
-        duration = pcm_duration_seconds(pcm, sample_rate=sample_rate)
+        audio_bytes, mime = _inline_audio(response)
+        audio, duration = _as_wav(audio_bytes, mime)
         tokens = text.split()
         if tokens:
             logger.info(
@@ -190,7 +211,7 @@ class GeminiTtsClient:
             )
         words = even_word_timings(text, duration)
         return NarrationResult(
-            audio=pcm_s16le_to_wav(pcm, sample_rate=sample_rate),
+            audio=audio,
             words=words,
             duration_seconds=duration,
             request_id=None,

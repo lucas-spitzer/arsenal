@@ -109,14 +109,6 @@ OPTIONAL_PIPELINE_STEPS: dict[str, dict[str, Any]] = {
         "stage_version": "1.0",
         "status": "pending",
     },
-    "study_sheet": {
-        "step": "generate-study-sheet",
-        "type": "stage",
-        "module": "mathesys",
-        "stage_id": "generate-study-sheet",
-        "stage_version": "1.0",
-        "status": "pending",
-    },
     "flashcards": {
         "step": "generate-flashcards",
         "type": "stage",
@@ -194,3 +186,67 @@ def build_pipeline(target_artifacts: list[str]) -> list[dict[str, Any]]:
             pipeline.append(deepcopy(optional_step))
 
     return pipeline
+
+
+STUDY_MATERIAL_TARGET = "study_material"
+
+# Study Material runs have no sources. Visual components generate before text so
+# the text model can write around what already exists; the last three steps
+# are the orchestrator's work.
+STUDY_MATERIAL_PIPELINE: list[dict[str, Any]] = [
+    {
+        "step": "generate-diagrams",
+        "type": "stage",
+        "module": "mathesys",
+        "stage_id": "generate-diagrams",
+        "stage_version": "1.0",
+        "status": "pending",
+    },
+    {
+        "step": "generate-images",
+        "type": "stage",
+        "module": "mathesys",
+        "stage_id": "generate-images",
+        "stage_version": "1.0",
+        "status": "pending",
+    },
+    {
+        "step": "generate-text",
+        "type": "stage",
+        "module": "mathesys",
+        "stage_id": "generate-text",
+        "stage_version": "1.0",
+        "status": "pending",
+    },
+    {
+        "step": "introduce-theme",
+        "type": "deterministic",
+        "module": "mathesys",
+        "status": "pending",
+    },
+    {
+        "step": "organize-components",
+        "type": "deterministic",
+        "module": "mathesys",
+        "status": "pending",
+    },
+    {
+        "step": "orchestrate-layout",
+        "type": "stage",
+        "module": "mathesys",
+        "stage_id": "orchestrate-layout",
+        "stage_version": "1.0",
+        "status": "pending",
+    },
+]
+
+STUDY_MATERIAL_RENDER_STEP: dict[str, Any] = {
+    "step": "render-pdf",
+    "type": "deterministic",
+    "module": "mathesys",
+    "status": "pending",
+}
+
+
+def build_study_material_pipeline() -> list[dict[str, Any]]:
+    return [deepcopy(step) for step in STUDY_MATERIAL_PIPELINE]

@@ -6,11 +6,12 @@ import { formatDuration } from './foundryFormat'
 import { sourceDisplayName } from './sourceDisplay'
 import type { Artifact, Source, WikiEntry } from './workspaceApi'
 
-export type OutputKind = 'artifact' | 'flashcard' | 'question' | 'scenario' | 'wiki'
+export type OutputKind = 'artifact' | 'material' | 'flashcard' | 'question' | 'scenario' | 'wiki'
 export type OutputType = 'all' | OutputKind
 export type OutputSort = 'source' | 'newest' | 'difficulty' | 'type'
 
 const UNASSIGNED = 'Unassigned'
+export const STUDY_MATERIAL_GROUP = 'Study Material'
 
 export interface OutputItem {
   kind: OutputKind
@@ -23,7 +24,6 @@ export interface OutputItem {
   runnerPage: AcademyPage | null // where "Open" routes; null = artifact (reader/download)
   isAudio: boolean
   isEbook: boolean
-  isStudySheet: boolean
   isNarration: boolean
 }
 
@@ -39,6 +39,7 @@ export function isIncompleteNarrationArtifact(artifact: {
 const AUDIO_FORMATS = new Set(['mp3', 'wav', 'm4a', 'ogg'])
 const DIFFICULTY_ORDER: Record<string, number> = { easy: 0, medium: 1, hard: 2 }
 const KIND_CHIP: Record<Exclude<OutputKind, 'artifact'>, string> = {
+  material: 'Material',
   flashcard: 'Flashcard',
   question: 'Question',
   scenario: 'Scenario',
@@ -81,7 +82,7 @@ export function artifactLibraryCard(artifact: Pick<
   title: string
   isAudio: boolean
   isEbook: boolean
-  isStudySheet: boolean
+  isStudyMaterial: boolean
   isNarration: boolean
 } {
   const format = (artifact.format || '').toLowerCase()
@@ -91,11 +92,14 @@ export function artifactLibraryCard(artifact: Pick<
     (artifact.artifact_type.includes('audio') || AUDIO_FORMATS.has(format))
   const isEbook =
     artifact.artifact_type === 'electronic_book' || format.startsWith('epub')
-  const isStudySheet = artifact.artifact_type === 'study_sheet'
+  const isStudyMaterial = isStudyMaterialArtifact(artifact)
 
   let chipLabel = 'Artifact'
   let title = ''
-  if (isNarration) {
+  if (isStudyMaterial) {
+    chipLabel = 'Material'
+    title = typeof artifact.manifest.title === 'string' ? artifact.manifest.title : ''
+  } else if (isNarration) {
     chipLabel = 'Audio'
     title = narrationInstanceTitle(artifact.manifest)
   } else if (isAudio) {
@@ -104,18 +108,18 @@ export function artifactLibraryCard(artifact: Pick<
   } else if (isEbook) {
     chipLabel = 'Book'
     title = countLabel(artifact.manifest.chapter_count, 'chapter')
-  } else if (isStudySheet) {
-    chipLabel = 'Sheet'
-    title = countLabel(artifact.manifest.page_count, 'page')
   }
 
-  return { chipLabel, title, isAudio, isEbook, isStudySheet, isNarration }
+  return { chipLabel, title, isAudio, isEbook, isStudyMaterial, isNarration }
+}
+
+export function isStudyMaterialArtifact(artifact: Pick<Artifact, 'artifact_type'>): boolean {
+  return artifact.artifact_type === 'study_material'
 }
 
 export function outputChipLabel(item: OutputItem): string {
   if (item.kind !== 'artifact') return KIND_CHIP[item.kind]
   if (item.isEbook) return 'Book'
-  if (item.isStudySheet) return 'Sheet'
   if (item.isNarration || item.isAudio) return 'Audio'
   return 'Artifact'
 }
@@ -155,7 +159,6 @@ export function wikiEntriesToOutputItems(
         runnerPage: 'wiki',
         isAudio: false,
         isEbook: false,
-        isStudySheet: false,
         isNarration: false,
       }
     })
@@ -181,7 +184,6 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
         runnerPage: 'flashcards',
         isAudio: false,
         isEbook: false,
-        isStudySheet: false,
         isNarration: false,
       })),
       ...quizzes.map<OutputItem>((q) => ({
@@ -195,7 +197,6 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
         runnerPage: 'quiz',
         isAudio: false,
         isEbook: false,
-        isStudySheet: false,
         isNarration: false,
       })),
       ...scenarios.map<OutputItem>((s) => ({
@@ -209,7 +210,6 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
         runnerPage: 'scenarios',
         isAudio: false,
         isEbook: false,
-        isStudySheet: false,
         isNarration: false,
       })),
       ...wikiEntriesToOutputItems(wikiEntries, nameOf),
@@ -218,17 +218,16 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
         .map<OutputItem>((a) => {
         const card = artifactLibraryCard(a)
         return {
-          kind: 'artifact',
+          kind: card.isStudyMaterial ? 'material' : 'artifact',
           id: a.id,
           title: card.title,
           sourceId: a.source_id ?? null,
-          sourceName: nameOf(a.source_id),
+          sourceName: card.isStudyMaterial ? STUDY_MATERIAL_GROUP : nameOf(a.source_id),
           badge: (a.format || 'file').toUpperCase(),
           createdAt: a.created_at,
           runnerPage: null,
           isAudio: card.isAudio,
           isEbook: card.isEbook,
-          isStudySheet: card.isStudySheet,
           isNarration: card.isNarration,
         }
       }),

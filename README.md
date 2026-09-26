@@ -141,7 +141,7 @@ flowchart LR
     subgraph optional["Optional — per target"]
         direction TB
         W1[wiki_knowledge]
-        M1[create-ebook / generate-narration / generate-study-sheet / export-wiki-json]
+        M1[create-ebook / generate-narration / export-wiki-json]
         Q1[generate-flashcards / generate-questions / generate-scenarios]
     end
 
@@ -153,13 +153,14 @@ flowchart LR
 | `wiki_knowledge` | `transcribe-wiki-notes` + `structure-wiki-notes` | Intellex | Wiki entries |
 | `electronic_book` | `create-ebook` | Mathesys | Artifact (EPUB) |
 | `narration_audio` | `generate-narration` | Mathesys | Artifact |
-| `study_sheet` | `generate-study-sheet` | Mathesys | Artifact (PDF) |
 | `wiki_json` | `export-wiki-json` | Mathesys | Artifact (snapshot of wiki) |
 | `flashcards` | `generate-flashcards` | QnGen | Assessments |
 | `quizzes` | `generate-questions` | QnGen | Assessments |
 | `scenarios` | `generate-scenarios` | QnGen | Assessments |
 
 Canonical step lists: [`api/app/pipeline.py`](api/app/pipeline.py) and [`api/README.md`](api/README.md).
+
+Study Material runs are separate: they have no sources and start from the Foundry **Design** tab (DSN). Their production run steps are `generate-diagrams` → `generate-images` → `generate-text` → `introduce-theme` → `organize-components` → `orchestrate-layout`, plus `render-pdf` when the draft is finalized. The PDF lands in the Academy Library as a `study_material` artifact.
 
 ### Full pipeline execution
 
@@ -189,7 +190,6 @@ flowchart TD
     subgraph mathesys["Mathesys — selected artifacts"]
         EBOOK[create-ebook]
         NAR[generate-narration]
-        SHEET[generate-study-sheet]
         WJ[export-wiki-json]
     end
 

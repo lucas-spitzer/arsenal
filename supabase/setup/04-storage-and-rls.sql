@@ -13,7 +13,13 @@ values
       'application/epub+zip',
       'application/json',
       'audio/mpeg',
-      'audio/wav'
+      'audio/wav',
+      'text/plain',
+      'text/csv',
+      'text/html',
+      'image/png',
+      'image/jpeg',
+      'image/webp'
     ]
   )
 on conflict (id) do nothing;
@@ -37,6 +43,9 @@ alter table public.quizzes enable row level security;
 alter table public.scenarios enable row level security;
 alter table public.discussion_threads enable row level security;
 alter table public.discussion_messages enable row level security;
+alter table public.study_materials enable row level security;
+alter table public.study_material_components enable row level security;
+alter table public.study_material_component_versions enable row level security;
 
 revoke all on table public.workspaces from anon, authenticated;
 revoke all on table public.stages from anon, authenticated;
@@ -57,6 +66,9 @@ revoke all on table public.quizzes from anon, authenticated;
 revoke all on table public.scenarios from anon, authenticated;
 revoke all on table public.discussion_threads from anon, authenticated;
 revoke all on table public.discussion_messages from anon, authenticated;
+revoke all on table public.study_materials from anon, authenticated;
+revoke all on table public.study_material_components from anon, authenticated;
+revoke all on table public.study_material_component_versions from anon, authenticated;
 
 -- RAG helpers are service-role only (matches table-level revokes).
 revoke execute on function public.match_ndr_segments(

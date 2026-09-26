@@ -43,8 +43,7 @@ Run these only on databases that already have a Foundry schema and need a target
 
 | File | When to run |
 |------|-------------|
-| `alter-study-sheet.sql` | DB was created before study-sheet artifacts. Adds `study_sheet` to `artifacts_type_check`. |
-| `alter-drop-study-sheet-jobs.sql` | DB still has leftover `study_sheet_jobs`. Drops that table; production runs generate `study_sheet`. |
+| `../maintenance/alter-study-material.sql` | DB was created before Study Material. Adds `production_runs.label`, the `study_materials` / `study_material_components` / `study_material_component_versions` tables with RLS + revokes, swaps `study_sheet` for `study_material` in `artifacts_type_check`, widens the `sources` bucket MIME list (text, CSV, HTML, PNG, JPEG, WebP), and seeds the four Study Material stages. Idempotent. |
 | `alter-library-slugs.sql` | DB was created before frozen workspace/source slugs. Adds `workspaces.slug`, unique workspace names, and `sources.slug`. |
 | `alter-wiki-knowledge-pipeline.sql` | DB was created before wiki ingest as a production-run target. Adds `wiki_ingest_batches.production_run_id`. Re-run `03-seed-stages.sql` for the new wiki stages. |
 | `alter-stage-settings-tts.sql` | DB was created before Speechify narration settings. Widens `workspace_stage_settings.provider` to include `speechify` / `elevenlabs` and adds nullable `voice_id`. |
@@ -98,11 +97,13 @@ supabase db execute --file supabase/maintenance/delete-source.sql
 supabase db execute --file supabase/setup/alter-wiki-ingest-file-ingest.sql
 ```
 
-### Study sheet jobs drop
+### Study Material
 
 ```bash
-supabase db execute --file supabase/setup/alter-drop-study-sheet-jobs.sql
+supabase db execute --file supabase/maintenance/alter-study-material.sql
 ```
+
+The artifact type swap fails if any `study_sheet` artifact rows remain; delete them first.
 
 ### Wiki knowledge production-run column
 
@@ -183,13 +184,16 @@ cd api && python -m scripts.publish_narration_artifacts
 
 ### Mathesys outputs
 
-- `artifacts` — `electronic_book`, `narration_audio`, `wiki_json`, `study_sheet` (table rows; files live under `sources`)
+- `artifacts` — `electronic_book`, `narration_audio`, `wiki_json`, `study_material` (table rows; files live under `sources`)
+- `study_materials`, `study_material_components`, `study_material_component_versions` — Design tab drafts, their per-section components (with uploaded input files), and every generated component version
 - `narration_segments` — per-paragraph rows keyed by model, voice, and source-text hash, pointing at chapter (or chapter-split) audio paths and validated word timings
 - Storage bucket: `sources` — `{workspace_slug}/{source_slug}/` holds the
   original upload, downloadable outputs (`book.epub`, `narration.json`,
-  `wiki.json`, `sheet.pdf`), Reader audio under
+  `wiki.json`), Reader audio under
   `audio/{provider}/{model_id}/{voice_id}/`, and
   pipeline scratch under `work/`. Wiki note drafts: `{workspace_slug}/drafts/`.
+  Study Material: `{workspace_slug}/study-material/{slug}/` (component inputs, generated
+  images, `material.html`, `material.pdf`).
   Frozen unique slugs; API ids stay UUIDs.
 
 ### QnGen assessments
@@ -224,6 +228,10 @@ To repair a wiped or stale `stages` table on an existing project, re-run `supaba
 | mathesys | `create-ebook` | 1.0 |
 | mathesys | `export-wiki-json` | 1.0 |
 | mathesys | `generate-narration` | 1.0 |
+| mathesys | `generate-diagrams` | **1.0** (Study Material) |
+| mathesys | `generate-images` | **1.0** (Study Material) |
+| mathesys | `generate-text` | **1.0** (Study Material) |
+| mathesys | `orchestrate-layout` | **1.0** (Study Material) |
 | mathesys | `elevenreader-ebook` | 1.0, 2.0 (deactivated) |
 | mathesys | `speechify-audio` | 1.0 (deactivated) |
 | mathesys | `elevenlabs-audio` | 1.0 (deactivated) |

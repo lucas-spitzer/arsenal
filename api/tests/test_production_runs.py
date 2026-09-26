@@ -127,7 +127,7 @@ def test_non_wiki_run_does_not_create_ingest_batch(monkeypatch: pytest.MonkeyPat
             workspace_id="ws-1",
             owner_id="user-1",
             source_ids=["src-1"],
-            target_artifacts=["study_sheet"],
+            target_artifacts=["electronic_book"],
             settings=object(),  # type: ignore[arg-type]
             production_runs=runs,  # type: ignore[arg-type]
             sources=[_source()],

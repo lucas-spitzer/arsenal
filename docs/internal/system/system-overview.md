@@ -26,7 +26,7 @@ Do not stuff wiki into Mathesys, or flashcards into the artifact catalog.
 | Kind | Owner | What it is | Live targets today |
 |------|--------|------------|--------------------|
 | **Wiki entries** | Intellex | Canonical `wiki_entries` (live knowledge). `wiki_json` is only a Mathesys snapshot of that work | `wiki_knowledge` |
-| **Artifacts** | Mathesys | Stored files | `electronic_book`, `narration_audio`, `study_sheet`, `wiki_json` |
+| **Artifacts** | Mathesys | Stored files | `electronic_book`, `narration_audio`, `wiki_json`, `study_material` (Design tab, not a `target_artifact`) |
 | **Assessments** | QnGen | Rows: flashcards, quizzes, scenarios | `flashcards`, `quizzes`, `scenarios` |
 
 `web_explainer` is catalogued as a future Mathesys type. It is not a live `target_artifact`.

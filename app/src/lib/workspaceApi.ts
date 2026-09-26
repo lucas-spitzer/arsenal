@@ -126,6 +126,7 @@ export interface PipelineStep {
 export interface ProductionRun {
   id: string
   workspace_id: string
+  label: string | null
   source_ids: string[]
   target_artifacts: string[]
   pipeline: PipelineStep[]
@@ -163,7 +164,6 @@ export const ARTIFACT_OPTIONS = [
   { value: 'narration_audio', label: 'Audio Narration' },
   { value: 'wiki_knowledge', label: 'Wiki Knowledge' },
   { value: 'wiki_json', label: 'Wiki Export' },
-  { value: 'study_sheet', label: 'Study Sheet' },
 ] as const
 
 // Assessment outputs are selected individually; any combination may be generated.
@@ -188,7 +188,7 @@ export async function listSources(workspaceId: string): Promise<Source[]> {
   return apiRequest<Source[]>(`/workspaces/${workspaceId}/sources`)
 }
 
-async function uploadMultipart<TResponse>(path: string, file: File): Promise<TResponse> {
+export async function uploadMultipart<TResponse>(path: string, file: File): Promise<TResponse> {
   if (!hasApiBaseUrl()) {
     throw new ApiError('Missing VITE_API_BASE_URL.', 0)
   }

@@ -104,6 +104,18 @@ export async function apiRequest<TResponse>(
   return response.json() as Promise<TResponse>
 }
 
+export async function apiRequestText(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<string> {
+  const response = await sendApiRequest(path, options)
+  return response.text()
+}
+
+export function apiUrl(path: string): string {
+  return `${apiBaseUrl ?? ''}${path}`
+}
+
 export async function apiRequestVoid(
   path: string,
   options: ApiRequestOptions = {},

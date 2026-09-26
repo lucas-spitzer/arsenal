@@ -11,17 +11,17 @@ from app.services.stage_run_billing import (
 
 
 def test_openai_cost_uses_model_rates() -> None:
-    call = cost_openai_usage(model="gpt-5.6-luna", input_tokens=1_000_000, output_tokens=500_000)
+    call = cost_openai_usage(model="gpt-6-luna", input_tokens=1_000_000, output_tokens=500_000)
 
-    assert call["input_cost_usd"] == 0.20
-    assert call["output_cost_usd"] == 0.60
-    assert call["cost_usd"] == 0.80
+    assert call["input_cost_usd"] == 0.10
+    assert call["output_cost_usd"] == 0.25
+    assert call["cost_usd"] == 0.35
 
 
 def test_build_api_usage_from_execution() -> None:
     usage = build_api_usage(
         {
-            "model": "gpt-5.6-luna",
+            "model": "gpt-6-luna",
             "token_usage": {
                 "input_tokens": 10_000,
                 "output_tokens": 2_000,
@@ -38,7 +38,7 @@ def test_build_api_usage_from_execution() -> None:
 def test_stage_run_completion_fields() -> None:
     fields = stage_run_completion_fields(
         {
-            "model": "gpt-5.6-luna",
+            "model": "gpt-6-luna",
             "token_usage": {"input_tokens": 100, "output_tokens": 50},
         },
     )

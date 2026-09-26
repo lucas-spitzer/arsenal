@@ -573,6 +573,76 @@ class WorkerDatabase:
         )
         return rows or []
 
+    def get_study_material(self, material_id: str) -> dict[str, Any] | None:
+        rows = self._request(
+            "GET",
+            "study_materials",
+            params={"select": "*", "id": f"eq.{material_id}", "limit": "1"},
+        )
+        return rows[0] if rows else None
+
+    def get_study_material_for_run(self, production_run_id: str) -> dict[str, Any] | None:
+        rows = self._request(
+            "GET",
+            "study_materials",
+            params={
+                "select": "*",
+                "production_run_id": f"eq.{production_run_id}",
+                "limit": "1",
+            },
+        )
+        return rows[0] if rows else None
+
+    def update_study_material(self, material_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = self._request(
+            "PATCH",
+            "study_materials",
+            params={"id": f"eq.{material_id}"},
+            json_body=payload,
+        )
+        return rows[0]
+
+    def list_study_material_components(self, material_id: str) -> list[dict[str, Any]]:
+        rows = self._request(
+            "GET",
+            "study_material_components",
+            params={
+                "select": "*",
+                "study_material_id": f"eq.{material_id}",
+                "order": "position.asc,created_at.asc",
+            },
+        )
+        return rows or []
+
+    def update_study_material_component(
+        self,
+        component_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        rows = self._request(
+            "PATCH",
+            "study_material_components",
+            params={"id": f"eq.{component_id}"},
+            json_body=payload,
+        )
+        return rows[0]
+
+    def list_study_material_versions(self, material_id: str) -> list[dict[str, Any]]:
+        rows = self._request(
+            "GET",
+            "study_material_component_versions",
+            params={
+                "select": "*",
+                "study_material_id": f"eq.{material_id}",
+                "order": "version.asc",
+            },
+        )
+        return rows or []
+
+    def insert_study_material_version(self, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = self._request("POST", "study_material_component_versions", json_body=payload)
+        return rows[0]
+
     def insert_scenarios(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not rows:
             return []

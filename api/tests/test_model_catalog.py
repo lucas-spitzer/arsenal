@@ -23,12 +23,12 @@ def test_catalog_contains_only_selected_models() -> None:
     catalog_ids = {entry.model for entry in MODEL_CATALOG}
 
     assert catalog_ids == {
-        "claude-opus-5",
+        "claude-opus-5-5",
         "claude-sonnet-5",
         "claude-haiku-4-5-20251001",
-        "gpt-5.6-sol",
-        "gpt-5.6-terra",
-        "gpt-5.6-luna",
+        "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
         "gemini-3.7-flash",
     }
 
@@ -39,10 +39,10 @@ def test_capability_tiers_within_range() -> None:
 
 
 def test_get_catalog_model_exact_and_prefix() -> None:
-    assert get_catalog_model("gpt-5.6-luna").display_name == "GPT-5.6 Luna"
+    assert get_catalog_model("gpt-6-luna").display_name == "GPT-6 Luna"
     # A dated snapshot should resolve by longest-prefix, not collapse to a sibling.
-    assert get_catalog_model("gpt-5.6-luna-2026-01-01").model == "gpt-5.6-luna"
-    assert get_catalog_model("gpt-5.6-sol-2026-01-01").model == "gpt-5.6-sol"
+    assert get_catalog_model("gpt-6-luna-2026-01-01").model == "gpt-6-luna"
+    assert get_catalog_model("gpt-6-sol-2026-01-01").model == "gpt-6-sol"
     assert get_catalog_model("gemini-3.7-flash").display_name == "Gemini 3.7 Flash"
     assert get_catalog_model("nonexistent-model") is None
     assert get_catalog_model(None) is None
@@ -95,16 +95,16 @@ def test_google_rates_use_catalog_and_explicit_table(monkeypatch: pytest.MonkeyP
 
 
 def test_explicit_rate_table_wins_over_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
-    # gpt-5.6-luna is in the explicit table; catalog fallback must not be consulted.
+    # gpt-6-luna is in the explicit table; catalog fallback must not be consulted.
     monkeypatch.setattr(
         api_pricing,
         "catalog_list_price",
         lambda model: (999.0, 999.0),
     )
 
-    rates = api_pricing.openai_rates_for_model("gpt-5.6-luna")
+    rates = api_pricing.openai_rates_for_model("gpt-6-luna")
 
-    assert rates.input_per_million == 0.20
+    assert rates.input_per_million == 0.10
 
 
 def test_build_model_catalog_response_serializes_all_entries() -> None:

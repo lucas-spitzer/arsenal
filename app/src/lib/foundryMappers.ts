@@ -88,6 +88,9 @@ export function sourceAudience(source: Source): string | null {
 }
 
 export function artifactCardTitle(artifact: Artifact, source: Source | undefined): string {
+  if (artifact.artifact_type === 'study_material' && typeof artifact.manifest.title === 'string') {
+    return artifact.manifest.title
+  }
   const name = source ? sourceDisplayName(source) : filenameStem(artifact.filename)
   return `${name} ${artifactKindShortLabel(artifact.artifact_type)}`
 }
@@ -180,6 +183,7 @@ export function productionRunTargetLabel(targetArtifacts: string[]): string {
 }
 
 export function productionRunLabel(run: ProductionRun, sources: Source[]): string {
+  if (run.label) return `${run.label} → ${productionRunTargetLabel(run.target_artifacts)}`
   const titles = run.source_ids
     .map((id) => sources.find((s) => s.id === id))
     .filter((s): s is Source => Boolean(s))
@@ -324,7 +328,13 @@ const PIPELINE_STEP_LABELS: Record<string, string> = {
   'create-ebook': 'Create EBook',
   'generate-narration': 'Generate Narration',
   'export-wiki-json': 'Export Wiki JSON',
-  'generate-study-sheet': 'Generate Study Sheet',
+  'generate-diagrams': 'Generate Diagrams',
+  'generate-images': 'Generate Images',
+  'generate-text': 'Generate Text',
+  'introduce-theme': 'Introduce Theme',
+  'organize-components': 'Organize Components',
+  'orchestrate-layout': 'Orchestrate Layout',
+  'render-pdf': 'Render PDF',
   'generate-flashcards': 'Generate Flashcards',
   'generate-questions': 'Generate Questions',
   'generate-scenarios': 'Generate Scenarios',
@@ -350,7 +360,12 @@ const API_REQUEST_STAGES: Record<string, { tool: string }> = {
   'create-ebook': { tool: 'Local' },
   'generate-narration': { tool: 'Speechify' },
   'export-wiki-json': { tool: 'Local' },
-  'generate-study-sheet': { tool: 'Gemini' },
+  // Study Material models are chosen per workspace or per component, so the
+  // tool label comes from the recorded API calls.
+  'generate-diagrams': { tool: '' },
+  'generate-images': { tool: '' },
+  'generate-text': { tool: '' },
+  'orchestrate-layout': { tool: '' },
   'generate-flashcards': { tool: 'Claude' },
   'generate-questions': { tool: 'Claude' },
   'generate-scenarios': { tool: 'Claude' },
@@ -561,7 +576,7 @@ export function artifactModule(artifact: Artifact): string {
     artifact.artifact_type === 'electronic_book' ||
     artifact.artifact_type === 'narration_audio' ||
     artifact.artifact_type === 'wiki_json' ||
-    artifact.artifact_type === 'study_sheet' ||
+    artifact.artifact_type === 'study_material' ||
     artifact.artifact_type === 'uploaded'
   ) {
     return 'mathesys'

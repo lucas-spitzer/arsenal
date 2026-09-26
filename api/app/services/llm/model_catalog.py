@@ -22,11 +22,11 @@ from dataclasses import dataclass
 
 from app.llm_defaults import (
     GEMINI_37_FLASH_MODEL,
-    GPT_56_LUNA_MODEL,
-    GPT_56_SOL_MODEL,
-    GPT_56_TERRA_MODEL,
+    GPT_6_ASTRA_MODEL,
+    GPT_6_LUNA_MODEL,
+    GPT_6_SOL_MODEL,
     HAIKU_45_MODEL,
-    OPUS_5_MODEL,
+    OPUS_55_MODEL,
     SONNET_5_MODEL,
 )
 
@@ -44,27 +44,27 @@ class CatalogModel:
     output_per_million: float | None = None
 
 
-# Prices are USD per million tokens (standard on-demand, paid tier), from the
-# August 2026 pricing snapshot. Only providers with a working client are listed.
+# Prices are USD per million tokens (standard on-demand, short context).
+# OpenAI GPT-6 Astra/Sol/Luna list prices are $10/$50, $2/$10, and $0.10/$0.50.
 # Gemini 3.7 Flash uses introductory list prices through 2026-12-31.
 MODEL_CATALOG: tuple[CatalogModel, ...] = (
     # --- Anthropic ---
     CatalogModel(
-        model=OPUS_5_MODEL,
+        model=OPUS_55_MODEL,
         provider="anthropic",
-        display_name="Claude Opus 5",
-        capability_tier=5,
+        display_name="Claude Opus 5.5",
+        capability_tier=4,
         supports_reasoning=True,
         reasoning_modes=("adaptive",),
         context_window=1_000_000,
-        input_per_million=5.00,
-        output_per_million=25.00,
+        input_per_million=4.00,
+        output_per_million=20.00,
     ),
     CatalogModel(
         model=SONNET_5_MODEL,
         provider="anthropic",
         display_name="Claude Sonnet 5",
-        capability_tier=4,
+        capability_tier=3,
         supports_reasoning=True,
         reasoning_modes=("adaptive",),
         context_window=1_000_000,
@@ -75,7 +75,7 @@ MODEL_CATALOG: tuple[CatalogModel, ...] = (
         model=HAIKU_45_MODEL,
         provider="anthropic",
         display_name="Claude Haiku 4.5",
-        capability_tier=3,
+        capability_tier=2,
         supports_reasoning=True,
         reasoning_modes=("budget",),
         context_window=200_000,
@@ -84,44 +84,44 @@ MODEL_CATALOG: tuple[CatalogModel, ...] = (
     ),
     # --- OpenAI ---
     CatalogModel(
-        model=GPT_56_SOL_MODEL,
+        model=GPT_6_ASTRA_MODEL,
         provider="openai",
-        display_name="GPT-5.6 Sol",
+        display_name="GPT-6 Astra",
         capability_tier=5,
         supports_reasoning=True,
         reasoning_modes=("effort",),
         context_window=1_050_000,
-        input_per_million=5.00,
-        output_per_million=30.00,
+        input_per_million=10.00,
+        output_per_million=50.00,
     ),
     CatalogModel(
-        model=GPT_56_TERRA_MODEL,
+        model=GPT_6_SOL_MODEL,
         provider="openai",
-        display_name="GPT-5.6 Terra",
-        capability_tier=4,
+        display_name="GPT-6 Sol",
+        capability_tier=3,
         supports_reasoning=True,
         reasoning_modes=("effort",),
         context_window=1_050_000,
         input_per_million=2.00,
-        output_per_million=12.00,
+        output_per_million=10.00,
     ),
     CatalogModel(
-        model=GPT_56_LUNA_MODEL,
+        model=GPT_6_LUNA_MODEL,
         provider="openai",
-        display_name="GPT-5.6 Luna",
-        capability_tier=2,
+        display_name="GPT-6 Luna",
+        capability_tier=1,
         supports_reasoning=True,
         reasoning_modes=("effort",),
         context_window=1_050_000,
-        input_per_million=0.20,
-        output_per_million=1.20,
+        input_per_million=0.10,
+        output_per_million=0.50,
     ),
     # --- Google ---
     CatalogModel(
         model=GEMINI_37_FLASH_MODEL,
         provider="google",
         display_name="Gemini 3.7 Flash",
-        capability_tier=3,
+        capability_tier=1,
         supports_reasoning=True,
         reasoning_modes=("effort",),
         context_window=1_048_576,
@@ -142,7 +142,7 @@ def get_catalog_model(model: str | None) -> CatalogModel | None:
         if entry.model.lower() == normalized:
             return entry
 
-    # Longest prefix first so "gpt-5.6-luna-..." beats a shorter family prefix.
+    # Longest prefix first so "gpt-6-luna-..." beats a shorter family prefix.
     for entry in sorted(MODEL_CATALOG, key=lambda e: len(e.model), reverse=True):
         if normalized.startswith(entry.model.lower()):
             return entry

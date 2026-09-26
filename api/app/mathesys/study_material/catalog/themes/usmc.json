@@ -1,0 +1,87 @@
+{
+  "id": "usmc",
+  "name": "United States Marine Corps",
+  "description": "Scarlet command headings, black body text, and gold rules from the Marines.mil style guide. Includes the Eagle, Globe, and Anchor and the MARINES wordmark.",
+  "source_url": "https://www.marines.mil/Style-Guide/",
+  "fonts": {
+    "heading": {
+      "stack": "'Colossalis', 'Oswald', 'Arial Narrow', Arial, sans-serif",
+      "weight": 700,
+      "transform": "uppercase",
+      "letter_spacing": "0.04em",
+      "import_url": "https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&display=swap"
+    },
+    "body": {
+      "stack": "Arial, Helvetica, sans-serif"
+    }
+  },
+  "colors": {
+    "ink": "#000000",
+    "heading": "#940000",
+    "accent": "#940000",
+    "accent_dark": "#660000",
+    "secondary": "#84754E",
+    "muted": "#4F5051",
+    "rule": "#84754E",
+    "border": "#A7A7A7",
+    "paper": "#FFFFFF",
+    "panel": "#F7F7F5",
+    "band": "#940000",
+    "band_rule": "#84754E",
+    "band_panel": "#FFFFFF",
+    "title": "#940000"
+  },
+  "logos": [
+    {
+      "id": "ega",
+      "label": "Eagle, Globe, and Anchor",
+      "file": "usmc/ega-black.png",
+      "variant": "light",
+      "aspect": 0.964
+    },
+    {
+      "id": "marines-wordmark",
+      "label": "MARINES wordmark",
+      "file": "usmc/marines-horizontal-black.png",
+      "variant": "light",
+      "aspect": 4.6
+    },
+    {
+      "id": "ega-white",
+      "label": "Eagle, Globe, and Anchor (white)",
+      "file": "usmc/ega-white.png",
+      "variant": "dark",
+      "aspect": 0.964
+    },
+    {
+      "id": "marines-wordmark-white",
+      "label": "MARINES wordmark (white)",
+      "file": "usmc/marines-horizontal-white.png",
+      "variant": "dark",
+      "aspect": 4.6
+    }
+  ],
+  "default_logo_id": "ega",
+  "disclaimer": "Unofficial knowledge for educational use; not endorsed by the USMC or DoD.",
+  "guidance": {
+    "typography": "Headings are bold, uppercase, condensed display type in scarlet (#940000). Body text is Arial in black. Keep headings short and declarative.",
+    "illustration": "Clean vector illustration with sharp silhouettes and disciplined composition. High contrast. Palette limited to black (#000000), scarlet (#940000), dark scarlet (#660000), white, neutral gray, and sparing gold (#84754E). Flat fills, no gradients, no photographic texture, plain white background. Do not draw text, lettering, insignia, emblems, rank devices, seals, or flags. Avoid cartoonish military aesthetics and busy backgrounds.",
+    "diagram": "High-contrast technical diagram. White nodes with black outlines and square corners; scarlet fill only for the single most important node; black connectors with small arrowheads. Labels are short, sentence case, and never decorative.",
+    "caption": "Small Arial caption in dark gray, sentence case, one line when possible.",
+    "divider": "Thin gold (#84754E) rule between blocks.",
+    "border": "Thin neutral gray border with square corners; no drop shadows.",
+    "icon": "Font Awesome 5 Free, medium weight, used only to clarify meaning."
+  },
+  "diagram": {
+    "node_fill": "#FFFFFF",
+    "node_stroke": "#000000",
+    "node_text": "#000000",
+    "emphasis_fill": "#940000",
+    "emphasis_text": "#FFFFFF",
+    "edge": "#000000",
+    "edge_label": "#660000",
+    "font_family": "Arial, Helvetica, sans-serif",
+    "stroke_width": 1.4,
+    "corner_radius": 1
+  }
+}

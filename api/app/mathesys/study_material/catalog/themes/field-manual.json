@@ -1,0 +1,58 @@
+{
+  "id": "field-manual",
+  "name": "Field Manual",
+  "description": "Low-ink grayscale with navy headings. Prints cleanly on office printers and photocopies without losing contrast.",
+  "source_url": null,
+  "fonts": {
+    "heading": {
+      "stack": "'Arial Narrow', Arial, Helvetica, sans-serif",
+      "weight": 700,
+      "transform": "none",
+      "letter_spacing": "0.01em",
+      "import_url": null
+    },
+    "body": {
+      "stack": "Arial, Helvetica, sans-serif"
+    }
+  },
+  "colors": {
+    "ink": "#000000",
+    "heading": "#001E2E",
+    "accent": "#001E2E",
+    "accent_dark": "#000000",
+    "secondary": "#4F5051",
+    "muted": "#4F5051",
+    "rule": "#818283",
+    "border": "#A7A7A7",
+    "paper": "#FFFFFF",
+    "panel": "#F2F2F0",
+    "band": "#001E2E",
+    "band_rule": "#818283",
+    "band_panel": "#FFFFFF",
+    "title": "#001E2E"
+  },
+  "logos": [],
+  "default_logo_id": null,
+  "disclaimer": null,
+  "guidance": {
+    "typography": "Headings are bold condensed Arial in navy (#001E2E). Body text is Arial in black. Prefer plain sentence-case headings.",
+    "illustration": "Grayscale line illustration: black strokes on white with at most two flat gray tones. No color, no gradients, no shading texture, no text inside the image. Plain white background. Must photocopy cleanly.",
+    "diagram": "Grayscale diagram. White nodes with black outlines; navy fill only for the most important node; black connectors. Short sentence-case labels.",
+    "caption": "Small Arial caption in dark gray.",
+    "divider": "Thin gray rule between blocks.",
+    "border": "Thin gray border with square corners.",
+    "icon": "Simple line icons only when they clarify meaning."
+  },
+  "diagram": {
+    "node_fill": "#FFFFFF",
+    "node_stroke": "#000000",
+    "node_text": "#000000",
+    "emphasis_fill": "#001E2E",
+    "emphasis_text": "#FFFFFF",
+    "edge": "#000000",
+    "edge_label": "#4F5051",
+    "font_family": "Arial, Helvetica, sans-serif",
+    "stroke_width": 1.2,
+    "corner_radius": 1
+  }
+}

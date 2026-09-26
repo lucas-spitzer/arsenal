@@ -13,6 +13,9 @@ from app.artifact_paths import (
     parse_work_path,
     slug_from_filename,
     storage_slug,
+    study_material_component_output_path,
+    study_material_file_path,
+    study_material_output_path,
     work_path,
 )
 
@@ -47,9 +50,6 @@ def test_library_paths() -> None:
     assert downloadable_artifact_path(source, "wiki_json") == (
         "ocs-prep/mcdp-1-3-tactics/wiki.json"
     )
-    assert downloadable_artifact_path(source, "study_sheet") == (
-        "ocs-prep/mcdp-1-3-tactics/sheet.pdf"
-    )
     assert audio_clip_path(
         "ocs-prep",
         "mcdp-1-3-tactics",
@@ -66,17 +66,31 @@ def test_library_paths() -> None:
     assert narration_clip_path(
         source,
         "google",
-        "gemini-3.1-flash-tts-preview",
+        "gemini-3.8-flash-tts",
         "Kore",
         "ch-1",
         0,
         extension="wav",
     ) == (
         "ocs-prep/mcdp-1-3-tactics/audio/google/"
-        "gemini-3-1-flash-tts-preview/kore/ch-1-00.wav"
+        "gemini-3-8-flash-tts/kore/ch-1-00.wav"
     )
 
 
 def test_downloadable_artifact_path_rejects_unknown_type() -> None:
     with pytest.raises(ValueError, match="Unknown artifact type"):
         downloadable_artifact_path(_source(), "web_explainer")
+    with pytest.raises(ValueError, match="Unknown artifact type"):
+        downloadable_artifact_path(_source(), "study_sheet")
+
+
+def test_study_material_paths() -> None:
+    assert study_material_file_path("ocs-prep", "land-nav", "c1", "notes.pdf") == (
+        "ocs-prep/study-material/land-nav/files/c1/notes.pdf"
+    )
+    assert study_material_component_output_path("ocs-prep", "land-nav", "c1", 2, "svg") == (
+        "ocs-prep/study-material/land-nav/components/c1/v2.svg"
+    )
+    assert study_material_output_path("ocs-prep", "land-nav", "material.pdf") == (
+        "ocs-prep/study-material/land-nav/material.pdf"
+    )
