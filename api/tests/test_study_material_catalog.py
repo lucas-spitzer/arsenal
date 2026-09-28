@@ -25,13 +25,22 @@ def test_catalog_ships_three_templates_and_two_themes() -> None:
 
 def test_template_geometry_matches_sketches() -> None:
     sheet = get_template("branded-sheet")
-    assert [(s.id, s.box.h) for s in sheet.sections] == [
-        ("title", 10),
-        ("logo_band", 5),
-        ("body", 80),
-        ("footer", 5),
+    assert [(s.id, s.box.y, s.box.h) for s in sheet.sections] == [
+        ("title", 0, 7),
+        ("logo_band", 8, 5),
+        ("body", 15, 80),
+        ("footer", 95, 5),
     ]
     split = get_template("branded-sheet-split")
+    assert [(s.id, s.box.y, s.box.h) for s in split.sections if not s.is_flexible] == [
+        ("title", 0, 7),
+        ("logo_band", 8, 5),
+        ("footer", 95, 5),
+    ]
+    assert [(s.id, s.box.y, s.box.h) for s in split.flexible_sections] == [
+        ("body_left", 15, 80),
+        ("body_right", 15, 80),
+    ]
     assert [(s.id, s.box.w) for s in split.flexible_sections] == [("body_left", 50), ("body_right", 50)]
     cards = get_template("index-card-cutout")
     assert len(cards.flexible_sections) == 8
@@ -106,6 +115,16 @@ def test_index_cards_repeat_disclaimer_and_draw_cut_lines() -> None:
 def test_theme_without_disclaimer_renders_none() -> None:
     html = _render("branded-sheet", {}, [], theme_id="field-manual")
     assert 'class="sm-disclaimer"' not in html
+
+
+def test_ordered_lists_reserve_room_for_two_digit_markers() -> None:
+    html = _render(
+        "branded-sheet-split",
+        {},
+        [RenderComponent("t", "body_left", "text", html="<ol><li>One</li></ol>")],
+    )
+    assert ".sm-text ul { margin: 0 0 0.5em 1.15em; padding: 0; }" in html
+    assert ".sm-text ol { margin: 0 0 0.5em; padding: 0 0 0 2em; }" in html
 
 
 def test_components_render_in_layout_order() -> None:

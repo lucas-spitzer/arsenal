@@ -142,7 +142,10 @@ body {{
 .sm-text h3 {{ font-size: 1.18em; }}
 .sm-text h4 {{ font-size: 1em; color: var(--sm-ink); }}
 .sm-text p, .sm-text li, .sm-text dd {{ margin: 0 0 0.35em; }}
-.sm-text ul, .sm-text ol {{ margin: 0 0 0.5em 1.15em; padding: 0; }}
+.sm-text ul {{ margin: 0 0 0.5em 1.15em; padding: 0; }}
+/* Outside markers hang in this inset and the component clips whatever sticks out.
+   1.15em fits a bullet or "9."; a bold "10." is 1.67em, so the tens digit was cut off. */
+.sm-text ol {{ margin: 0 0 0.5em; padding: 0 0 0 2em; }}
 .sm-text li::marker {{ color: var(--sm-accent); font-weight: 700; }}
 .sm-text .list-compact li {{ margin-bottom: 0.1em; }}
 .sm-text dl {{ margin: 0 0 0.5em; }}

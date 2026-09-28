@@ -232,35 +232,72 @@
   gap: var(--space-5);
 }
 
-/* vertical pipeline rail behind module dots */
-.as-gate__modules::before {
+/* Rail runs center-to-center and stops at 03. Each segment is drawn on the
+   module above the next circle so nothing continues under the last marker. */
+.as-gate__module:not(:last-child)::before {
   content: '';
   position: absolute;
   left: 11px;
-  top: 14px;
-  bottom: 14px;
+  top: 12px;
   width: 2px;
+  height: calc(100% + var(--space-5));
   background: var(--bwg-line-strong);
+  z-index: 0;
 }
 
-/* signal travelling down the rail */
-.as-gate__modules::after {
+/* Gold signal travels the open rail. It fades out at each numbered circle
+   and comes back only once it has cleared the marker. */
+.as-gate__module:nth-child(1)::after,
+.as-gate__module:nth-child(2)::after {
   content: '';
   position: absolute;
   left: 9px;
-  top: 0;
   width: 6px;
   height: 22px;
   border-radius: 999px;
   background: linear-gradient(180deg, transparent, rgba(216, 196, 138, 0.9), transparent);
-  animation: bwg-rail 3.2s ease-in-out infinite;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 0;
 }
 
-@keyframes bwg-rail {
-  0% { top: 4%; opacity: 0; }
-  12% { opacity: 1; }
-  88% { opacity: 1; }
-  100% { top: 86%; opacity: 0; }
+.as-gate__module:nth-child(1)::after {
+  animation: bwg-rail-a 3.2s linear infinite;
+}
+
+.as-gate__module:nth-child(2)::after {
+  animation: bwg-rail-b 3.2s linear infinite;
+}
+
+@keyframes bwg-rail-a {
+  0% {
+    top: 24px;
+    opacity: 0;
+  }
+  8% { opacity: 1; }
+  38% { opacity: 1; }
+  46% {
+    top: calc(100% + var(--space-5) - 22px);
+    opacity: 0;
+  }
+  100% {
+    top: calc(100% + var(--space-5) - 22px);
+    opacity: 0;
+  }
+}
+
+@keyframes bwg-rail-b {
+  0%,
+  54% {
+    top: 24px;
+    opacity: 0;
+  }
+  62% { opacity: 1; }
+  92% { opacity: 1; }
+  100% {
+    top: calc(100% + var(--space-5) - 22px);
+    opacity: 0;
+  }
 }
 
 .as-gate__module {
@@ -616,7 +653,8 @@
     transition: none !important;
   }
 
-  .as-gate__modules::after {
+  .as-gate__module:nth-child(1)::after,
+  .as-gate__module:nth-child(2)::after {
     display: none;
   }
 }

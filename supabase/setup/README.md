@@ -52,7 +52,8 @@ Run these only on databases that already have a Foundry schema and need a target
 | `alter-drop-artifacts-bucket.sql` | Operator note only (SQL no-op). Supabase blocks dropping `storage.buckets` / `storage.objects` from SQL. After migrating objects into the `sources` bucket, purge the legacy `artifacts` bucket via the Storage API or Dashboard. |
 | `alter-discussion-threads.sql` | DB was created before persisted discussion threads. Adds `discussion_threads` and `discussion_messages` with RLS + role revokes. Idempotent. |
 | `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. |
-| `../maintenance/delete-production-run.sql` | Operator utility. Deletes one production run and the rows it created. Storage files cannot be deleted from SQL. |
+| `../maintenance/delete-production-run.sql` | Operator utility. Deletes one production run and the rows it created. Refuses Study Material runs. Storage files cannot be deleted from SQL. |
+| `../maintenance/delete-study-material-run.sql` | Operator utility. Deletes one Study Material production run, its material, components, versions, artifacts, and stage runs. Storage files cannot be deleted from SQL. |
 | `../maintenance/delete-source.sql` | Operator utility. Deletes one source and the rows it created. Storage files cannot be deleted from SQL. |
 
 ### Delete a production run
@@ -68,10 +69,29 @@ The script does not delete source rows or original uploads. Intellex segments, c
 
 Supabase forbids `DELETE` on `storage.objects` from SQL. After a successful row delete, leftover keys appear in notices and in `pg_temp.purge_storage_paths`. Remove those files from the `sources` bucket in Dashboard → Storage, or with the Storage API.
 
-If the run is still queued or running, stop the worker job first.
+If the run is still queued or running, stop the worker job first. Study Material runs are refused here; use `delete-study-material-run.sql`.
 
 ```bash
 supabase db execute --file supabase/maintenance/delete-production-run.sql
+```
+
+### Delete a Study Material production run
+
+`study_materials.production_run_id` is `ON DELETE SET NULL`, and `active_version_id` points back at component versions, so deleting the run row leaves the material in place. Use this instead.
+
+1. Open `supabase/maintenance/delete-study-material-run.sql`.
+2. Set `target_run_id`.
+3. Leave `dry_run true` and run it. That run errors on purpose and lists what would be removed.
+4. Set `dry_run false` and run it again.
+
+The material currently attached to the run is deleted with its components, versions, uploaded files, artifacts, and stage runs. A material later pointed at a newer run stays; only this run's versions, artifacts, and stage runs are removed.
+
+Supabase forbids `DELETE` on `storage.objects` from SQL. After a successful row delete, leftover keys appear in notices and in `pg_temp.purge_storage_paths`. Remove those files from the `sources` bucket in Dashboard → Storage, or with the Storage API.
+
+If the run is still queued or running, stop the worker job first.
+
+```bash
+supabase db execute --file supabase/maintenance/delete-study-material-run.sql
 ```
 
 ### Delete a source

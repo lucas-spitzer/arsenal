@@ -13,14 +13,14 @@
       "label": "Title",
       "kind": "strict",
       "content": "title",
-      "box": { "x": 0, "y": 0, "w": 100, "h": 10 }
+      "box": { "x": 0, "y": 0, "w": 100, "h": 7 }
     },
     {
       "id": "logo_band",
       "label": "Logo band",
       "kind": "strict",
       "content": "logo",
-      "box": { "x": 0, "y": 10, "w": 100, "h": 5 }
+      "box": { "x": 0, "y": 8, "w": 100, "h": 5 }
     },
     {
       "id": "body_left",

@@ -13,6 +13,9 @@
 -- (ndr_segments, document_chapters, work/) is source-level and reused by
 -- later runs, so it stays unless purge_ingest is true.
 --
+-- Study Material runs are refused. Use delete-study-material-run.sql so the
+-- material, components, versions, and storage keys are removed with the run.
+--
 -- Usage (SQL editor or `supabase db execute --file`):
 --   1. Set target_run_id.
 --   2. Leave dry_run true. The first run should error with a preview.
@@ -26,6 +29,7 @@ declare
   purge_ingest boolean := false;
 
   run_row public.production_runs%rowtype;
+  study_material_attached boolean := false;
   wiki_ids uuid[] := '{}';
   narration_ids uuid[] := '{}';
   ingest_source_ids uuid[] := '{}';
@@ -53,6 +57,19 @@ begin
 
   if not found then
     raise exception 'production_run % not found', target_run_id;
+  end if;
+
+  if to_regclass('public.study_materials') is not null then
+    execute
+      'select exists (select 1 from public.study_materials where production_run_id = $1)'
+      into study_material_attached
+      using target_run_id;
+  end if;
+
+  if 'study_material' = any (run_row.target_artifacts) or study_material_attached then
+    raise exception
+      'production_run % is a study material run. Use delete-study-material-run.sql.',
+      target_run_id;
   end if;
 
   raise notice 'production_run % workspace=% status=% targets=% sources=%',
