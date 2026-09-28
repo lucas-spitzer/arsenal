@@ -6,7 +6,7 @@ import { formatDuration } from './foundryFormat'
 import { sourceDisplayName } from './sourceDisplay'
 import type { Artifact, Source, WikiEntry } from './workspaceApi'
 
-export type OutputKind = 'artifact' | 'material' | 'flashcard' | 'question' | 'scenario' | 'wiki'
+export type OutputKind = 'audio' | 'book' | 'artifact' | 'material' | 'flashcard' | 'question' | 'scenario' | 'wiki'
 export type OutputType = 'all' | OutputKind
 export type OutputSort = 'source' | 'newest' | 'difficulty' | 'type'
 
@@ -38,7 +38,10 @@ export function isIncompleteNarrationArtifact(artifact: {
 }
 const AUDIO_FORMATS = new Set(['mp3', 'wav', 'm4a', 'ogg'])
 const DIFFICULTY_ORDER: Record<string, number> = { easy: 0, medium: 1, hard: 2 }
-const KIND_CHIP: Record<Exclude<OutputKind, 'artifact'>, string> = {
+const KIND_CHIP: Record<OutputKind, string> = {
+  audio: 'Audio',
+  book: 'Book',
+  artifact: 'Artifact',
   material: 'Material',
   flashcard: 'Flashcard',
   question: 'Question',
@@ -118,10 +121,7 @@ export function isStudyMaterialArtifact(artifact: Pick<Artifact, 'artifact_type'
 }
 
 export function outputChipLabel(item: OutputItem): string {
-  if (item.kind !== 'artifact') return KIND_CHIP[item.kind]
-  if (item.isEbook) return 'Book'
-  if (item.isNarration || item.isAudio) return 'Audio'
-  return 'Artifact'
+  return KIND_CHIP[item.kind]
 }
 
 function sourceLabel(source: Source | undefined): string {
@@ -218,7 +218,13 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
         .map<OutputItem>((a) => {
         const card = artifactLibraryCard(a)
         return {
-          kind: card.isStudyMaterial ? 'material' : 'artifact',
+          kind: card.isStudyMaterial
+            ? 'material'
+            : card.isEbook
+              ? 'book'
+              : card.isAudio || card.isNarration
+                ? 'audio'
+                : 'artifact',
           id: a.id,
           title: card.title,
           sourceId: a.source_id ?? null,

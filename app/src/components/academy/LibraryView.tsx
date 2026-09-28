@@ -21,6 +21,8 @@ const KIND_META: Record<
   OutputItem['kind'],
   { cls: string; icon: typeof Layers }
 > = {
+  audio: { cls: 'lib__tchip--audio', icon: Headphones },
+  book: { cls: 'lib__tchip--book', icon: BookOpen },
   artifact: { cls: 'lib__tchip--art', icon: Headphones },
   material: { cls: 'lib__tchip--mat', icon: FileText },
   flashcard: { cls: 'lib__tchip--flash', icon: Layers },
@@ -30,17 +32,13 @@ const KIND_META: Record<
 }
 
 function cardIcon(item: OutputItem): typeof Layers {
-  if (item.kind !== 'artifact') return KIND_META[item.kind].icon
-  if (item.isEbook) return BookOpen
-  return Headphones
+  return KIND_META[item.kind].icon
 }
 
 function openLabel(item: OutputItem): string {
   if (item.kind === 'material') return 'Download'
-  if (item.kind === 'artifact') {
-    if (item.isAudio) return 'Download'
-    return 'Open'
-  }
+  if (item.kind === 'audio') return item.isNarration ? 'Open' : 'Download'
+  if (item.kind === 'book' || item.kind === 'artifact') return 'Open'
   if (item.kind === 'flashcard') return 'Study'
   if (item.kind === 'wiki') return 'Edit'
   return 'Open'
@@ -87,9 +85,16 @@ export function LibraryView({
       void downloadArtifact(item.id)
       return
     }
-    if (item.kind === 'artifact') {
-      if (item.isAudio) void downloadArtifact(item.id)
-      else if (item.sourceId) navigate(`/app/reader/${item.sourceId}`)
+    if (item.kind === 'audio') {
+      if (item.isNarration) {
+        if (item.sourceId) navigate(`/app/reader/${item.sourceId}`)
+      } else {
+        void downloadArtifact(item.id)
+      }
+      return
+    }
+    if (item.kind === 'book' || item.kind === 'artifact') {
+      if (item.sourceId) navigate(`/app/reader/${item.sourceId}`)
       return
     }
     if (item.runnerPage) onOpen(item.runnerPage, { sourceId: item.sourceId, targetId: item.id })
@@ -100,7 +105,7 @@ export function LibraryView({
       <StudyHead
         eyebrow="Workspace catalog"
         title="Library"
-        description="Search, filter, and open every artifact, study material, wiki entry, flashcard, question, and scenario in this workspace."
+        description="Search, filter, and open every book, audio file, study material, wiki entry, flashcard, question, and scenario in this workspace."
         stats={[
           { value: filtered.length, label: 'outputs' },
           { value: sources.length, label: 'sources' },
@@ -117,7 +122,7 @@ export function LibraryView({
         sort={sort}
         onSort={setSort}
         sources={sources}
-        searchPlaceholder="Search flashcards, questions, scenarios, wiki, artifacts, study material…"
+        searchPlaceholder="Search flashcards, questions, scenarios, wiki, books, audio, study material…"
       />
 
       {filtered.length === 0 ? (
@@ -163,7 +168,11 @@ function CardGrid({
         const Icon = cardIcon(item)
         const focused = isFocused(focus, item)
         const chip = outputChipLabel(item)
-        const spec = item.kind === 'artifact' || item.kind === 'material'
+        const spec =
+          item.kind === 'audio' ||
+          item.kind === 'book' ||
+          item.kind === 'artifact' ||
+          item.kind === 'material'
         return (
           <article key={`${item.kind}-${item.id}`} className="lib__card">
             <div className="lib__card-top">
