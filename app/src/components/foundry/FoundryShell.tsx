@@ -10,8 +10,6 @@ import {
 } from '../academy/types'
 import { signOut } from '../../features/auth/authService'
 import { useAuth } from '../../features/auth/authContext'
-import { FoundryArtifacts } from './FoundryArtifacts'
-import { FoundryAssessments } from './FoundryAssessments'
 import { FoundryDesign } from './design/FoundryDesign'
 import { FoundryOps } from './FoundryOps'
 import { FoundryStages } from './FoundryStages'
@@ -199,9 +197,7 @@ export function FoundryShell() {
             {foundryPage === 'ops' ? <FoundryOps onGoToSources={() => setFoundryPage('sources')} /> : null}
             {foundryPage === 'sources' ? <FoundrySources /> : null}
             {foundryPage === 'stages' ? <FoundryStages /> : null}
-            {foundryPage === 'artifacts' ? <FoundryArtifacts /> : null}
             {foundryPage === 'design' ? <FoundryDesign /> : null}
-            {foundryPage === 'assessments' ? <FoundryAssessments onOpen={openAcademy} /> : null}
             {foundryPage === 'workspace' ? <FoundryWorkspaces /> : null}
             {foundryPage === 'settings' ? <FoundryStageSettings /> : null}
           </>
