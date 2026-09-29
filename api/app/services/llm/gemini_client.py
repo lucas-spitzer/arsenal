@@ -9,7 +9,7 @@ from google import genai
 from google.genai import types
 
 from app.config import get_settings
-from app.llm_defaults import GEMINI_37_FLASH_MODEL
+from app.llm_defaults import GEMINI_38_FLASH_MODEL
 from app.services.llm.base import LLMCompletionResult
 from app.services.llm.reasoning import ReasoningSettings
 
@@ -102,7 +102,7 @@ class GeminiClient:
         if not resolved_key:
             raise RuntimeError("Missing required environment variable: GEMINI_API_KEY")
 
-        self.model = model or GEMINI_37_FLASH_MODEL
+        self.model = model or GEMINI_38_FLASH_MODEL
         self.reasoning = reasoning
         self.client = genai.Client(api_key=resolved_key)
 

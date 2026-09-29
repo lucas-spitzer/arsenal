@@ -45,11 +45,11 @@ def test_gemini_complete_json(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("app.services.llm.gemini_client.genai.Client", FakeClient)
 
-    client = GeminiClient(model="gemini-3.7-flash", reasoning=ReasoningSettings(effort="high"))
+    client = GeminiClient(model="gemini-3.8-flash", reasoning=ReasoningSettings(effort="high"))
     result = client.complete_json(system_prompt="sys", user_prompt="user")
 
     assert captured["api_key"] == "test-key"
-    assert captured["model"] == "gemini-3.7-flash"
+    assert captured["model"] == "gemini-3.8-flash"
     assert result.provider == "google"
     assert result.content == {"ok": True}
     assert result.token_usage["input_tokens"] == 11
@@ -89,7 +89,7 @@ def test_gemini_complete_json_with_document(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr("app.services.llm.gemini_client.genai.Client", FakeClient)
     monkeypatch.setattr("app.services.llm.gemini_client.types.Part", FakePart)
 
-    client = GeminiClient(model="gemini-3.7-flash")
+    client = GeminiClient(model="gemini-3.8-flash")
     result = client.complete_json_with_document(
         system_prompt="sys",
         user_prompt="user",
@@ -97,6 +97,6 @@ def test_gemini_complete_json_with_document(monkeypatch: pytest.MonkeyPatch) -> 
         document_mime="application/pdf",
     )
 
-    assert captured["model"] == "gemini-3.7-flash"
+    assert captured["model"] == "gemini-3.8-flash"
     assert captured["contents"][0]["part"]["mime_type"] == "application/pdf"
     assert result.content["title"] == "Sheet"

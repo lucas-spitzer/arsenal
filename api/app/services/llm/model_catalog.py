@@ -21,7 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.llm_defaults import (
-    GEMINI_37_FLASH_MODEL,
+    GEMINI_31_PRO_MODEL,
+    GEMINI_38_FLASH_MODEL,
     GPT_6_ASTRA_MODEL,
     GPT_6_LUNA_MODEL,
     GPT_6_SOL_MODEL,
@@ -46,7 +47,9 @@ class CatalogModel:
 
 # Prices are USD per million tokens (standard on-demand, short context).
 # OpenAI GPT-6 Astra/Sol/Luna list prices are $10/$50, $2/$10, and $0.10/$0.50.
-# Gemini 3.7 Flash uses introductory list prices through 2026-12-31.
+# Gemini 3.8 Flash uses introductory list prices through 2026-12-31
+# ($1.50 / $7.50 after that). Gemini 3.1 Pro is the <=200k-token rate;
+# prompts over 200k tokens are $4 / $18, which this single rate does not tier.
 MODEL_CATALOG: tuple[CatalogModel, ...] = (
     # --- Anthropic ---
     CatalogModel(
@@ -118,10 +121,21 @@ MODEL_CATALOG: tuple[CatalogModel, ...] = (
     ),
     # --- Google ---
     CatalogModel(
-        model=GEMINI_37_FLASH_MODEL,
+        model=GEMINI_31_PRO_MODEL,
         provider="google",
-        display_name="Gemini 3.7 Flash",
-        capability_tier=1,
+        display_name="Gemini 3.1 Pro",
+        capability_tier=3,
+        supports_reasoning=True,
+        reasoning_modes=("effort",),
+        context_window=1_048_576,
+        input_per_million=2.00,
+        output_per_million=12.00,
+    ),
+    CatalogModel(
+        model=GEMINI_38_FLASH_MODEL,
+        provider="google",
+        display_name="Gemini 3.8 Flash",
+        capability_tier=2,
         supports_reasoning=True,
         reasoning_modes=("effort",),
         context_window=1_048_576,

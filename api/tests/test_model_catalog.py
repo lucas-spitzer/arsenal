@@ -29,7 +29,8 @@ def test_catalog_contains_only_selected_models() -> None:
         "gpt-6-astra",
         "gpt-6-sol",
         "gpt-6-luna",
-        "gemini-3.7-flash",
+        "gemini-3.8-flash",
+        "gemini-3.1-pro-preview",
     }
 
 
@@ -43,14 +44,16 @@ def test_get_catalog_model_exact_and_prefix() -> None:
     # A dated snapshot should resolve by longest-prefix, not collapse to a sibling.
     assert get_catalog_model("gpt-6-luna-2026-01-01").model == "gpt-6-luna"
     assert get_catalog_model("gpt-6-sol-2026-01-01").model == "gpt-6-sol"
-    assert get_catalog_model("gemini-3.7-flash").display_name == "Gemini 3.7 Flash"
+    assert get_catalog_model("gemini-3.8-flash").display_name == "Gemini 3.8 Flash"
+    assert get_catalog_model("gemini-3.1-pro-preview").display_name == "Gemini 3.1 Pro"
     assert get_catalog_model("nonexistent-model") is None
     assert get_catalog_model(None) is None
 
 
 def test_catalog_list_price_known_and_unknown() -> None:
     assert catalog_list_price("claude-haiku-4-5-20251001") == (1.00, 5.00)
-    assert catalog_list_price("gemini-3.7-flash") == (0.75, 3.75)
+    assert catalog_list_price("gemini-3.8-flash") == (0.75, 3.75)
+    assert catalog_list_price("gemini-3.1-pro-preview") == (2.00, 12.00)
     # A model absent from the catalog has no list price.
     assert catalog_list_price("nonexistent-model") is None
 
@@ -88,10 +91,13 @@ def test_google_rates_use_catalog_and_explicit_table(monkeypatch: pytest.MonkeyP
         lambda model: (999.0, 999.0),
     )
 
-    rates = api_pricing.google_rates_for_model("gemini-3.7-flash")
+    flash = api_pricing.google_rates_for_model("gemini-3.8-flash")
+    pro = api_pricing.google_rates_for_model("gemini-3.1-pro-preview")
 
-    assert rates.input_per_million == 0.75
-    assert rates.output_per_million == 3.75
+    assert flash.input_per_million == 0.75
+    assert flash.output_per_million == 3.75
+    assert pro.input_per_million == 2.00
+    assert pro.output_per_million == 12.00
 
 
 def test_explicit_rate_table_wins_over_catalog(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -93,7 +93,7 @@ def test_build_api_usage_routes_anthropic_provider() -> None:
 def test_build_api_usage_routes_google_provider() -> None:
     usage = build_api_usage(
         {
-            "model": "gemini-3.7-flash",
+            "model": "gemini-3.8-flash",
             "provider": "google",
             "token_usage": {
                 "input_tokens": 10_000,
@@ -105,7 +105,7 @@ def test_build_api_usage_routes_google_provider() -> None:
     assert len(usage["calls"]) == 1
     assert usage["calls"][0]["provider"] == "google"
     assert usage["totals"]["cost_usd"] == cost_google_usage(
-        model="gemini-3.7-flash",
+        model="gemini-3.8-flash",
         input_tokens=10_000,
         output_tokens=2_000,
     )["cost_usd"]

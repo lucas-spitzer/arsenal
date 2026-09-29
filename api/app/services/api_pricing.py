@@ -66,9 +66,15 @@ DEFAULT_ANTHROPIC_RATES = TokenRates(
 )
 
 GOOGLE_MODEL_RATES: dict[str, TokenRates] = {
-    "gemini-3.7-flash": TokenRates(
-        input_per_million=_float_env("GOOGLE_GEMINI_37_FLASH_INPUT_PER_M", 0.75),
-        output_per_million=_float_env("GOOGLE_GEMINI_37_FLASH_OUTPUT_PER_M", 3.75),
+    # Introductory standard rates through 2026-12-31. Standard after that is $1.50 / $7.50.
+    "gemini-3.8-flash": TokenRates(
+        input_per_million=_float_env("GOOGLE_GEMINI_38_FLASH_INPUT_PER_M", 0.75),
+        output_per_million=_float_env("GOOGLE_GEMINI_38_FLASH_OUTPUT_PER_M", 3.75),
+    ),
+    # Short-context standard rate (prompts <= 200k tokens). Longer prompts are $4 / $18.
+    "gemini-3.1-pro-preview": TokenRates(
+        input_per_million=_float_env("GOOGLE_GEMINI_31_PRO_INPUT_PER_M", 2.00),
+        output_per_million=_float_env("GOOGLE_GEMINI_31_PRO_OUTPUT_PER_M", 12.00),
     ),
 }
 
