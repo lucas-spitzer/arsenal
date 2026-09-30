@@ -29,7 +29,7 @@ OPENAI_MODEL_RATES: dict[str, TokenRates] = {
         input_per_million=_float_env("OPENAI_GPT6_ASTRA_INPUT_PER_M", 10.00),
         output_per_million=_float_env("OPENAI_GPT6_ASTRA_OUTPUT_PER_M", 50.00),
     ),
-    "gpt-6-sol": TokenRates(
+    "gpt-6.1-sol": TokenRates(
         input_per_million=_float_env("OPENAI_GPT6_SOL_INPUT_PER_M", 2.00),
         output_per_million=_float_env("OPENAI_GPT6_SOL_OUTPUT_PER_M", 10.00),
     ),

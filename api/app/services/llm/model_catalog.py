@@ -46,7 +46,7 @@ class CatalogModel:
 
 
 # Prices are USD per million tokens (standard on-demand, short context).
-# OpenAI GPT-6 Astra/Sol/Luna list prices are $10/$50, $2/$10, and $0.10/$0.50.
+# OpenAI GPT-6 Astra / GPT-6.1 Sol / GPT-6 Luna list prices are $10/$50, $2/$10, and $0.10/$0.50.
 # Gemini 3.8 Flash uses introductory list prices through 2026-12-31
 # ($1.50 / $7.50 after that). Gemini 3.1 Pro is the <=200k-token rate;
 # prompts over 200k tokens are $4 / $18, which this single rate does not tier.
@@ -100,7 +100,7 @@ MODEL_CATALOG: tuple[CatalogModel, ...] = (
     CatalogModel(
         model=GPT_6_SOL_MODEL,
         provider="openai",
-        display_name="GPT-6 Sol",
+        display_name="GPT-6.1 Sol",
         capability_tier=3,
         supports_reasoning=True,
         reasoning_modes=("effort",),
