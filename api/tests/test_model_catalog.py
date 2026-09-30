@@ -27,7 +27,7 @@ def test_catalog_contains_only_selected_models() -> None:
         "claude-sonnet-5",
         "claude-haiku-4-5-20251001",
         "gpt-6-astra",
-        "gpt-6-sol",
+        "gpt-6.1-sol",
         "gpt-6-luna",
         "gemini-3.8-flash",
         "gemini-3.1-pro-preview",
@@ -43,7 +43,7 @@ def test_get_catalog_model_exact_and_prefix() -> None:
     assert get_catalog_model("gpt-6-luna").display_name == "GPT-6 Luna"
     # A dated snapshot should resolve by longest-prefix, not collapse to a sibling.
     assert get_catalog_model("gpt-6-luna-2026-01-01").model == "gpt-6-luna"
-    assert get_catalog_model("gpt-6-sol-2026-01-01").model == "gpt-6-sol"
+    assert get_catalog_model("gpt-6.1-sol-2026-01-01").model == "gpt-6.1-sol"
     assert get_catalog_model("gemini-3.8-flash").display_name == "Gemini 3.8 Flash"
     assert get_catalog_model("gemini-3.1-pro-preview").display_name == "Gemini 3.1 Pro"
     assert get_catalog_model("nonexistent-model") is None
