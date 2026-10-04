@@ -29,11 +29,12 @@ _RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 _RETRY_BACKOFF_SECONDS = 5
 
 # Continuity hints for request stitching across paragraph boundaries. Not all
-# models accept them — eleven_v3 rejects the request with an
-# "unsupported_model" validation error — so they are stripped for those models
+# models accept them — v3 rejected the request with an
+# "unsupported_model" validation error, and v4 stays in the conservative list
+# until its behavior is confirmed — so they are stripped for those models
 # up front, and stripped reactively if the API rejects them anyway.
 _STITCHING_KEYS = ("previous_request_ids", "previous_text", "next_text")
-_MODELS_WITHOUT_STITCHING_PREFIXES = ("eleven_v3",)
+_MODELS_WITHOUT_STITCHING_PREFIXES = ("eleven_v4",)
 
 
 def model_supports_stitching(model_id: str) -> bool:
