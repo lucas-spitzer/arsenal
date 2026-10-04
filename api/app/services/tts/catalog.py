@@ -25,9 +25,11 @@ GEMINI_SADALTAGER_VOICE_ID = "Sadaltager"
 # https://speechify.ai/pricing — Scale is $6/1M, Pro $8/1M.
 SPEECHIFY_LIST_PRICE_PER_MILLION = 10.00
 
-# ElevenLabs API list for Multilingual v2 / v3: $0.10 / 1K characters = $100 / 1M.
+# ElevenLabs v4 API list: $0.08 / 1K characters = $80 / 1M. Launch promo
+# $0.022 / 1K = $22 / 1M through 2026-10-12; v4 Turbo list $0.04 / 1K =
+# $40 / 1M ($11 / 1M through 2026-10-12).
 # https://elevenlabs.io/pricing/api
-ELEVENLABS_V3_LIST_PRICE_PER_MILLION = 100.00
+ELEVENLABS_V4_LIST_PRICE_PER_MILLION = 80.00
 
 # Cartesia Sonic TTS is ~1 credit per character. Pro is $5 / 100K credits = $50 / 1M.
 # https://docs.cartesia.ai/pricing — Scale is ~$37.38 ($299 / 8M credits).
@@ -89,12 +91,12 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         capability_tier=1,
     ),
     TtsCatalogModel(
-        model="eleven_v3",
+        model="eleven_v4",
         provider="elevenlabs",
-        display_name="Eleven v3",
+        display_name="Eleven v4",
         default_voice_id=ELEVENLABS_DEFAULT_VOICE_ID,
         voices=_voices((ELEVENLABS_DEFAULT_VOICE_ID, "Burt Reynolds")),
-        price_per_million=ELEVENLABS_V3_LIST_PRICE_PER_MILLION,
+        price_per_million=ELEVENLABS_V4_LIST_PRICE_PER_MILLION,
         capability_tier=5,
     ),
     TtsCatalogModel(
