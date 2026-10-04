@@ -52,7 +52,7 @@ const client = new ElevenLabsClient({ apiKey: 'your_api_key' });
 const { data, rawResponse } = await client.textToSpeech
   .convert('voice_id', {
     text: 'Hello, world!',
-    modelId: 'eleven_v3',
+    modelId: 'eleven_v4',
   })
   .withRawResponse();
 
