@@ -57,7 +57,7 @@ def test_progress_output_summary_is_fraction() -> None:
         skipped=0,
         character_count=209,
         voice_id="voice-1",
-        model_id="eleven_v3",
+        model_id="eleven_v4",
     )
 
     assert output["summary"] == "2/280 clips"
@@ -122,15 +122,15 @@ def _ok_response() -> _FakeResponse:
     )
 
 
-def test_model_supports_stitching_flags_v3() -> None:
-    assert not model_supports_stitching("eleven_v3")
-    assert not model_supports_stitching("eleven_v3_preview")
+def test_model_supports_stitching_flags_v4() -> None:
+    assert not model_supports_stitching("eleven_v4")
+    assert not model_supports_stitching("eleven_v4_preview")
     assert model_supports_stitching("eleven_multilingual_v2")
     assert model_supports_stitching("eleven_flash_v2_5")
 
 
 def test_v3_requests_omit_stitching_hints() -> None:
-    client = ElevenLabsClient(api_key="k", voice_id="v", model_id="eleven_v3")
+    client = ElevenLabsClient(api_key="k", voice_id="v", model_id="eleven_v4")
     fake = _FakeHttpClient([_ok_response()])
 
     result = client.synthesize_with_timestamps(
@@ -303,7 +303,7 @@ def test_publish_artifact_writes_json_manifest() -> None:
     ]
     db = _FakeWorkerDb(rows)
     storage = _FakeWorkerStorage()
-    client = ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v3")
+    client = ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v4")
     executor = NarrationStageExecutor(
         db=db, storage=storage, client=client, max_segment_chars=9500  # type: ignore[arg-type]
     )
@@ -401,7 +401,7 @@ def test_publish_artifact_none_when_no_narration() -> None:
     executor = NarrationStageExecutor(
         db=_FakeWorkerDb([]),  # type: ignore[arg-type]
         storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
-        client=ElevenLabsClient(api_key="k", voice_id="v", model_id="eleven_v3"),
+        client=ElevenLabsClient(api_key="k", voice_id="v", model_id="eleven_v4"),
         max_segment_chars=9500,
     )
     assert (
@@ -431,7 +431,7 @@ def test_publish_artifact_updates_same_voice_and_model() -> None:
     executor = NarrationStageExecutor(
         db=db,  # type: ignore[arg-type]
         storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
-        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v3"),
+        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v4"),
         max_segment_chars=9500,
     )
     kwargs: dict[str, Any] = {
@@ -519,7 +519,7 @@ def test_publish_artifact_creates_row_for_different_model() -> None:
     NarrationStageExecutor(
         db=db,  # type: ignore[arg-type]
         storage=storage,  # type: ignore[arg-type]
-        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v3"),
+        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v4"),
         max_segment_chars=9500,
     )._publish_artifact(**kwargs)
     NarrationStageExecutor(
@@ -530,7 +530,7 @@ def test_publish_artifact_creates_row_for_different_model() -> None:
     )._publish_artifact(**kwargs)
     assert len(db.created_artifacts) == 2
     assert {row["manifest"]["model_id"] for row in db.created_artifacts} == {
-        "eleven_v3",
+        "eleven_v4",
         "eleven_multilingual_v2",
     }
 
@@ -554,7 +554,7 @@ def test_publish_artifact_deletes_duplicate_voice_model_rows() -> None:
             "created_at": "2026-01-01T00:00:00Z",
             "manifest": {
                 "voice_id": "voice-1",
-                "model_id": "eleven_v3",
+                "model_id": "eleven_v4",
                 "generated_at": "2026-01-01T00:00:00Z",
             },
         },
@@ -563,13 +563,13 @@ def test_publish_artifact_deletes_duplicate_voice_model_rows() -> None:
             "source_id": "src-1",
             "artifact_type": "narration_audio",
             "created_at": "2026-01-02T00:00:00Z",
-            "manifest": {"voice_id": "voice-1", "model_id": "eleven_v3"},
+            "manifest": {"voice_id": "voice-1", "model_id": "eleven_v4"},
         },
     ]
     file_info = NarrationStageExecutor(
         db=db,  # type: ignore[arg-type]
         storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
-        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v3"),
+        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v4"),
         max_segment_chars=9500,
     )._publish_artifact(
         workspace_id="ws-1",
@@ -629,7 +629,7 @@ def test_failed_run_still_publishes_artifact() -> None:
     executor = NarrationStageExecutor(
         db=db,  # type: ignore[arg-type]
         storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
-        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v3"),
+        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v4"),
         max_segment_chars=9500,
     )
 

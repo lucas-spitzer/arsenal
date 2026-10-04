@@ -13,7 +13,7 @@ class _FakeRest:
     async def select_many(self, table: str, **kwargs: Any) -> list[dict[str, Any]]:
         self.calls.append({"method": "many", "table": table, **kwargs})
         if kwargs.get("columns") == "model_id,voice_id":
-            return [{"model_id": "eleven_v3", "voice_id": "voice-1"}]
+            return [{"model_id": "eleven_v4", "voice_id": "voice-1"}]
         return [{"id": "narration-1"}]
 
     async def select_one(self, table: str, **kwargs: Any) -> dict[str, Any] | None:
@@ -41,7 +41,7 @@ def test_list_for_source_resolves_one_latest_variant_before_paging() -> None:
     variant_call = db.calls[1]
     assert variant_call["order"] == "updated_at.desc,id.desc"
     page_call = db.calls[2]
-    assert page_call["filters"]["model_id"] == "eq.eleven_v3"
+    assert page_call["filters"]["model_id"] == "eq.eleven_v4"
     assert page_call["filters"]["voice_id"] == "eq.voice-1"
     assert page_call["limit"] == 50
     assert page_call["offset"] == 10

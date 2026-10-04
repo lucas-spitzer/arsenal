@@ -28,7 +28,7 @@ from app.tts_defaults import tts_provider_for_model
 def test_tts_provider_for_model() -> None:
     assert tts_provider_for_model("simba-3.2") == "speechify"
     assert tts_provider_for_model("simba-3.0") == "speechify"
-    assert tts_provider_for_model("eleven_v3") == "elevenlabs"
+    assert tts_provider_for_model("eleven_v4") == "elevenlabs"
     assert tts_provider_for_model("eleven_multilingual_v2") == "elevenlabs"
     assert tts_provider_for_model("sonic-3.6") == "cartesia"
     assert tts_provider_for_model("gemini-3.8-flash-tts") == "google"
@@ -39,13 +39,13 @@ def test_tts_catalog_ships_simba_eleven_sonic_and_gemini() -> None:
     models = {entry.model for entry in TTS_MODEL_CATALOG}
     assert models == {
         "simba-3.2",
-        "eleven_v3",
+        "eleven_v4",
         "sonic-3.6",
         "gemini-3.8-flash-tts",
         "gemini-3.8-flash-lite-tts",
     }
     simba = get_tts_catalog_model("simba-3.2")
-    eleven = get_tts_catalog_model("eleven_v3")
+    eleven = get_tts_catalog_model("eleven_v4")
     sonic = get_tts_catalog_model("sonic-3.6")
     flash = get_tts_catalog_model("gemini-3.8-flash-tts")
     lite = get_tts_catalog_model("gemini-3.8-flash-lite-tts")
@@ -78,7 +78,7 @@ def test_tts_list_prices_per_million_characters(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delenv("GOOGLE_TTS_PRICE_PER_CHARACTER", raising=False)
 
     speechify = cost_speechify_usage(model="simba-3.2", character_count=1_000_000)
-    eleven = cost_elevenlabs_usage(model="eleven_v3", character_count=1_000_000)
+    eleven = cost_elevenlabs_usage(model="eleven_v4", character_count=1_000_000)
     cartesia = cost_tts_usage(
         provider="cartesia",
         model="sonic-3.6",
@@ -184,7 +184,7 @@ def test_get_tts_client_routes_by_model(monkeypatch: pytest.MonkeyPatch) -> None
     get_settings.cache_clear()
 
     speechify = get_tts_client(model="simba-3.2", voice_id="hugh_32")
-    eleven = get_tts_client(model="eleven_v3", voice_id="voice-1")
+    eleven = get_tts_client(model="eleven_v4", voice_id="voice-1")
     cartesia = get_tts_client(
         model="sonic-3.6",
         voice_id="4df027cb-2920-4a1f-8c34-f21529d5c3fe",
@@ -194,7 +194,7 @@ def test_get_tts_client_routes_by_model(monkeypatch: pytest.MonkeyPatch) -> None
     assert speechify.provider == "speechify"
     assert speechify.voice_id == "hugh_32"
     assert eleven.provider == "elevenlabs"
-    assert eleven.model_id == "eleven_v3"
+    assert eleven.model_id == "eleven_v4"
     assert cartesia.provider == "cartesia"
     assert cartesia.model_id == "sonic-3.6"
     assert gemini.provider == "google"
