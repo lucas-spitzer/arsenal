@@ -7,11 +7,11 @@ from typing import Any
 from anthropic import Anthropic, BadRequestError
 
 from app.config import get_settings
-from app.llm_defaults import SONNET_5_MODEL
+from app.llm_defaults import SONNET_55_MODEL
 from app.services.llm.base import LLMCompletionResult
 from app.services.llm.reasoning import ReasoningSettings
 
-_DEFAULT_MODEL = SONNET_5_MODEL
+_DEFAULT_MODEL = SONNET_55_MODEL
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _PREFILL_ERROR_MARKERS = ("prefill", "must end with a user message")

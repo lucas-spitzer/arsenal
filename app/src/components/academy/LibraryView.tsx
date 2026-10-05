@@ -36,11 +36,9 @@ function cardIcon(item: OutputItem): typeof Layers {
 }
 
 function openLabel(item: OutputItem): string {
-  if (item.kind === 'material') return 'Download'
   if (item.kind === 'audio') return item.isNarration ? 'Open' : 'Download'
   if (item.kind === 'book' || item.kind === 'artifact') return 'Open'
   if (item.kind === 'flashcard') return 'Study'
-  if (item.kind === 'wiki') return 'Edit'
   return 'Open'
 }
 
@@ -95,6 +93,10 @@ export function LibraryView({
     }
     if (item.kind === 'book' || item.kind === 'artifact') {
       if (item.sourceId) navigate(`/app/reader/${item.sourceId}`)
+      return
+    }
+    if (item.kind === 'wiki') {
+      onOpen('wiki', { sourceId: item.sourceId, targetId: null })
       return
     }
     if (item.runnerPage) onOpen(item.runnerPage, { sourceId: item.sourceId, targetId: item.id })
@@ -172,7 +174,8 @@ function CardGrid({
           item.kind === 'audio' ||
           item.kind === 'book' ||
           item.kind === 'artifact' ||
-          item.kind === 'material'
+          item.kind === 'material' ||
+          item.kind === 'wiki'
         return (
           <article key={`${item.kind}-${item.id}`} className="lib__card">
             <div className="lib__card-top">

@@ -50,7 +50,8 @@ ANTHROPIC_MODEL_RATES: dict[str, TokenRates] = {
         input_per_million=_float_env("ANTHROPIC_OPUS_INPUT_PER_M", 4.00),
         output_per_million=_float_env("ANTHROPIC_OPUS_OUTPUT_PER_M", 20.00),
     ),
-    "claude-sonnet-5": TokenRates(
+    # Sonnet 5.5 list price matches Sonnet 5: $2 / $10 per million tokens.
+    "claude-sonnet-5-5": TokenRates(
         input_per_million=_float_env("ANTHROPIC_SONNET_INPUT_PER_M", 2.00),
         output_per_million=_float_env("ANTHROPIC_SONNET_OUTPUT_PER_M", 10.00),
     ),

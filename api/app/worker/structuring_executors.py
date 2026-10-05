@@ -36,7 +36,7 @@ from app.intellex.structuring.models import (
     book_from_dict,
 )
 from app.intellex.structuring.normalize import normalize_structured_pages
-from app.intellex.structuring.validate import validate_against_pdf
+from app.intellex.structuring.validate import pdf_text_layer, validate_against_pdf
 from app.mathesys.epub_builder import build_epub
 from app.mathesys.structured_epub import book_to_epub_chapters
 from app.services.stage_run_billing import stage_run_completion_fields
@@ -173,9 +173,13 @@ class TrimBoundariesStageExecutor(_ExecutorBase):
         try:
             start_i, end_i, reasons = auto_boundaries(elements)
             if start_i is None:
-                raise RuntimeError(reasons.get("error", "could not detect chapter boundaries"))
+                start_i = elements[0].index if elements else 0
+                reasons = {
+                    **reasons,
+                    "start": "no division markers; kept from start of document",
+                }
             if end_i is None:
-                end_i = elements[-1].index + 1
+                end_i = elements[-1].index + 1 if elements else start_i
             trimmed = trim(elements, start_index=start_i, end_index=end_i)
             path = trimmed_work_path(source)
             self.storage.upload(
@@ -222,7 +226,8 @@ class StructureStageExecutor(_ExecutorBase):
             inputs={"source_id": source["id"], "element_count": len(trimmed_elements)},
         )
         try:
-            book = classify(trimmed_elements)
+            pdf_bytes = self.storage.download(source["storage_path"])
+            book = classify(trimmed_elements, pdf_pages=pdf_text_layer(pdf_bytes))
             path = book_work_path(source)
             self.storage.upload(
                 path, json.dumps(book.to_dict(), ensure_ascii=False).encode("utf-8"),
@@ -275,10 +280,20 @@ class PdfStructureValidationStageExecutor(_ExecutorBase):
         try:
             pdf_bytes = self.storage.download(source["storage_path"])
             report = validate_against_pdf(book, pdf_bytes)  # raises StructureValidationError on hard fail
+            title_corrections = report.get("title_corrections") or []
+            if title_corrections:
+                # Create EPUB reloads book.json. Keep the PDF spelling there.
+                self.storage.upload(
+                    book_work_path(source),
+                    json.dumps(book.to_dict(), ensure_ascii=False).encode("utf-8"),
+                    bucket=self.storage.sources_bucket,
+                    content_type="application/json",
+                )
             self._merge_metadata(source, "validate", {
                 "validated_at": utc_now_iso(),
                 "valid": report["valid"],
                 "warnings": report["warnings"],
+                "title_corrections": title_corrections,
                 "checked": report["checked"],
             })
             self._complete(

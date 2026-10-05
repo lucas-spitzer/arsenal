@@ -25,6 +25,7 @@ class StageSettingsRepository:
         reasoning_effort: str | None,
         reasoning_tokens: int | None,
         voice_id: str | None = None,
+        image_quality: str | None = None,
     ) -> dict[str, Any]:
         rows = await self.db.request(
             "POST",
@@ -38,6 +39,7 @@ class StageSettingsRepository:
                 "reasoning_effort": reasoning_effort,
                 "reasoning_tokens": reasoning_tokens,
                 "voice_id": voice_id,
+                "image_quality": image_quality,
             },
             prefer="return=representation,resolution=merge-duplicates",
         )

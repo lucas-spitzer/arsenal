@@ -13,6 +13,7 @@ from app.routers import (
     assistant,
     artifacts,
     assessments,
+    image,
     llm,
     production_runs,
     reader,
@@ -75,6 +76,7 @@ app.include_router(artifacts.router)
 app.include_router(assessments.router)
 app.include_router(llm.router)
 app.include_router(tts.router)
+app.include_router(image.router)
 app.include_router(assistant.router)
 app.include_router(study_materials.router)
 

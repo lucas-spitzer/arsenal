@@ -279,6 +279,12 @@ export async function createProductionRun(
   })
 }
 
+export async function deleteProductionRun(workspaceId: string, runId: string): Promise<void> {
+  await apiRequestVoid(`/workspaces/${workspaceId}/production-runs/${runId}`, {
+    method: 'DELETE',
+  })
+}
+
 export async function listStageRuns(runId: string): Promise<StageRun[]> {
   return apiRequest<StageRun[]>(`/production-runs/${runId}/stage-runs`)
 }
@@ -310,6 +316,16 @@ export interface TtsCatalogModel {
   capability_tier: number
 }
 
+export interface ImageCatalogModel {
+  model: string
+  provider: string
+  display_name: string
+  price_per_image: number | null
+  capability_tier: number
+  qualities: string[]
+  default_quality: string
+}
+
 export interface StageSetting {
   stage_action: string
   label: string
@@ -318,10 +334,12 @@ export interface StageSetting {
   reasoning_effort: string | null
   reasoning_tokens: number | null
   voice_id: string | null
+  image_quality: string | null
   is_overridden: boolean
   default_provider: string
   default_model: string
   default_voice_id: string | null
+  default_image_quality: string | null
 }
 
 export async function getModelCatalog(): Promise<CatalogModel[]> {
@@ -331,6 +349,11 @@ export async function getModelCatalog(): Promise<CatalogModel[]> {
 
 export async function getTtsCatalog(): Promise<TtsCatalogModel[]> {
   const response = await apiRequest<{ models: TtsCatalogModel[] }>('/tts/catalog')
+  return response.models
+}
+
+export async function getImageCatalog(): Promise<ImageCatalogModel[]> {
+  const response = await apiRequest<{ models: ImageCatalogModel[] }>('/image/catalog')
   return response.models
 }
 
@@ -350,6 +373,7 @@ export async function putStageSetting(
     reasoning_effort?: string | null
     reasoning_tokens?: number | null
     voice_id?: string | null
+    image_quality?: string | null
   },
 ): Promise<StageSetting> {
   return apiRequest<StageSetting>(

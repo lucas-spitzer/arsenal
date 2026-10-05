@@ -5,8 +5,9 @@ where the three KEEP rules are applied and where chapter grouping happens -- so
 it replaces the old deconstruct-document step as well as the structural half of
 prepare-document.
 
-  H1 chapters: a heading matching the chapter pattern ("Chapter 1",
-      "CHAPTER ONE", "Chapter IV"). A bare marker is merged with following
+  H1 chapters: a heading matching the division pattern ("Chapter 1",
+      "CHAPTER ONE", "Chapter IV", "Part II", or "Chapter 1: Title"). A bare
+      marker is merged with following
       title-line headings (and a short title-case text line, when LlamaParse
       failed to mark it as a heading) until the first ALL-CAPS subsection.
       Doctrine books keep the familiar "Chapter N Title" form; multi-line
@@ -33,14 +34,24 @@ three KEEP types and are dropped, with counts reported. Standalone captions for
 those omitted visuals are dropped as well; inline prose references are retained.
 Omitted visuals and their captions are transparent to paragraph continuity so a
 sentence interrupted by a figure can be rejoined.
+A `photo:` or `image:` description on a page that has a text layer is a content
+picture. The words the parser transcribed from that picture are dropped, and a
+short note takes their place. Decorative `logo:` and `icon:` lines stay silent.
 """
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from app.intellex.heading_classification import is_doctrinal_subsection_heading
-from app.intellex.structuring.boundaries import DEFAULT_CHAPTER_RE, is_chapter_marker
+from app.intellex.structuring.boundaries import (
+    DEFAULT_CHAPTER_RE,
+    chapter_heading_label,
+    is_back_matter_heading,
+    is_chapter_marker,
+)
 from app.intellex.structuring.models import Book, Chapter, Element, Paragraph, Section
+from app.intellex.structuring.validate import layer_norm
 
 _SUP_TAG_RE = re.compile(r"<sup>.*?</sup>", re.IGNORECASE | re.DOTALL)
 _UNICODE_SUP_RE = re.compile(r"[\u00b2\u00b3\u00b9\u2070\u2074-\u2079]+")
@@ -76,12 +87,163 @@ _NON_SECTION_LAYOUT_LABELS = _VISUAL_LAYOUT_LABELS | {
     "endnote",
 }
 _FOOTNOTE_LAYOUT_LABELS = frozenset({"footnote", "endnote"})
+_VISUAL_KIND_RE = re.compile(
+    r"^(?:logo|icon|image|seal|emblem|ornament|banner|photo)\s*:\s*",
+    re.IGNORECASE,
+)
+_LOWERCASE_DESCRIPTION_RE = re.compile(r"(?:[a-z][\w'-]*\s+)*[a-z][\w'-]*\s*")
 _FOOTNOTE_START_RE = re.compile(r"^\s*<sup>\s*\d+\s*</sup>", re.IGNORECASE)
 _SOURCE_NOTE_RE = re.compile(r"^\s*[*_]*Source\s*:", re.IGNORECASE)
 _MAX_VISUAL_CREDIT_WORDS = 20
 _MAX_VISUAL_CREDIT_LENGTH = 160
 _FRAGMENTED_VISUAL_MAX_CONFIDENCE = 0.5
 _FRAGMENTED_VISUAL_MIN_BOXES = 4
+_CONTENT_IMAGE_RE = re.compile(r"^(?:photo|image)\s*:\s*(.*)$", re.IGNORECASE)
+# Spoken words only. Digits, markdown, and symbols are left out: narration
+# counts words with text.split(), and a token such as "1944" or "*" can make
+# the audio word count disagree and fail the clip.
+_SPOKEN_WORD_RE = re.compile(r"[A-Za-z']+")
+_MAX_IMAGE_DESCRIPTION_WORDS = 12
+_IMAGE_NOTE_FALLBACK = "An image is not included here."
+# A page number alone is not a text layer. Real prose on the commission page
+# is far longer than this.
+_MIN_TEXT_LAYER_CHARS = 80
+# Plate fragments ("IN CONGRESS.", "Henry Laurens, PRESIDENT.") are shorter
+# than a real paragraph, and a one-word token would match the surrounding prose.
+_MIN_LAYER_WORDS = 4
+_LAYER_NEEDLE_WORDS = 10
+
+
+def _strip_visual_prefix(line: str) -> str:
+    """Drop a parser ornament description, keeping a title that follows it.
+
+    "logo: decorative flourish The Profession of Arms" keeps
+    "The Profession of Arms". A line that is only the description becomes empty.
+    """
+    match = _VISUAL_KIND_RE.match(line)
+    if not match:
+        return line
+    rest = line[match.end():]
+    description = _LOWERCASE_DESCRIPTION_RE.match(rest)
+    if description is None:
+        return rest.strip()
+    return rest[description.end():].strip()
+
+
+def heading_lines(text: str) -> list[str]:
+    """Heading text split into title lines, without ornament descriptions or footnote tags."""
+    lines: list[str] = []
+    for raw in (text or "").splitlines():
+        line = strip_footnote_markers(_strip_visual_prefix(raw.strip()))
+        if line:
+            lines.append(line)
+    return lines
+
+
+def _is_pure_visual_description(text: str) -> bool:
+    nonempty = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    if not nonempty:
+        return False
+    return all(_VISUAL_KIND_RE.match(line) and not _strip_visual_prefix(line) for line in nonempty)
+
+
+def _spoken_description(raw: str) -> str:
+    """Reduce a parser image label to words a narrator can read as written."""
+    text = strip_footnote_markers(raw)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = unicodedata.normalize("NFKD", text)
+    text = text.encode("ascii", "ignore").decode("ascii")
+    words = [word.lower() for word in _SPOKEN_WORD_RE.findall(text)]
+    return " ".join(words[:_MAX_IMAGE_DESCRIPTION_WORDS])
+
+
+def _content_image_note(text: str) -> str | None:
+    """Return the note for a photo or image description, else None.
+
+    The result is plain sentences with no markup. The ebook prints them and
+    narration speaks the same words. "photo: historical commission document"
+    becomes "An image is not included here. It shows a historical commission
+    document." Logo and icon lines are ornaments and return None.
+    """
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    if len(lines) != 1:
+        return None
+    match = _CONTENT_IMAGE_RE.match(lines[0])
+    if match is None:
+        return None
+    description = _spoken_description(match.group(1))
+    if not description:
+        return _IMAGE_NOTE_FALLBACK
+    first = description.split()[0]
+    if first in {"a", "an", "the"}:
+        shown = description
+    else:
+        article = "an" if first[:1] in "aeiou" else "a"
+        shown = f"{article} {description}"
+    return f"An image is not included here. It shows {shown}."
+
+
+def _page_layer(page: int | None, pdf_pages: list[str] | None) -> str:
+    if not pdf_pages or not isinstance(page, int):
+        return ""
+    index = page - 1
+    if index < 0 or index >= len(pdf_pages):
+        return ""
+    return pdf_pages[index]
+
+
+def _page_has_text_layer(page: int | None, pdf_pages: list[str] | None) -> bool:
+    return len(_page_layer(page, pdf_pages)) >= _MIN_TEXT_LAYER_CHARS
+
+
+def _in_text_layer(element: Element, pdf_pages: list[str] | None) -> bool:
+    """True when this item is authored prose, not words read off a picture."""
+    page_text = _page_layer(element.page, pdf_pages)
+    if len(page_text) < _MIN_TEXT_LAYER_CHARS:
+        return False
+    words = layer_norm(element.text or element.md or "").split()
+    if len(words) < _MIN_LAYER_WORDS:
+        return False
+    return " ".join(words[:_LAYER_NEEDLE_WORDS]) in page_text
+
+
+def _image_splits_sentence(
+    previous: Element,
+    current: Element,
+    *,
+    strip_markers: bool,
+) -> bool:
+    """True when the picture sits inside a sentence, not between two of them.
+
+    A trailing citation such as <sup>5</sup> does not keep the sentence open.
+    """
+    if current.type != "text" or not _continues_paragraph(previous, current):
+        return False
+    previous_md = previous.md or previous.text
+    if strip_markers:
+        previous_md = strip_footnote_markers(previous_md)
+    return not _paragraph_looks_complete(previous_md)
+
+
+def _stops_image_block(
+    element: Element,
+    pdf_pages: list[str] | None,
+    chapter_re: str,
+) -> bool:
+    """True when this item ends a picture's transcribed words."""
+    if is_chapter_marker(element.text, chapter_re):
+        return True
+    if is_back_matter_heading(element.text):
+        return True
+    if _is_page_footnote(element):
+        return False
+    return _in_text_layer(element, pdf_pages)
+
+
+def _advance_past_visuals(elements: list[Element], index: int, count: int) -> int:
+    while index < count and _is_pure_visual_description(elements[index].text):
+        index += 1
+    return index
 
 
 def strip_footnote_markers(md: str) -> str:
@@ -344,20 +506,33 @@ def _collect_heading_title(
     absorb_orphan_title_text: bool,
 ) -> tuple[str, int]:
     """Return (joined title, last consumed index)."""
-    parts = [elements[start_index].text]
+    label = chapter_heading_label(elements[start_index].text)
+    if label:
+        parts = [label]
+        for line in heading_lines(elements[start_index].text):
+            if line.lower() == label.lower():
+                continue
+            if re.match(rf"{re.escape(label)}\s+with\s+", line, re.IGNORECASE):
+                continue
+            parts.append(line)
+    else:
+        parts = heading_lines(elements[start_index].text)
     index = start_index + 1
     count = len(elements)
+    index = _advance_past_visuals(elements, index, count)
     while index < count and _is_title_continuation_heading(
         elements[index],
         chapter_re=chapter_re,
         fragmented_visual_pages=fragmented_visual_pages,
     ):
-        parts.append(elements[index].text)
+        parts.extend(heading_lines(elements[index].text))
         index += 1
+        index = _advance_past_visuals(elements, index, count)
     if absorb_orphan_title_text:
         while index < count and _is_orphan_title_text(elements[index]):
-            parts.append(elements[index].text)
+            parts.extend(heading_lines(elements[index].text))
             index += 1
+            index = _advance_past_visuals(elements, index, count)
     return _join_title_parts(parts, chapter_re=chapter_re), index - 1
 
 
@@ -381,7 +556,13 @@ def classify(
     *,
     chapter_re: str = DEFAULT_CHAPTER_RE,
     strip_markers: bool = True,
+    pdf_pages: list[str] | None = None,
 ) -> Book:
+    """Build a Book. `pdf_pages` is the normalized text layer, index 0 for page 1.
+
+    Without it, a content image cannot be told from the prose around it, so
+    transcribed picture text is left in place.
+    """
     book = Book()
     current_chapter: Chapter | None = None
     current_section: Section | None = None
@@ -389,27 +570,128 @@ def classify(
     previous_body_element: Element | None = None
     previous_paragraph: Paragraph | None = None
     after_omitted_visual = False
+    skipping_back_matter = False
+    pending_image_note: str | None = None
     fragmented_visual_pages = _fragmented_visual_pages(elements)
     explicit_visual_pages = _explicit_visual_pages(elements)
+    # No chapter or part labels: one chapter for the kept stream. The first
+    # heading names it; every later heading stays a section.
+    opening_heading_idx: int | None = None
+    if elements and not any(is_chapter_marker(el.text, chapter_re) for el in elements):
+        for idx, el in enumerate(elements):
+            if el.type != "heading":
+                continue
+            lines = heading_lines(el.text)
+            if not lines or is_back_matter_heading(lines[0]):
+                continue
+            opening_heading_idx = idx
+            current_chapter = Chapter(
+                title=_join_title_parts(lines, chapter_re=chapter_re),
+                page=el.page,
+            )
+            book.chapters.append(current_chapter)
+            break
+        if current_chapter is None:
+            current_chapter = Chapter(title="(untitled)", page=elements[0].page)
+            book.chapters.append(current_chapter)
+
+    def place_image_note(page: int | None) -> None:
+        nonlocal pending_image_note
+        if pending_image_note and current_chapter is not None:
+            _append_paragraph(
+                chapter=current_chapter,
+                section=current_section,
+                md=pending_image_note,
+                page=page,
+            )
+        pending_image_note = None
 
     for idx, el in enumerate(elements):
         if idx <= consumed_through:
             continue
-        if el.type == "heading":
-            if is_chapter_marker(el.text, chapter_re):
-                title, consumed_through = _collect_heading_title(
-                    elements,
-                    idx,
-                    chapter_re=chapter_re,
-                    fragmented_visual_pages=fragmented_visual_pages,
-                    absorb_orphan_title_text=True,
+        if opening_heading_idx is not None and idx == opening_heading_idx:
+            continue
+        image_note = _content_image_note(el.text) or _content_image_note(el.md)
+        if image_note and _page_has_text_layer(el.page, pdf_pages):
+            if pending_image_note:
+                place_image_note(el.page)
+            pending_image_note = image_note
+            book.dropped_nontext["visual_description"] = (
+                book.dropped_nontext.get("visual_description", 0) + 1
+            )
+            after_omitted_visual = True
+            continue
+        if pending_image_note is not None and not _stops_image_block(
+            el, pdf_pages, chapter_re
+        ):
+            book.dropped_nontext["visual_description"] = (
+                book.dropped_nontext.get("visual_description", 0) + 1
+            )
+            after_omitted_visual = True
+            continue
+        if pending_image_note is not None:
+            rejoined = False
+            if (
+                current_chapter is not None
+                and previous_body_element is not None
+                and previous_paragraph is not None
+                and _image_splits_sentence(
+                    previous_body_element,
+                    el,
+                    strip_markers=strip_markers,
                 )
-                previous_body_element = None
-                previous_paragraph = None
-                after_omitted_visual = False
-                current_chapter = Chapter(title=title, page=el.page)
-                current_section = None
-                book.chapters.append(current_chapter)
+            ):
+                md = el.md or el.text
+                if strip_markers:
+                    md = strip_footnote_markers(md)
+                previous_paragraph.md = _join_markdown(previous_paragraph.md, md)
+                rejoined = True
+            place_image_note(el.page)
+            previous_body_element = None
+            previous_paragraph = None
+            after_omitted_visual = False
+            if rejoined:
+                continue
+        # Kickers are sometimes headings ("CHAPTER TWO") and sometimes text
+        # ("logo: CHAPTER ONE with decorative flourish"). Either one opens a chapter.
+        if is_chapter_marker(el.text, chapter_re):
+            skipping_back_matter = False
+            title, consumed_through = _collect_heading_title(
+                elements,
+                idx,
+                chapter_re=chapter_re,
+                fragmented_visual_pages=fragmented_visual_pages,
+                absorb_orphan_title_text=True,
+            )
+            previous_body_element = None
+            previous_paragraph = None
+            after_omitted_visual = False
+            current_chapter = Chapter(title=title or chapter_heading_label(el.text) or "Chapter", page=el.page)
+            current_section = None
+            book.chapters.append(current_chapter)
+            continue
+        if is_back_matter_heading(el.text):
+            skipping_back_matter = True
+            book.dropped_nontext["back_matter"] = (
+                book.dropped_nontext.get("back_matter", 0) + 1
+            )
+            continue
+        if el.type == "heading":
+            lines = heading_lines(el.text)
+            if not lines or _is_pure_visual_description(el.text):
+                book.dropped_nontext["visual_heading"] = (
+                    book.dropped_nontext.get("visual_heading", 0) + 1
+                )
+                after_omitted_visual = True
+                continue
+            elif skipping_back_matter or is_back_matter_heading(lines[0]):
+                # In-chapter Notes (and the other back-matter labels) run until
+                # the next chapter. Their citations are not body prose.
+                skipping_back_matter = True
+                book.dropped_nontext["back_matter"] = (
+                    book.dropped_nontext.get("back_matter", 0) + 1
+                )
+                continue
             else:
                 if _is_visual_heading(
                     el,
@@ -432,11 +714,28 @@ def classify(
                 previous_body_element = None
                 previous_paragraph = None
                 after_omitted_visual = False
+                if not title:
+                    book.dropped_nontext["visual_heading"] = (
+                        book.dropped_nontext.get("visual_heading", 0) + 1
+                    )
+                    continue
+                if is_back_matter_heading(title):
+                    skipping_back_matter = True
+                    book.dropped_nontext["back_matter"] = (
+                        book.dropped_nontext.get("back_matter", 0) + 1
+                    )
+                    continue
                 if current_chapter is None:  # safety net (shouldn't happen post-trim)
                     current_chapter = Chapter(title="(untitled)", page=el.page)
                     book.chapters.append(current_chapter)
                 current_section = Section(title=title, page=el.page)
                 current_chapter.sections.append(current_section)
+
+        elif skipping_back_matter:
+            book.dropped_nontext["back_matter"] = (
+                book.dropped_nontext.get("back_matter", 0) + 1
+            )
+            continue
 
         elif el.type == "text":
             if _is_page_footnote(el):
@@ -446,6 +745,12 @@ def classify(
                 # Page notes sit between halves of a sentence; keep continuity.
                 continue
             md = el.md or el.text
+            if _is_pure_visual_description(el.text) or _is_pure_visual_description(md):
+                book.dropped_nontext["visual_description"] = (
+                    book.dropped_nontext.get("visual_description", 0) + 1
+                )
+                after_omitted_visual = True
+                continue
             if strip_markers:
                 md = strip_footnote_markers(md)
             if not md.strip() or current_chapter is None:
@@ -510,5 +815,8 @@ def classify(
                 previous_body_element = None
                 previous_paragraph = None
                 after_omitted_visual = False
+
+    if pending_image_note is not None:
+        place_image_note(elements[-1].page if elements else None)
 
     return book

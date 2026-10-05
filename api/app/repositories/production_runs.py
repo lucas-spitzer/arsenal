@@ -55,3 +55,14 @@ class ProductionRunRepository:
             payload=payload,
         )
         return rows[0] if rows else None
+
+    async def purge(self, production_run_id: str) -> list[dict[str, Any]]:
+        rows = await self.db.rpc(
+            "purge_production_run",
+            {"p_run_id": production_run_id},
+        )
+        if not rows:
+            return []
+        if isinstance(rows, dict):
+            return [rows]
+        return [row for row in rows if isinstance(row, dict)]

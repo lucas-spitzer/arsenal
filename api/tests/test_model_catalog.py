@@ -24,7 +24,7 @@ def test_catalog_contains_only_selected_models() -> None:
 
     assert catalog_ids == {
         "claude-opus-5-5",
-        "claude-sonnet-5",
+        "claude-sonnet-5-5",
         "claude-haiku-4-5-20251001",
         "gpt-6-astra",
         "gpt-6.1-sol",

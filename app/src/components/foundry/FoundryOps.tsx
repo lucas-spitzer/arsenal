@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { formatDateTime, formatDuration, formatCostUsd, statusLabel } from '../../lib/foundryFormat'
 import {
@@ -11,11 +11,21 @@ import {
   sumWorkspaceCostUsd,
 } from '../../lib/foundryMappers'
 import { FoundryDetail } from './FoundryDetail'
+import { FoundryDialog } from './FoundryDialog'
 import { ErrorBanner } from './ErrorBanner'
 import { NewRunPanel } from './NewRunPanel'
 
 interface FoundryOpsProps {
   onGoToSources: () => void
+}
+
+type RunDeletePrompt =
+  | { kind: 'idle' }
+  | { kind: 'menu'; runId: string; x: number; y: number }
+  | { kind: 'confirm'; runId: string }
+
+function isNode(value: EventTarget | null): value is Node {
+  return value instanceof Node
 }
 
 export function FoundryOps({ onGoToSources }: FoundryOpsProps) {
@@ -26,6 +36,7 @@ export function FoundryOps({ onGoToSources }: FoundryOpsProps) {
     activeRunCount,
     isLoading,
     error,
+    deleteProductionRun,
   } = useWorkspaceData()
 
   const sortedRuns = useMemo(
@@ -35,6 +46,10 @@ export function FoundryOps({ onGoToSources }: FoundryOpsProps) {
 
   const [activeId, setActiveId] = useState<string | null>(null)
   const [showNewRun, setShowNewRun] = useState(false)
+  const [deletePrompt, setDeletePrompt] = useState<RunDeletePrompt>({ kind: 'idle' })
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!sortedRuns.length) {
@@ -46,7 +61,43 @@ export function FoundryOps({ onGoToSources }: FoundryOpsProps) {
     }
   }, [sortedRuns, activeId])
 
+  useEffect(() => {
+    if (deletePrompt.kind !== 'menu') return
+    const close = (event: MouseEvent) => {
+      const target = event.target
+      if (isNode(target) && menuRef.current?.contains(target)) return
+      setDeletePrompt({ kind: 'idle' })
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDeletePrompt({ kind: 'idle' })
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [deletePrompt])
+
   const active = sortedRuns.find((run) => run.id === activeId) ?? null
+  const confirmRun =
+    deletePrompt.kind === 'confirm'
+      ? sortedRuns.find((run) => run.id === deletePrompt.runId) ?? null
+      : null
+
+  const confirmDelete = async () => {
+    if (deletePrompt.kind !== 'confirm' || isDeleting) return
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteProductionRun(deletePrompt.runId)
+      setDeletePrompt({ kind: 'idle' })
+    } catch (caught) {
+      setDeleteError(caught instanceof Error ? caught.message : 'Could not delete this run.')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   const metrics = useMemo(() => {
     const completed = productionRuns.filter((run) => run.status === 'completed').length
@@ -160,6 +211,16 @@ export function FoundryOps({ onGoToSources }: FoundryOpsProps) {
                     key={run.id}
                     className={`as-console__runrow${run.id === activeId ? ' is-active' : ''}`}
                     onClick={() => setActiveId(run.id)}
+                    onContextMenu={(event) => {
+                      event.preventDefault()
+                      setActiveId(run.id)
+                      setDeletePrompt({
+                        kind: 'menu',
+                        runId: run.id,
+                        x: Math.min(event.clientX, window.innerWidth - 180),
+                        y: Math.min(event.clientY, window.innerHeight - 48),
+                      })
+                    }}
                   >
                     <span className={`as-dot as-dot--${run.status}`} />
                     <span>
@@ -195,6 +256,50 @@ export function FoundryOps({ onGoToSources }: FoundryOpsProps) {
           </div>
         )}
       </div>
+
+      {deletePrompt.kind === 'menu' ? (
+        <div
+          ref={menuRef}
+          className="as-console__menu"
+          role="menu"
+          style={{ left: deletePrompt.x, top: deletePrompt.y }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => setDeletePrompt({ kind: 'confirm', runId: deletePrompt.runId })}
+          >
+            Delete run
+          </button>
+        </div>
+      ) : null}
+
+      <FoundryDialog
+        title="Delete run"
+        open={deletePrompt.kind === 'confirm'}
+        onClose={() => {
+          if (!isDeleting) setDeletePrompt({ kind: 'idle' })
+        }}
+      >
+        {deleteError ? <ErrorBanner message={deleteError} /> : null}
+        <p className="as-console__confirm-copy">
+          Delete {confirmRun ? productionRunLabel(confirmRun, sources) : 'this run'}? This removes
+          the run, its stage runs, and the artifacts it created. Uploaded sources stay.
+        </p>
+        <div className="as-console__dialog-actions">
+          <button
+            type="button"
+            className="as-console__cta as-console__cta--ghost"
+            onClick={() => setDeletePrompt({ kind: 'idle' })}
+            disabled={isDeleting}
+          >
+            Cancel
+          </button>
+          <button type="button" className="as-console__cta" onClick={() => void confirmDelete()} disabled={isDeleting}>
+            {isDeleting ? 'Deleting…' : 'Delete run'}
+          </button>
+        </div>
+      </FoundryDialog>
     </>
   )
 }

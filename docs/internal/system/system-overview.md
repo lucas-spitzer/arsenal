@@ -44,7 +44,7 @@ Knowledge is not extracted as a leftover Intellex ingest stage. Ingest does not 
 
 A **production run** is one work order: selected sources plus `target_artifacts`. One table, one OPS timeline.
 
-- Upload enqueues an **ingest-only** run (`target_artifacts` empty). Intellex base: store → parse → normalize → trim → structure → validate → chunk → source-research → web-enrichment. Later runs reuse ingest when the source is already processed.
+- Upload enqueues an **ingest-only** run (`target_artifacts` empty). Intellex base: store → parse → normalize → trim → structure → validate → chunk → source-research. Later runs reuse ingest when the source is already processed. `web-enrichment` runs only when `electronic_book` is a target, immediately before `create-ebook`.
 - `wiki_knowledge` is an **Intellex** target on the same run, not a Mathesys artifact. It runs after ingest so QnGen in the same run can use the new entries.
 - Other targets append Mathesys and/or QnGen steps.
 

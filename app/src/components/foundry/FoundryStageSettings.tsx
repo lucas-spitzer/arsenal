@@ -3,17 +3,33 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import {
   deleteStageSetting,
+  getImageCatalog,
   getModelCatalog,
   getStageSettings,
   getTtsCatalog,
   putStageSetting,
   type CatalogModel,
+  type ImageCatalogModel,
   type StageSetting,
   type TtsCatalogModel,
 } from '../../lib/workspaceApi'
 import { ErrorBanner } from './ErrorBanner'
 
 const AUDIO_NARRATION_ACTION = 'audio_narration'
+const DESIGN_IMAGE_ACTION = 'study_material_image'
+
+const QUALITY_LABELS: Record<string, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+  minimal: 'Minimal',
+}
+
+function qualityLabel(value: string): string {
+  return QUALITY_LABELS[value] ?? value
+}
 
 function formatPrice(input: number | null, output: number | null): string {
   if (input == null || output == null) {
@@ -27,6 +43,24 @@ function formatTtsPrice(pricePerMillion: number | null | undefined): string {
     return 'Price n/a'
   }
   return `$${pricePerMillion.toFixed(2)} / Mchar`
+}
+
+function formatImagePrice(pricePerImage: number | null | undefined): string {
+  if (pricePerImage == null) {
+    return 'Price n/a'
+  }
+  return `$${pricePerImage.toFixed(3)} / image`
+}
+
+function stageOptionLabel(entry: CatalogModel | TtsCatalogModel | ImageCatalogModel): string {
+  const tier = `T${entry.capability_tier}`
+  if ('price_per_image' in entry) {
+    return `${entry.display_name} · ${tier} · ${formatImagePrice(entry.price_per_image)}`
+  }
+  if ('price_per_million' in entry) {
+    return `${entry.display_name} · ${tier} · ${formatTtsPrice(entry.price_per_million)}`
+  }
+  return `${entry.display_name} · ${tier} · ${formatPrice(entry.input_per_million, entry.output_per_million)}`
 }
 
 const EFFORT_OPTIONS = ['low', 'medium', 'high'] as const
@@ -66,6 +100,7 @@ export function FoundryStageSettings() {
 
   const [catalog, setCatalog] = useState<CatalogModel[]>([])
   const [ttsCatalog, setTtsCatalog] = useState<TtsCatalogModel[]>([])
+  const [imageCatalog, setImageCatalog] = useState<ImageCatalogModel[]>([])
   const [settings, setSettings] = useState<StageSetting[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -107,10 +142,29 @@ export function FoundryStageSettings() {
     return map
   }, [ttsCatalog])
 
+  const groupedImageCatalog = useMemo(() => {
+    const groups = new Map<string, ImageCatalogModel[]>()
+    for (const entry of imageCatalog) {
+      const bucket = groups.get(entry.provider) ?? []
+      bucket.push(entry)
+      groups.set(entry.provider, bucket)
+    }
+    return [...groups.entries()]
+  }, [imageCatalog])
+
+  const imageByModel = useMemo(() => {
+    const map = new Map<string, ImageCatalogModel>()
+    for (const entry of imageCatalog) {
+      map.set(entry.model, entry)
+    }
+    return map
+  }, [imageCatalog])
+
   const load = useCallback(async () => {
     if (!workspaceId) {
       setCatalog([])
       setTtsCatalog([])
+      setImageCatalog([])
       setSettings([])
       setError(null)
       return
@@ -118,13 +172,15 @@ export function FoundryStageSettings() {
     setIsLoading(true)
     setError(null)
     try {
-      const [nextCatalog, nextTtsCatalog, nextSettings] = await Promise.all([
+      const [nextCatalog, nextTtsCatalog, nextImageCatalog, nextSettings] = await Promise.all([
         getModelCatalog(),
         getTtsCatalog(),
+        getImageCatalog(),
         getStageSettings(workspaceId),
       ])
       setCatalog(nextCatalog)
       setTtsCatalog(nextTtsCatalog)
+      setImageCatalog(nextImageCatalog)
       setSettings(nextSettings)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Failed to load stage settings.')
@@ -143,9 +199,11 @@ export function FoundryStageSettings() {
         return
       }
       const isNarration = setting.stage_action === AUDIO_NARRATION_ACTION
+      const isImage = setting.stage_action === DESIGN_IMAGE_ACTION
       const ttsEntry = isNarration ? ttsByModel.get(model) : undefined
-      const llmEntry = isNarration ? undefined : catalogByModel.get(model)
-      const entry = ttsEntry ?? llmEntry
+      const imageEntry = isImage ? imageByModel.get(model) : undefined
+      const llmEntry = isNarration || isImage ? undefined : catalogByModel.get(model)
+      const entry = ttsEntry ?? imageEntry ?? llmEntry
       if (!entry) {
         return
       }
@@ -169,7 +227,7 @@ export function FoundryStageSettings() {
         setSavingAction(null)
       }
     },
-    [workspaceId, catalogByModel, ttsByModel],
+    [workspaceId, catalogByModel, ttsByModel, imageByModel],
   )
 
   const handleReset = useCallback(
@@ -189,6 +247,37 @@ export function FoundryStageSettings() {
       }
     },
     [workspaceId, load],
+  )
+
+  const applyImageControls = useCallback(
+    async (
+      setting: StageSetting,
+      quality: string,
+    ) => {
+      if (!workspaceId || quality === setting.image_quality) {
+        return
+      }
+      const entry = imageByModel.get(setting.model)
+      setSavingAction(setting.stage_action)
+      setError(null)
+      try {
+        const updated = await putStageSetting(workspaceId, setting.stage_action, {
+          provider: entry?.provider ?? setting.provider,
+          model: setting.model,
+          image_quality: quality,
+        })
+        setSettings((current) =>
+          current.map((item) =>
+            item.stage_action === updated.stage_action ? updated : item,
+          ),
+        )
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Failed to update image defaults.')
+      } finally {
+        setSavingAction(null)
+      }
+    },
+    [workspaceId, imageByModel],
   )
 
   const handleVoice = useCallback(
@@ -276,13 +365,25 @@ export function FoundryStageSettings() {
           <div className="as-console__stage-settings">
             {settings.map((setting) => {
               const isNarration = setting.stage_action === AUDIO_NARRATION_ACTION
-              const llmCurrent = isNarration ? undefined : catalogByModel.get(setting.model)
+              const isImage = setting.stage_action === DESIGN_IMAGE_ACTION
+              const llmCurrent = isNarration || isImage ? undefined : catalogByModel.get(setting.model)
               const isSaving = savingAction === setting.stage_action
               const optionHasCurrent = isNarration
                 ? ttsByModel.has(setting.model)
-                : catalogByModel.has(setting.model)
+                : isImage
+                  ? imageByModel.has(setting.model)
+                  : catalogByModel.has(setting.model)
               const kind = reasoningKind(llmCurrent)
               const ttsEntry = isNarration ? ttsByModel.get(setting.model) : undefined
+              const imageEntry = isImage ? imageByModel.get(setting.model) : undefined
+              const optionGroups = isNarration
+                ? groupedTtsCatalog
+                : isImage
+                  ? groupedImageCatalog
+                  : groupedCatalog
+              const imageQualities = imageEntry?.qualities ?? []
+              const imageQuality = setting.image_quality ?? ''
+              const qualityHasCurrent = imageQualities.includes(imageQuality)
               const voiceOptions = ttsEntry?.voices ?? []
               const voiceHasCurrent = Boolean(
                 setting.voice_id && voiceOptions.some((voice) => voice.id === setting.voice_id),
@@ -309,7 +410,14 @@ export function FoundryStageSettings() {
                         </span>
                       </div>
                       <div className="as-console__setting-meta">
-                        {isNarration && ttsEntry ? (
+                        {isImage && imageEntry ? (
+                          <>
+                            <CapabilityMeter tier={imageEntry.capability_tier} />
+                            <span className="seg">{formatImagePrice(imageEntry.price_per_image)}</span>
+                          </>
+                        ) : isImage ? (
+                          <span className="seg">{setting.provider} · uncatalogued model</span>
+                        ) : isNarration && ttsEntry ? (
                           <>
                             <CapabilityMeter tier={ttsEntry.capability_tier} />
                             <span className="seg">{formatTtsPrice(ttsEntry.price_per_million)}</span>
@@ -342,22 +450,38 @@ export function FoundryStageSettings() {
                       {!optionHasCurrent ? (
                         <option value={setting.model}>{setting.model} (current)</option>
                       ) : null}
-                      {(isNarration ? groupedTtsCatalog : groupedCatalog).map(
-                        ([provider, models]) => (
-                          <optgroup key={provider} label={provider}>
-                            {models.map((entry) => (
-                              <option key={entry.model} value={entry.model}>
-                                {'input_per_million' in entry
-                                  ? `${entry.display_name} · T${entry.capability_tier} · ${formatPrice(entry.input_per_million, entry.output_per_million)}`
-                                  : `${entry.display_name} · T${entry.capability_tier} · ${formatTtsPrice(entry.price_per_million)}`}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ),
-                      )}
+                      {optionGroups.map(([provider, models]) => (
+                        <optgroup key={provider} label={provider}>
+                          {models.map((entry) => (
+                            <option key={entry.model} value={entry.model}>
+                              {stageOptionLabel(entry)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
                     </select>
 
-                    {isNarration ? (
+                    {isImage && imageQualities.length > 0 ? (
+                      <label className="as-console__reasoning">
+                        <span className="as-console__reasoning-label">Quality</span>
+                        <select
+                          className="as-console__select as-console__select--sm"
+                          value={imageQuality}
+                          disabled={isSaving}
+                          onChange={(event) => void applyImageControls(setting, event.target.value)}
+                          aria-label={`Quality for ${setting.label}`}
+                        >
+                          {!qualityHasCurrent && imageQuality ? (
+                            <option value={imageQuality}>{qualityLabel(imageQuality)}</option>
+                          ) : null}
+                          {imageQualities.map((quality) => (
+                            <option key={quality} value={quality}>
+                              {qualityLabel(quality)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : isNarration ? (
                       <label className="as-console__reasoning">
                         <span className="as-console__reasoning-label">Voice ID</span>
                         <select

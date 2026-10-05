@@ -17,4 +17,11 @@ def test_build_pipeline_appends_electronic_book_step() -> None:
 
     step_names = [step["step"] for step in pipeline]
 
-    assert step_names[-1] == "create-ebook"
+    assert step_names[-2:] == ["web-enrichment", "create-ebook"]
+
+
+def test_narration_pipeline_does_not_include_web_enrichment() -> None:
+    step_names = [step["step"] for step in build_pipeline(["narration_audio"])]
+
+    assert "web-enrichment" not in step_names
+    assert step_names[-1] == "generate-narration"

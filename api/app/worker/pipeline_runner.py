@@ -531,11 +531,14 @@ class PipelineRunner:
         context: PipelineContext,
         pipeline: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
+        if "electronic_book" not in context.target_artifacts:
+            return pipeline
+
         stage_run_ids: list[str] = []
         reused = 0
 
         # Runs even for intellex-complete sources: enrichment only needs the
-        # research block, so older sources get backfilled on their next run.
+        # research block, so older sources get backfilled on their next ebook run.
         for source in context.sources:
             source_id = source["id"]
             if source_id in context.intellex_skip_source_ids or source_web_enrichment_complete(source):
@@ -842,13 +845,13 @@ class PipelineRunner:
             pipeline = self.run_source_research_step(context, pipeline)
             self.db.update_production_run(production_run_id, {"pipeline": pipeline})
 
-            pipeline = self.run_web_enrichment_step(context, pipeline)
-            self.db.update_production_run(production_run_id, {"pipeline": pipeline})
-
             pipeline = self.run_transcribe_wiki_notes_step(context, pipeline)
             self.db.update_production_run(production_run_id, {"pipeline": pipeline})
 
             pipeline = self.run_structure_wiki_notes_step(context, pipeline)
+            self.db.update_production_run(production_run_id, {"pipeline": pipeline})
+
+            pipeline = self.run_web_enrichment_step(context, pipeline)
             self.db.update_production_run(production_run_id, {"pipeline": pipeline})
 
             pipeline = self.run_create_ebook_step(context, pipeline)

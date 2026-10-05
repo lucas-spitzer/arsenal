@@ -2,11 +2,21 @@ import fitz
 import pytest
 
 from app.intellex.structuring.boundaries import auto_boundaries, trim
-from app.intellex.structuring.chunk import build_segments_and_chapters
+from app.intellex.structuring.chunk import (
+    build_segments_and_chapters,
+    display_markdown,
+    flatten_markdown,
+)
+from app.worker.narration_executor import pack_chapter_clips
 from app.intellex.structuring.classify import classify
-from app.intellex.structuring.models import book_from_dict
+from app.intellex.structuring.models import Book, Chapter, Paragraph, Section, book_from_dict
 from app.intellex.structuring.normalize import normalize_structured_pages
-from app.intellex.structuring.validate import StructureValidationError, validate_against_pdf
+from app.intellex.structuring.validate import (
+    StructureValidationError,
+    _norm,
+    pdf_text_layer,
+    validate_against_pdf,
+)
 from app.mathesys.structured_epub import book_to_epub_chapters
 
 
@@ -112,6 +122,25 @@ def test_normalize_preserves_compact_layout_provenance() -> None:
     assert elements[0].to_dict()["layout_labels"] == ["paragraph_title", "text"]
 
 
+def test_normalize_keeps_division_labels_typed_as_headers() -> None:
+    pages = [
+        _page(10, [
+            _item("header", "THE ARMED FORCES OFFICER"),
+            _item("header", "CHAPTER ONE"),
+            _item("footer", "1"),
+            _item("heading", "# The Commission and the Oath", value="The Commission and the Oath", level=1),
+        ]),
+    ]
+
+    elements, dropped = normalize_structured_pages(pages)
+
+    assert dropped == {"header": 1, "footer": 1}
+    assert [(element.type, element.text) for element in elements] == [
+        ("heading", "CHAPTER ONE"),
+        ("heading", "The Commission and the Oath"),
+    ]
+
+
 def test_auto_boundaries_detects_first_chapter_and_repeated_title_back_matter() -> None:
     elements, _ = normalize_structured_pages(_doc_pages())
     start, end, reasons = auto_boundaries(elements)
@@ -157,6 +186,297 @@ def test_auto_boundaries_detects_spelled_out_chapter_numbers() -> None:
     assert end_el.text == "Epilogue"
     assert "first bare chapter marker" in reasons["start"]
     assert "back-matter label" in reasons["end"]
+
+
+def test_auto_boundaries_starts_after_contents_cluster_of_chapter_kickers() -> None:
+    pages = [
+        _page(5, [
+            _item("heading", "# Contents", value="Contents", level=1),
+            _item("heading", "# CHAPTER ONE", value="CHAPTER ONE", level=1),
+            _item("heading", "# CHAPTER TWO", value="CHAPTER TWO", level=1),
+        ]),
+        _page(10, [
+            _item("header", "CHAPTER ONE"),
+            _item("heading", "# The Commission and the Oath", value="The Commission and the Oath", level=1),
+            _item("text", "You become an officer by accepting a commission.", value="You become an officer by accepting a commission."),
+        ]),
+        _page(23, [
+            _item("header", "CHAPTER TWO"),
+            _item("heading", "# The Profession of Arms", value="The Profession of Arms", level=1),
+            _item("text", "Humans fight as individuals and as groups.", value="Humans fight as individuals and as groups."),
+        ]),
+        _page(153, [
+            _item("heading", "# APPENDIX A", value="APPENDIX A", level=1),
+            _item("text", "Founding documents.", value="Founding documents."),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    start, end, reasons = auto_boundaries(elements)
+    trimmed = trim(elements, start_index=start, end_index=end)
+    book = classify(trimmed)
+
+    start_el = next(element for element in elements if element.index == start)
+    end_el = next(element for element in elements if element.index == end)
+    assert start_el.text == "CHAPTER ONE" and start_el.page == 10
+    assert end_el.text == "APPENDIX A"
+    assert "contents cluster" in reasons["start"]
+    assert [chapter.title for chapter in book.chapters] == [
+        "CHAPTER ONE The Commission and the Oath",
+        "CHAPTER TWO The Profession of Arms",
+    ]
+
+
+def test_auto_boundaries_treats_same_line_chapter_title_as_division() -> None:
+    pages = [
+        _page(3, [
+            _item("heading", "# Chapter 1: The Nature of War", value="Chapter 1: The Nature of War", level=1),
+            _item("text", "War is a clash of wills.", value="War is a clash of wills."),
+            _item("heading", "# Chapter 2: The Theory of War", value="Chapter 2: The Theory of War", level=1),
+            _item("text", "Theory frames practice.", value="Theory frames practice."),
+            _item("heading", "# Notes", value="Notes", level=1),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    start, end, _ = auto_boundaries(elements)
+    book = classify(trim(elements, start_index=start, end_index=end))
+
+    assert next(element for element in elements if element.index == start).text == "Chapter 1: The Nature of War"
+    assert next(element for element in elements if element.index == end).text == "Notes"
+    assert [chapter.title for chapter in book.chapters] == [
+        "Chapter 1: The Nature of War",
+        "Chapter 2: The Theory of War",
+    ]
+
+
+def test_auto_boundaries_treats_part_labels_as_divisions() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Preface", value="Preface", level=1),
+            _item("text", "Opening note.", value="Opening note."),
+        ]),
+        _page(4, [
+            _item("heading", "# Part I", value="Part I", level=1),
+            _item("heading", "# The Commission", value="The Commission", level=1),
+            _item("text", "Officers accept a commission.", value="Officers accept a commission."),
+        ]),
+        _page(20, [
+            _item("heading", "# Part II", value="Part II", level=1),
+            _item("text", "The profession has its own ethic.", value="The profession has its own ethic."),
+            _item("heading", "# Index", value="Index", level=1),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    start, end, _ = auto_boundaries(elements)
+    book = classify(trim(elements, start_index=start, end_index=end))
+
+    assert next(element for element in elements if element.index == start).text == "Part I"
+    assert next(element for element in elements if element.index == end).text == "Index"
+    assert [chapter.title for chapter in book.chapters] == [
+        "Part I The Commission",
+        "Part II",
+    ]
+
+
+def test_a_sentence_that_mentions_a_chapter_is_not_a_new_chapter() -> None:
+    pages = [
+        _page(37, [
+            _item("text", "logo: CHAPTER THREE with decorative flourish", value="logo: CHAPTER THREE with decorative flourish"),
+            _item("heading", "# The Officer in the Profession of Arms", value="The Officer in the Profession of Arms", level=1),
+            _item(
+                "text",
+                "Chapter 2 described four characteristics common to all professions.",
+                value="Chapter 2 described four characteristics common to all professions.",
+            ),
+            _item("heading", "# Character and Character Development", value="Character and Character Development", level=1),
+            _item("text", "Mature adults can be reminded of the values.", value="Mature adults can be reminded of the values."),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert [chapter.title for chapter in book.chapters] == [
+        "CHAPTER THREE The Officer in the Profession of Arms",
+    ]
+    assert [section.title for section in book.chapters[0].sections] == [
+        "Character and Character Development",
+    ]
+
+
+def test_logo_kickers_open_every_chapter_and_stop_notes_from_swallowing_the_next() -> None:
+    pages = [
+        _page(5, [
+            _item("text", "CHAPTER ONE\nThe Commission and the Oath 1", value="CHAPTER ONE\nThe Commission and the Oath 1"),
+            _item("text", "CHAPTER TWO\nThe Profession of Arms 15", value="CHAPTER TWO\nThe Profession of Arms 15"),
+        ]),
+        _page(10, [
+            _item("text", "logo: CHAPTER ONE with decorative flourish", value="logo: CHAPTER ONE with decorative flourish"),
+            _item("heading", "# The Commission and the Oath", value="The Commission and the Oath", level=1),
+            _item("text", "You become an officer by accepting a commission.", value="You become an officer by accepting a commission."),
+            _item("heading", "# Notes", value="Notes", level=1),
+            _item("text", "1 Hackett, The Profession of Arms, 9.", value="1 Hackett, The Profession of Arms, 9."),
+        ]),
+        _page(37, [
+            _item("text", "logo: CHAPTER THREE with decorative flourish", value="logo: CHAPTER THREE with decorative flourish"),
+            _item("heading", "# The Officer in the Profession of Arms", value="The Officer in the Profession of Arms", level=1),
+            _item("text", "Armed Forces officers are the appointed leaders.", value="Armed Forces officers are the appointed leaders."),
+        ]),
+        _page(51, [
+            _item("text", "CHAPTER FOUR\nlogo: decorative flourish", value="CHAPTER FOUR\nlogo: decorative flourish"),
+            _item("heading", "# The Officer at Work: The Ethical Use of Force", value="The Officer at Work: The Ethical Use of Force", level=1),
+            _item("text", "Being a person of virtue is necessary.", value="Being a person of virtue is necessary."),
+            _item("heading", "# Appendix A: Founding Documents", value="Appendix A: Founding Documents", level=1),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    start, end, _ = auto_boundaries(elements)
+    book = classify(trim(elements, start_index=start, end_index=end))
+
+    assert [chapter.title for chapter in book.chapters] == [
+        "CHAPTER ONE The Commission and the Oath",
+        "CHAPTER THREE The Officer in the Profession of Arms",
+        "CHAPTER FOUR The Officer at Work: The Ethical Use of Force",
+    ]
+    assert "Hackett" not in " ".join(
+        paragraph.md for chapter in book.chapters for paragraph in chapter.intro
+    )
+    assert "Founding Documents" not in " ".join(chapter.title for chapter in book.chapters)
+
+
+def test_classify_drops_ornament_description_from_chapter_title() -> None:
+    pages = [
+        _page(23, [
+            _item(
+                "heading",
+                "# CHAPTER TWO\nlogo: decorative flourish The Profession of Arms",
+                value="CHAPTER TWO\nlogo: decorative flourish The Profession of Arms",
+                level=1,
+            ),
+            _item(
+                "text",
+                "Humans fight as individuals and as groups.",
+                value="Humans fight as individuals and as groups.",
+            ),
+        ]),
+        _page(37, [
+            _item("heading", "# CHAPTER THREE", value="CHAPTER THREE", level=1),
+            _item("text", "logo: decorative flourish", value="logo: decorative flourish"),
+            _item(
+                "heading",
+                "# The Officer in the Profession of Arms",
+                value="The Officer in the Profession of Arms",
+                level=1,
+            ),
+            _item(
+                "text",
+                "Armed Forces officers are the appointed leaders.",
+                value="Armed Forces officers are the appointed leaders.",
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert book.chapters[0].title == "CHAPTER TWO The Profession of Arms"
+    assert "logo" not in book.chapters[0].title.lower()
+    assert "flourish" not in book.chapters[0].title.lower()
+    assert book.chapters[1].title == "CHAPTER THREE The Officer in the Profession of Arms"
+    assert all("flourish" not in paragraph.md for paragraph in book.chapters[1].intro)
+
+
+def test_classify_strips_footnote_tags_from_section_titles() -> None:
+    pages = [
+        _page(37, [
+            _item("heading", "# CHAPTER THREE", value="CHAPTER THREE", level=1),
+            _item(
+                "text",
+                "Officers are simultaneously leaders and followers.",
+                value="Officers are simultaneously leaders and followers.",
+            ),
+            _item(
+                "heading",
+                "# Leaders and Followers<sup>19</sup>",
+                value="Leaders and Followers<sup>19</sup>",
+                level=1,
+            ),
+            _item(
+                "text",
+                "Every officer leads and follows.",
+                value="Every officer leads and follows.",
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert [section.title for section in book.chapters[0].sections] == ["Leaders and Followers"]
+    assert "<sup>" not in book.chapters[0].sections[0].title
+
+
+def test_classify_drops_in_chapter_notes_until_next_chapter() -> None:
+    pages = [
+        _page(23, [
+            _item("heading", "# CHAPTER TWO", value="CHAPTER TWO", level=1),
+            _item(
+                "text",
+                "Humans fight as individuals and as groups.",
+                value="Humans fight as individuals and as groups.",
+            ),
+            _item("heading", "# Notes", value="Notes", level=1),
+            _item(
+                "text",
+                "1 Hackett, The Profession of Arms, 9.",
+                value="1 Hackett, The Profession of Arms, 9.",
+            ),
+        ]),
+        _page(37, [
+            _item("heading", "# CHAPTER THREE", value="CHAPTER THREE", level=1),
+            _item(
+                "text",
+                "Armed Forces officers are the appointed leaders.",
+                value="Armed Forces officers are the appointed leaders.",
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert [chapter.title for chapter in book.chapters] == ["CHAPTER TWO", "CHAPTER THREE"]
+    assert book.chapters[0].sections == []
+    assert [paragraph.md for paragraph in book.chapters[0].intro] == [
+        "Humans fight as individuals and as groups.",
+    ]
+
+
+def test_auto_boundaries_keeps_middle_when_no_division_markers() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Foreword", value="Foreword", level=1),
+            _item("text", "A foreword.", value="A foreword."),
+            _item("heading", "# Methods", value="Methods", level=1),
+            _item("text", "The method is simple and repeatable for officers.", value="The method is simple and repeatable for officers."),
+            _item("heading", "# Results", value="Results", level=1),
+            _item("text", "The results follow from the method described above.", value="The results follow from the method described above."),
+            _item("heading", "# Bibliography", value="Bibliography", level=1),
+            _item("text", "Cited works.", value="Cited works."),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    start, end, reasons = auto_boundaries(elements)
+    assert start is not None and end is not None
+    assert "error" not in reasons
+
+    trimmed = trim(elements, start_index=start, end_index=end)
+    book = classify(trimmed)
+
+    assert [element.text for element in trimmed] == [
+        "Methods",
+        "The method is simple and repeatable for officers.",
+        "Results",
+        "The results follow from the method described above.",
+    ]
+    assert len(book.chapters) == 1
+    assert book.chapters[0].title == "Methods"
+    assert [section.title for section in book.chapters[0].sections] == ["Results"]
 
 
 def test_classify_merges_spelled_out_chapter_with_following_title() -> None:
@@ -879,6 +1199,173 @@ def test_book_round_trips_through_dict() -> None:
     assert rebuilt.body_paragraph_count() == book.body_paragraph_count()
 
 
+def test_content_image_becomes_a_note_and_plate_text_is_dropped() -> None:
+    before = (
+        "The form of the commission document remains much like that granted "
+        "by the Continental Congress to officers of the Continental Army "
+        'during the American Revolution. The commanders must show "honor and virtue '
+        'to their officers and men."'
+    )
+    before_md = before + "<sup>5</sup>"
+    after = (
+        "The Armed Forces of the United States depend for their success "
+        "on a web of trust."
+    )
+    pages = [
+        _page(1, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item("text", before_md, value=before_md),
+            _item("text", "icon: decorative flourish", value="icon: decorative flourish"),
+            _item(
+                "text",
+                "photo: historical commission document",
+                value="photo: historical commission document",
+            ),
+            _item("text", "IN CONGRESS.", value="IN CONGRESS."),
+            _item(
+                "text",
+                "The DELEGATES of the UNITED STATES of New-Hampshire, Massachusetts-Bay, "
+                "Rhode-Island, and Georgia, TO",
+                value="The DELEGATES of the UNITED STATES of New-Hampshire",
+            ),
+            _item(
+                "text",
+                "WE, reposing especial Trust and Confidence in your Patriotism, Valour, "
+                "Conduct and Fidelity, DO, by these Presents, constitute and appoint you to be",
+                value="WE, reposing especial Trust and Confidence",
+            ),
+            _item("text", "Henry Laurens, PRESIDENT.", value="Henry Laurens, PRESIDENT."),
+            _item("text", after, value=after),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    pdf_pages = pdf_text_layer(_pdf_with_pages([f"{before}\n{after}"]))
+    book = classify(elements, pdf_pages=pdf_pages)
+
+    body = [paragraph.md for paragraph in book.chapters[0].intro]
+    assert body == [
+        before,
+        "An image is not included here. It shows a historical commission document.",
+        after,
+    ]
+    joined = " ".join(body)
+    assert "IN CONGRESS" not in joined
+    assert "DELEGATES" not in joined
+    assert "Henry Laurens" not in joined
+    assert "flourish" not in joined
+
+
+def test_image_note_follows_a_sentence_the_picture_interrupted() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item(
+                "text",
+                "The Allies sought a decision",
+                value="The Allies sought a decision",
+            ),
+            _item("text", "image: map of the landing", value="image: map of the landing"),
+            _item(
+                "text",
+                "Map of Italy showing forces around Rome and Anzio during the campaign.",
+                value="Map of Italy showing forces around Rome and Anzio during the campaign.",
+            ),
+            _item(
+                "text",
+                "in Italy before the enemy could react.",
+                value="in Italy before the enemy could react.",
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    pdf_pages = pdf_text_layer(_pdf_with_pages([
+        "The Allies sought a decision in Italy before the enemy could react. "
+        "The landing remained the subject of the chapter.",
+    ]))
+    book = classify(elements, pdf_pages=pdf_pages)
+
+    assert [paragraph.md for paragraph in book.chapters[0].intro] == [
+        "The Allies sought a decision in Italy before the enemy could react.",
+        "An image is not included here. It shows a map of the landing.",
+    ]
+
+
+def test_image_note_is_the_same_plain_sentence_in_the_ebook_and_narration() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item(
+                "text",
+                "The paragraph before the picture is long enough to mark a text layer.",
+                value="The paragraph before the picture is long enough to mark a text layer.",
+            ),
+            _item(
+                "text",
+                "photo: historical *commission* document <sup>2</sup>, 1777",
+                value="photo: historical *commission* document <sup>2</sup>, 1777",
+            ),
+            _item(
+                "text",
+                "The paragraph after the picture is also real prose in the text layer.",
+                value="The paragraph after the picture is also real prose in the text layer.",
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    pdf_pages = pdf_text_layer(_pdf_with_pages([
+        "The paragraph before the picture is long enough to mark a text layer. "
+        "The paragraph after the picture is also real prose in the text layer.",
+    ]))
+    book = classify(elements, pdf_pages=pdf_pages)
+    note = "An image is not included here. It shows a historical commission document."
+    assert [paragraph.md for paragraph in book.chapters[0].intro][1] == note
+
+    xhtml = book_to_epub_chapters(book)[0]["xhtml_body"]
+    assert f"<p>{note}</p>" in xhtml
+    assert "<em>" not in xhtml
+    assert "<sup>" not in xhtml
+
+    assert flatten_markdown(note) == note
+    assert display_markdown(note) is None
+    segments, _chapters = build_segments_and_chapters(
+        book, source_id="src", workspace_id="ws"
+    )
+    spoken = [row for row in segments if row["text"] == note]
+    assert len(spoken) == 1
+    assert spoken[0]["kind"] == "paragraph"
+    assert spoken[0]["md"] is None
+
+    clips, oversize, empty = pack_chapter_clips(spoken, 500)
+    assert oversize == []
+    assert empty == 0
+    assert clips == [spoken]
+
+
+def test_scanned_page_keeps_image_transcription() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item(
+                "text",
+                "photo: historical commission document",
+                value="photo: historical commission document",
+            ),
+            _item("text", "IN CONGRESS.", value="IN CONGRESS."),
+            _item(
+                "text",
+                "The DELEGATES of the UNITED STATES of New-Hampshire and Georgia, TO",
+                value="The DELEGATES of the UNITED STATES of New-Hampshire and Georgia, TO",
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements, pdf_pages=pdf_text_layer(_pdf_with_pages(["2"])))
+
+    body = [paragraph.md for paragraph in book.chapters[0].intro]
+    assert "An image is not included here" not in " ".join(body)
+    assert any("DELEGATES" in paragraph for paragraph in body)
+
+
 def _pdf_with_pages(page_texts: list[str]) -> bytes:
     doc = fitz.open()
     for text in page_texts:
@@ -887,6 +1374,10 @@ def _pdf_with_pages(page_texts: list[str]) -> bytes:
     data = doc.tobytes()
     doc.close()
     return data
+
+
+def test_validate_compares_titles_without_sup_tags() -> None:
+    assert _norm("Leaders and Followers<sup>19</sup>") == "leaders and followers"
 
 
 def test_validate_passes_when_titles_present_in_pdf() -> None:
@@ -907,6 +1398,54 @@ def test_validate_raises_when_front_matter_leaks() -> None:
     pdf = _pdf_with_pages(["FOREWORD", "Chapter 2 The Theory of War"])
 
     with pytest.raises(StructureValidationError, match="Front/back-matter heading leaked"):
+        validate_against_pdf(book, pdf)
+
+
+def test_validate_keeps_pdf_spelling_when_a_long_heading_has_one_typo() -> None:
+    title = (
+        "The U.S. Navy, by Admiral Gary Roughhead, USN (Ret.), "
+        "Chief of Naval Operations, 2007–2011"
+    )
+    book = Book(chapters=[
+        Chapter(
+            title="CHAPTER NINE Service Identity and Joint Warfighting",
+            page=1,
+            intro=[Paragraph(md="Service identity shapes how officers fight.", page=1)] * 3,
+            sections=[Section(title=title, page=1, body=[])],
+        ),
+    ])
+    pdf = _pdf_with_pages([
+        "CHAPTER NINE Service Identity and Joint Warfighting\n"
+        "The U.S. Navy, by Admiral Gary Roughead, USN (Ret.),\n"
+        "Chief of Naval Operations, 2007–2011",
+    ])
+
+    report = validate_against_pdf(book, pdf)
+
+    assert report["valid"] is True
+    assert book.chapters[0].sections[0].title == (
+        "The U.S. Navy, by Admiral Gary Roughead, USN (Ret.), "
+        "Chief of Naval Operations, 2007–2011"
+    )
+    assert report["title_corrections"] == [{
+        "kind": "section",
+        "page": 1,
+        "from": title,
+        "to": book.chapters[0].sections[0].title,
+    }]
+
+
+def test_validate_rejects_a_changed_chapter_number() -> None:
+    book = Book(chapters=[
+        Chapter(
+            title="Chapter 1 The Nature of War",
+            page=1,
+            intro=[Paragraph(md="War is a violent clash of interests.", page=1)] * 3,
+        ),
+    ])
+    pdf = _pdf_with_pages(["Chapter 2 The Nature of War"])
+
+    with pytest.raises(StructureValidationError, match="Chapter 1 The Nature of War"):
         validate_against_pdf(book, pdf)
 
 

@@ -21,7 +21,6 @@ def test_build_pipeline_always_includes_intellex_steps() -> None:
         "validate-structure",
         "chunk",
         "source-research",
-        "web-enrichment",
     ]
 
 
@@ -42,10 +41,20 @@ def test_build_pipeline_appends_selected_targets() -> None:
 
 def test_electronic_book_target_maps_to_create_ebook() -> None:
     pipeline = build_pipeline(["electronic_book"])
+    step_names = [step["step"] for step in pipeline]
     create_ebook = next(step for step in pipeline if step["step"] == "create-ebook")
 
     assert create_ebook["module"] == "mathesys"
     assert create_ebook["stage_id"] == "create-ebook"
+    assert step_names[step_names.index("create-ebook") - 1] == "web-enrichment"
+
+
+def test_web_enrichment_stays_off_ingest_and_other_targets() -> None:
+    assert all(step["step"] != "web-enrichment" for step in build_pipeline([]))
+    assert all(
+        step["step"] != "web-enrichment"
+        for step in build_pipeline(["narration_audio", "wiki_knowledge", "flashcards"])
+    )
 
 
 def test_structuring_stage_versions_are_current() -> None:
@@ -53,7 +62,7 @@ def test_structuring_stage_versions_are_current() -> None:
     normalize = next(step for step in pipeline if step["step"] == "normalize-document")
     structure = next(step for step in pipeline if step["step"] == "structure-document")
     assert normalize["stage_version"] == "1.1"
-    assert structure["stage_version"] == "1.3"
+    assert structure["stage_version"] == "1.5"
 
 
 def test_prepare_and_deconstruct_are_gone() -> None:

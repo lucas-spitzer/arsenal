@@ -10,6 +10,7 @@ from app.config import Settings, get_settings
 from app.dependencies.auth import require_approved_user
 from app.dependencies.services import (
     get_production_run_repository,
+    get_stage_settings_repository,
     get_study_material_repository,
     get_supabase_storage_client,
     get_workspace_repository,
@@ -28,10 +29,9 @@ from app.mathesys.study_material.catalog import (
 )
 from app.mathesys.study_material.images import (
     ASPECT_RATIOS,
-    GOOGLE_IMAGE_SIZES,
     IMAGE_MODELS,
     IMAGE_PROVIDERS,
-    OPENAI_QUALITIES,
+    image_control_catalog,
 )
 from app.mathesys.study_material.inputs import ComponentFileError, resolve_component_file_mime
 from app.mathesys.study_material.render import render_document
@@ -47,8 +47,10 @@ from app.models.study_material import (
 from app.models.workspace import WorkspaceResponse
 from app.pipeline import STUDY_MATERIAL_TARGET, build_study_material_pipeline
 from app.repositories.production_runs import ProductionRunRepository
+from app.repositories.stage_settings import StageSettingsRepository
 from app.repositories.study_materials import StudyMaterialRepository
 from app.repositories.workspaces import WorkspaceRepository
+from app.services.images.catalog import ImageStageDefault, image_default_from_rows
 from app.services.queue import enqueue_study_material_finalize, enqueue_study_material_run
 from app.services.source_upload import SourceUploadValidationError, sanitize_upload_filename
 from app.services.study_materials import (
@@ -69,6 +71,7 @@ router = APIRouter(tags=["study-materials"])
 
 Repo = Annotated[StudyMaterialRepository, Depends(get_study_material_repository)]
 User = Annotated[CurrentUser, Depends(require_approved_user)]
+StageSettings = Annotated[StageSettingsRepository, Depends(get_stage_settings_repository)]
 
 
 def _bad_request(exc: Exception) -> HTTPException:
@@ -87,6 +90,13 @@ async def _component_or_404(repo: StudyMaterialRepository, material_id: str, com
     if not component:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Component not found.")
     return component
+
+
+async def _image_default(
+    stage_settings: StageSettingsRepository,
+    workspace_id: str,
+) -> ImageStageDefault | None:
+    return image_default_from_rows(await stage_settings.list_for_workspace(workspace_id))
 
 
 async def _detail(repo: StudyMaterialRepository, material: dict[str, Any]) -> StudyMaterialResponse:
@@ -119,8 +129,7 @@ async def get_catalog(
                 "google": settings.study_material.google_image_model,
             },
             "aspect_ratios": list(ASPECT_RATIOS),
-            "qualities": list(OPENAI_QUALITIES),
-            "image_sizes": list(GOOGLE_IMAGE_SIZES),
+            "controls": image_control_catalog(),
         },
         "limits": {
             "max_file_bytes": settings.study_material.max_file_bytes,
@@ -241,6 +250,7 @@ async def create_component(
     payload: ComponentCreate,
     user: User,
     repo: Repo,
+    stage_settings: StageSettings,
 ) -> StudyMaterialComponentResponse:
     material = await _material_or_404(repo, material_id, user)
     _editable(material)
@@ -263,7 +273,11 @@ async def create_component(
             "component_type": payload.component_type,
             "position": 1 + max((int(item.get("position") or 0) for item in components), default=0),
             "instructions": payload.instructions.strip(),
-            "settings": component_settings(payload.component_type, payload.settings),
+            "settings": component_settings(
+                payload.component_type,
+                payload.settings,
+                image_default=await _image_default(stage_settings, str(material["workspace_id"])),
+            ),
         },
     )
     return StudyMaterialComponentResponse.model_validate(serialize_material(material, [row])["components"][0])
@@ -279,6 +293,7 @@ async def update_component(
     payload: ComponentUpdate,
     user: User,
     repo: Repo,
+    stage_settings: StageSettings,
 ) -> StudyMaterialComponentResponse:
     material = await _material_or_404(repo, material_id, user)
     _editable(material)
@@ -287,7 +302,11 @@ async def update_component(
     if payload.instructions is not None and payload.instructions.strip() != component["instructions"]:
         changes["instructions"] = payload.instructions.strip()
     if payload.settings is not None:
-        settings = component_settings(str(component["component_type"]), payload.settings)
+        settings = component_settings(
+            str(component["component_type"]),
+            payload.settings,
+            image_default=await _image_default(stage_settings, str(material["workspace_id"])),
+        )
         if settings != (component.get("settings") or {}):
             changes["settings"] = settings
     if changes:

@@ -48,6 +48,7 @@ Run these only on databases that already have a Foundry schema and need a target
 | `alter-wiki-knowledge-pipeline.sql` | DB was created before wiki ingest as a production-run target. Adds `wiki_ingest_batches.production_run_id`. Re-run `03-seed-stages.sql` for the new wiki stages. |
 | `alter-stage-settings-tts.sql` | DB was created before Speechify narration settings. Widens `workspace_stage_settings.provider` to include `speechify` / `elevenlabs` and adds nullable `voice_id`. |
 | `alter-stage-settings-providers.sql` | DB was created before Google and Cartesia stage settings. Widens `workspace_stage_settings.provider` to include `google` / `cartesia`. |
+| `../maintenance/alter-stage-settings-image-quality.sql` | DB was created before Design Image quality defaults. Adds nullable `workspace_stage_settings.image_quality` and drops `image_resolution` if it was added. |
 | `alter-sources-bucket-wav.sql` | DB was created before Cartesia/Gemini WAV clips. Adds `audio/wav` to the `sources` bucket allowlist. |
 | `alter-drop-artifacts-bucket.sql` | Operator note only (SQL no-op). Supabase blocks dropping `storage.buckets` / `storage.objects` from SQL. After migrating objects into the `sources` bucket, purge the legacy `artifacts` bucket via the Storage API or Dashboard. |
 | `alter-discussion-threads.sql` | DB was created before persisted discussion threads. Adds `discussion_threads` and `discussion_messages` with RLS + role revokes. Idempotent. |
@@ -136,6 +137,12 @@ supabase db execute --file supabase/setup/03-seed-stages.sql
 
 ```bash
 supabase db execute --file supabase/setup/alter-stage-settings-tts.sql
+```
+
+### Design Image quality
+
+```bash
+supabase db execute --file supabase/maintenance/alter-stage-settings-image-quality.sql
 ```
 
 ### Stage settings Google and Cartesia providers
@@ -259,7 +266,7 @@ To repair a wiped or stale `stages` table on an existing project, re-run `supaba
 | qngen | `generate-questions` | 1.0, **2.1** |
 | qngen | `generate-scenarios` | 1.0, **2.1** |
 
-The active ingest pipeline uses structuring stages + `source-research` 2.1 + `web-enrichment` 1.0. Older stage versions are kept for foreign-key compatibility with historical `stage_runs`.
+The active ingest pipeline uses structuring stages + `source-research` 2.1. `web-enrichment` 1.0 runs only on electronic-book production runs, immediately before `create-ebook`. Older stage versions are kept for foreign-key compatibility with historical `stage_runs`.
 
 **Note:** `source-research` 2.1 and `web-enrichment` 1.0 are required by the current API pipeline. They are seeded here for greenfield installs; existing projects may still need those two rows inserted manually (or via this seed file).
 

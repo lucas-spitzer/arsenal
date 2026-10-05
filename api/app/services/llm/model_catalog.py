@@ -28,7 +28,7 @@ from app.llm_defaults import (
     GPT_6_SOL_MODEL,
     HAIKU_45_MODEL,
     OPUS_55_MODEL,
-    SONNET_5_MODEL,
+    SONNET_55_MODEL,
 )
 
 
@@ -64,9 +64,9 @@ MODEL_CATALOG: tuple[CatalogModel, ...] = (
         output_per_million=20.00,
     ),
     CatalogModel(
-        model=SONNET_5_MODEL,
+        model=SONNET_55_MODEL,
         provider="anthropic",
-        display_name="Claude Sonnet 5",
+        display_name="Claude Sonnet 5.5",
         capability_tier=3,
         supports_reasoning=True,
         reasoning_modes=("adaptive",),

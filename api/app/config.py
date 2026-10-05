@@ -9,7 +9,8 @@ from app.llm_actions import LLM_ACTION_BY_KEY, LLM_GLOBAL_DEFAULT
 from app.llm_defaults import (
     DEFAULT_OPENAI_MODEL,
     GEMINI_31_FLASH_IMAGE_MODEL,
-    OPENAI_IMAGE_FLARE_MODEL,
+    MODEL_FAMILIES,
+    OPENAI_IMAGE_SUNBURST_MODEL,
 )
 from app.tts_defaults import (
     CARTESIA_MAX_SEGMENT_CHARS,
@@ -17,6 +18,7 @@ from app.tts_defaults import (
     DEFAULT_NARRATION_VOICE_ID,
     GOOGLE_TTS_MAX_SEGMENT_CHARS,
     SPEECHIFY_STREAM_MAX_CHARS,
+    TTS_MODEL_FAMILIES,
     tts_provider_for_model,
 )
 
@@ -79,6 +81,22 @@ def _bool_env(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def resolve_model_family(value: str) -> str:
+    """Map a stable family name to the current model id.
+
+    Exact provider ids pass through, so a one-off pin still works. Family names
+    (``sol``, ``sonnet``, ``gemini-flash-tts``) follow whatever id the code
+    currently assigns, which is what a version-bump PR edits.
+    """
+    token = value.strip()
+    key = token.lower()
+    if key in MODEL_FAMILIES:
+        return MODEL_FAMILIES[key]
+    if key in TTS_MODEL_FAMILIES:
+        return TTS_MODEL_FAMILIES[key]
+    return token
+
+
 def _resolve_llm_action(action: str) -> "LLMActionSettings":
     _refresh_dotenv_if_changed()
     spec = LLM_ACTION_BY_KEY.get(action)
@@ -91,7 +109,7 @@ def _resolve_llm_action(action: str) -> "LLMActionSettings":
 
     key = action.upper()
     provider = os.getenv(f"LLM_{key}_PROVIDER", provider_default).strip().lower()
-    model = os.getenv(model_env, "").strip() or model_default
+    model = resolve_model_family(os.getenv(model_env, "").strip() or model_default)
 
     return LLMActionSettings(provider=provider, model=model)
 
@@ -358,7 +376,9 @@ def _get_settings_cached() -> Settings:
             ),
         ),
         assistant=AssistantSettings(
-            chat_model=os.getenv("ASSISTANT_CHAT_MODEL", DEFAULT_OPENAI_MODEL),
+            chat_model=resolve_model_family(
+                os.getenv("ASSISTANT_CHAT_MODEL", DEFAULT_OPENAI_MODEL),
+            ),
             match_threshold=float(os.getenv("ASSISTANT_MATCH_THRESHOLD", "0.3")),
             segment_count=int(os.getenv("ASSISTANT_SEGMENT_COUNT", "8")),
             wiki_count=int(os.getenv("ASSISTANT_WIKI_COUNT", "6")),
@@ -368,7 +388,9 @@ def _get_settings_cached() -> Settings:
             elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY"),
             cartesia_api_key=os.getenv("CARTESIA_API_KEY"),
             google_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
-            model_id=os.getenv("AUDIO_NARRATION_MODEL", DEFAULT_NARRATION_MODEL),
+            model_id=resolve_model_family(
+                os.getenv("AUDIO_NARRATION_MODEL", DEFAULT_NARRATION_MODEL),
+            ),
             voice_id=os.getenv("AUDIO_NARRATION_VOICE_ID", DEFAULT_NARRATION_VOICE_ID),
             output_format=os.getenv("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128"),
             request_timeout_seconds=int(os.getenv("ELEVENLABS_REQUEST_TIMEOUT_SECONDS", "600")),
@@ -395,13 +417,17 @@ def _get_settings_cached() -> Settings:
         ),
         study_material=StudyMaterialSettings(
             image_provider=os.getenv("STUDY_MATERIAL_IMAGE_PROVIDER", "openai").strip().lower(),
-            openai_image_model=os.getenv(
-                "STUDY_MATERIAL_OPENAI_IMAGE_MODEL",
-                OPENAI_IMAGE_FLARE_MODEL,
+            openai_image_model=resolve_model_family(
+                os.getenv(
+                    "STUDY_MATERIAL_OPENAI_IMAGE_MODEL",
+                    OPENAI_IMAGE_SUNBURST_MODEL,
+                ),
             ),
-            google_image_model=os.getenv(
-                "STUDY_MATERIAL_GOOGLE_IMAGE_MODEL",
-                GEMINI_31_FLASH_IMAGE_MODEL,
+            google_image_model=resolve_model_family(
+                os.getenv(
+                    "STUDY_MATERIAL_GOOGLE_IMAGE_MODEL",
+                    GEMINI_31_FLASH_IMAGE_MODEL,
+                ),
             ),
             max_file_bytes=int(
                 os.getenv("STUDY_MATERIAL_MAX_FILE_BYTES", str(20 * 1024 * 1024)),

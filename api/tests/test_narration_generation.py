@@ -657,6 +657,56 @@ def test_failed_run_still_publishes_artifact() -> None:
     fail_update = db.updated_stage_runs[-1][1]
     assert fail_update["status"] == "failed"
     assert fail_update["promoted"]["artifact_ids"] == ["art-1"]
+    assert "model" not in fail_update
+
+
+def test_failed_narration_keeps_tts_usage() -> None:
+    from app.services.elevenlabs_client import ElevenLabsError
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    db = _FakeWorkerDb([])
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=ElevenLabsClient(api_key="k", voice_id="voice-1", model_id="eleven_v3"),
+        max_segment_chars=9500,
+    )
+
+    def _fail(**kwargs: Any) -> tuple[dict[str, Any], int, dict[str, Any]]:
+        executor._last_progress = {
+            "character_count": 99852,
+            "model_id": "eleven_v3",
+            "segments_total": 12,
+            "segments_done": 8,
+        }
+        executor._alignment_requests = 2
+        raise ElevenLabsError("quota_exceeded")
+
+    executor._narrate_source = _fail  # type: ignore[method-assign]
+
+    with pytest.raises(ElevenLabsError, match="quota_exceeded"):
+        executor.run_for_source(
+            production_run_id="run-1",
+            workspace_id="ws-1",
+            source={
+                "id": "src-1",
+                "slug": "src-1",
+                "workspace_slug": "ocs-prep",
+                "filename": "warfighting.pdf",
+                "storage_path": "ocs-prep/src-1/warfighting.pdf",
+                "source_metadata": {},
+            },
+        )
+
+    fail_update = db.updated_stage_runs[-1][1]
+    assert fail_update["model"] == "eleven_v3"
+    calls = fail_update["api_usage"]["calls"]
+    assert calls[0]["provider"] == "elevenlabs"
+    assert calls[0]["model"] == "eleven_v3"
+    assert calls[0]["character_count"] == 99852
+    assert calls[1]["provider"] == "elevenlabs"
+    assert calls[1]["model"] == "forced-alignment"
+    assert calls[1]["request_count"] == 2
 
 
 def test_pack_chapter_clips_fits_and_splits() -> None:

@@ -72,7 +72,7 @@ def test_build_api_usage_includes_llamaparse_credits() -> None:
 def test_build_api_usage_routes_anthropic_provider() -> None:
     usage = build_api_usage(
         {
-            "model": "claude-sonnet-5",
+            "model": "claude-sonnet-5-5",
             "provider": "anthropic",
             "token_usage": {
                 "input_tokens": 10_000,
@@ -84,7 +84,7 @@ def test_build_api_usage_routes_anthropic_provider() -> None:
     assert len(usage["calls"]) == 1
     assert usage["calls"][0]["provider"] == "anthropic"
     assert usage["totals"]["cost_usd"] == cost_anthropic_usage(
-        model="claude-sonnet-5",
+        model="claude-sonnet-5-5",
         input_tokens=10_000,
         output_tokens=2_000,
     )["cost_usd"]

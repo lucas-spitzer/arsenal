@@ -60,15 +60,7 @@ export function FoundryDetail({ run }: FoundryDetailProps) {
         </div>
 
         {run.error ? (
-          <div
-            className="as-console__chip"
-            style={{
-              borderColor: 'var(--color-scarlet)',
-              color: '#ff8b8b',
-              background: 'rgba(148,0,0,0.16)',
-              marginTop: 14,
-            }}
-          >
+          <div className="as-console__alert" style={{ marginTop: 14 }}>
             ⚠ {run.error}
           </div>
         ) : null}

@@ -11,6 +11,7 @@ from app.mathesys.study_material.catalog import (
     resolve_options,
 )
 from app.mathesys.study_material.images import resolve_image_settings
+from app.services.images.catalog import ImageStageDefault
 
 EDITABLE_STATUSES = frozenset({"configuring", "draft", "failed"})
 GENERATABLE_STATUSES = EDITABLE_STATUSES
@@ -68,9 +69,19 @@ def validate_placement(
         )
 
 
-def component_settings(component_type: str, raw: dict[str, Any] | None) -> dict[str, Any]:
+def component_settings(
+    component_type: str,
+    raw: dict[str, Any] | None,
+    *,
+    image_default: ImageStageDefault | None = None,
+) -> dict[str, Any]:
     if component_type == "image":
-        return resolve_image_settings(raw)
+        return resolve_image_settings(
+            raw,
+            default_provider=image_default.provider if image_default else None,
+            default_model=image_default.model if image_default else None,
+            default_quality=image_default.quality if image_default else None,
+        )
     return {}
 
 

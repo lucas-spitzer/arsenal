@@ -268,6 +268,36 @@ class NarrationStageExecutor:
         self._client = client
         self._max_segment_chars = max_segment_chars
         self._last_progress: dict[str, Any] | None = None
+        self._alignment_requests = 0
+
+    def _usage_fields(self, character_count: int) -> dict[str, Any]:
+        provider = getattr(self.client, "provider", "elevenlabs")
+        extra_calls: list[dict[str, Any]] = []
+        if character_count:
+            extra_calls.append(
+                cost_tts_usage(
+                    provider=provider,
+                    model=self.client.model_id,
+                    character_count=character_count,
+                )
+            )
+        if self._alignment_requests:
+            extra_calls.append(
+                {
+                    "provider": "elevenlabs",
+                    "model": "forced-alignment",
+                    "request_count": self._alignment_requests,
+                    "cost_usd": 0,
+                }
+            )
+        return stage_run_completion_fields(
+            {
+                "model": self.client.model_id,
+                "provider": provider,
+                "token_usage": {},
+            },
+            extra_calls=extra_calls,
+        )
 
     @property
     def client(self) -> TtsClient:
@@ -288,6 +318,8 @@ class NarrationStageExecutor:
         workspace_id: str,
         source: dict[str, Any],
     ) -> str:
+        self._alignment_requests = 0
+        self._last_progress = None
         stage_run = self.db.create_stage_run(
             {
                 "production_run_id": production_run_id,
@@ -325,27 +357,13 @@ class NarrationStageExecutor:
             if artifact_file:
                 output["files"] = [artifact_file]
                 promoted["artifact_ids"] = [artifact_file["artifact_id"]]
-            extra_calls = (
-                [
-                    cost_tts_usage(
-                        provider=getattr(self.client, "provider", "elevenlabs"),
-                        model=self.client.model_id,
-                        character_count=character_count,
-                    )
-                ]
-                if character_count
-                else []
-            )
             self.db.update_stage_run(
                 stage_run_id,
                 {
                     "status": "completed",
                     "output": output,
                     "promoted": promoted,
-                    **stage_run_completion_fields(
-                        {"model": self.client.model_id, "token_usage": {}},
-                        extra_calls=extra_calls,
-                    ),
+                    **self._usage_fields(character_count),
                     "completed_at": utc_now_iso(),
                 },
             )
@@ -357,8 +375,8 @@ class NarrationStageExecutor:
                 "error": str(exc),
                 "completed_at": utc_now_iso(),
             }
+            progress = self._last_progress or {}
             try:
-                progress = self._last_progress or {}
                 artifact_file = self._publish_artifact(
                     workspace_id=workspace_id,
                     production_run_id=production_run_id,
@@ -378,6 +396,10 @@ class NarrationStageExecutor:
                     "source_ids": [source["id"]],
                     "artifact_ids": [artifact_file["artifact_id"]],
                 }
+            if progress:
+                fail_payload.update(
+                    self._usage_fields(int(progress.get("character_count") or 0))
+                )
             self.db.update_stage_run(stage_run_id, fail_payload)
             raise
 
@@ -561,6 +583,7 @@ class NarrationStageExecutor:
             )
             elevenlabs_key = get_settings().narration.elevenlabs_api_key
             if needs_forced_alignment and elevenlabs_key:
+                self._alignment_requests += 1
                 try:
                     aligned_words, forced_quality = force_align_audio(
                         audio=result.audio,

@@ -70,14 +70,21 @@ export interface StudyTheme {
   logos: ThemeLogo[]
 }
 
+export interface ImageControlOptions {
+  qualities: string[]
+  resolutions: string[]
+}
+
 export interface ImageCatalog {
   default_provider: ImageProvider
   providers: ImageProvider[]
   models: Record<ImageProvider, string[]>
   default_models: Record<ImageProvider, string>
   aspect_ratios: string[]
-  qualities: string[]
-  image_sizes: string[]
+  controls: {
+    openai: ImageControlOptions
+    google: Record<string, ImageControlOptions>
+  }
 }
 
 export interface StudyCatalog {
@@ -99,7 +106,9 @@ export interface ImageSettings {
   model: string
   aspect_ratio: string
   quality: string
+  resolution: string
   image_size: string
+  thinking_level: string | null
 }
 
 export interface ComponentFile {

@@ -96,20 +96,20 @@ describe('narration artifact progress', () => {
 })
 
 describe('library artifact cards', () => {
-  it('names audio with voice and duration, not the json filename', () => {
+  it('names narration by duration, not the voice or json filename', () => {
     expect(
       artifactLibraryCard(
         artifact({
           filename: 'narration.json',
           manifest: {
-            voice_id: 'Kore',
-            total_duration_seconds: 4320,
+            voice_id: 'Hugh_32',
+            total_duration_seconds: 7860,
           },
         }),
       ),
     ).toMatchObject({
       chipLabel: 'Audio',
-      title: 'Kore · 1h 12m',
+      title: '2h 11m',
       isNarration: true,
     })
   })

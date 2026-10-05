@@ -302,6 +302,21 @@
 .as-console__chip.is-active {
   background: rgba(148,0,0,0.28); border-color: var(--color-scarlet); color: #fff;
 }
+.as-console__alert {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--color-scarlet);
+  color: #ff8b8b;
+  background: rgba(148, 0, 0, 0.16);
+  margin-bottom: var(--space-5);
+  overflow-wrap: anywhere;
+  cursor: default;
+}
 
 .as-console__log {
   display: flex;
@@ -589,6 +604,24 @@
 .as-console__dialog-body {
   padding: 18px; overflow: auto;
 }
+.as-console__confirm-copy {
+  margin: 0 0 16px; color: #d6e0e4; line-height: 1.5;
+}
+.as-console__dialog-actions {
+  display: flex; justify-content: flex-end; gap: 10px;
+}
+.as-console__menu {
+  position: fixed; z-index: 90; min-width: 160px; padding: 4px;
+  background: #0e2330; border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px; box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+.as-console__menu button {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: 0; border-radius: 6px;
+  color: #ff8b8b; font-family: var(--as-plex); font-size: 0.88rem;
+  padding: 8px 12px;
+}
+.as-console__menu button:hover { background: rgba(148, 0, 0, 0.3); }
 .as-console__error-detail {
   margin: 0; white-space: pre-wrap; word-break: break-word;
   font-family: var(--as-mono); font-size: 0.74rem; line-height: 1.55; color: #d6e0e4;

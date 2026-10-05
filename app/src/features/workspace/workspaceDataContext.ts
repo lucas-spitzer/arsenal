@@ -28,6 +28,7 @@ export interface WorkspaceDataContextValue {
     source_ids: string[]
     target_artifacts: string[]
   }) => Promise<ProductionRun>
+  deleteProductionRun: (runId: string) => Promise<void>
   downloadArtifact: (artifactId: string) => Promise<void>
   addWikiEntry: (entry: WikiEntry) => void
   refresh: () => Promise<void>

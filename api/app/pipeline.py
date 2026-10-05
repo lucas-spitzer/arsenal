@@ -46,7 +46,7 @@ BASE_PIPELINE: list[dict[str, Any]] = [
         "type": "stage",
         "module": "intellex",
         "stage_id": "structure-document",
-        "stage_version": "1.3",
+        "stage_version": "1.5",
         "status": "pending",
     },
     {
@@ -71,18 +71,21 @@ BASE_PIPELINE: list[dict[str, Any]] = [
         "stage_version": "2.1",
         "status": "pending",
     },
-    # Verifies the extracted profile against the public record (status,
-    # canonical URL, public publication date) via LLM web search. Skipped
-    # per-source when the distribution line marks the document non-public.
-    {
-        "step": "web-enrichment",
-        "type": "stage",
-        "module": "intellex",
-        "stage_id": "web-enrichment",
-        "stage_version": "1.0",
-        "status": "pending",
-    },
 ]
+
+# Verifies the extracted profile against the public record (status,
+# canonical URL, public publication date) via LLM web search. Inserted
+# immediately before create-ebook, and only when an electronic book is
+# requested. Skipped per-source when the distribution line marks the
+# document non-public.
+WEB_ENRICHMENT_STEP: dict[str, Any] = {
+    "step": "web-enrichment",
+    "type": "stage",
+    "module": "intellex",
+    "stage_id": "web-enrichment",
+    "stage_version": "1.0",
+    "status": "pending",
+}
 
 OPTIONAL_PIPELINE_STEPS: dict[str, dict[str, Any]] = {
     "electronic_book": {
@@ -184,6 +187,13 @@ def build_pipeline(target_artifacts: list[str]) -> list[dict[str, Any]]:
 
         if optional_step:
             pipeline.append(deepcopy(optional_step))
+
+    ebook_index = next(
+        (index for index, step in enumerate(pipeline) if step["step"] == "create-ebook"),
+        None,
+    )
+    if ebook_index is not None:
+        pipeline.insert(ebook_index, deepcopy(WEB_ENRICHMENT_STEP))
 
     return pipeline
 

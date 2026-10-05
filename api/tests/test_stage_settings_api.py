@@ -8,6 +8,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.llm_actions import LLM_ACTIONS
+from app.llm_defaults import OPENAI_IMAGE_SUNBURST_MODEL
+from app.mathesys.study_material.images import stage_image_options
 from app.models.stage_settings import StageSettingUpdate
 from app.models.workspace import WorkspaceResponse
 from app.routers.workspaces import (
@@ -50,6 +52,7 @@ class FakeStageSettingsRepo:
             "reasoning_effort": kwargs["reasoning_effort"],
             "reasoning_tokens": kwargs["reasoning_tokens"],
             "voice_id": kwargs.get("voice_id"),
+            "image_quality": kwargs.get("image_quality"),
         }
 
     async def delete(self, *, workspace_id: str, stage_action: str) -> None:
@@ -61,10 +64,18 @@ def test_get_returns_one_entry_per_action_with_defaults() -> None:
 
     response = asyncio.run(get_stage_settings(_workspace(), repo))  # type: ignore[arg-type]
 
-    assert len(response.settings) == len(LLM_ACTIONS) + 1
+    assert len(response.settings) == len(LLM_ACTIONS) + 2
     narration = next(s for s in response.settings if s.stage_action == "audio_narration")
     assert narration.label == "Audio Narration"
     assert narration.voice_id == narration.default_voice_id
+    image = response.settings[-1]
+    assert image.stage_action == "study_material_image"
+    assert image.label == "Design Image"
+    assert image.provider == image.default_provider
+    assert image.model == image.default_model
+    _, quality = stage_image_options(image.provider, image.model)
+    assert image.image_quality == quality
+    assert image.default_image_quality == quality
     for setting in response.settings:
         assert setting.is_overridden is False
         assert setting.provider == setting.default_provider
@@ -177,6 +188,78 @@ def test_put_audio_narration_stores_voice() -> None:
     assert repo.upserted[0]["reasoning_effort"] is None
     assert result.voice_id == "hugh_32"
     assert result.is_overridden is True
+
+
+def test_put_design_image_rejects_unknown_model() -> None:
+    repo = FakeStageSettingsRepo()
+    payload = StageSettingUpdate(provider="openai", model="gpt-image-2")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            put_stage_setting("study_material_image", payload, _workspace(), repo),  # type: ignore[arg-type]
+        )
+
+    assert exc.value.status_code == 422
+    assert repo.upserted == []
+
+
+def test_put_design_image_stores_model_without_voice_or_reasoning() -> None:
+    repo = FakeStageSettingsRepo()
+    payload = StageSettingUpdate(
+        provider="Google",
+        model=" gemini-3.1-flash-image ",
+        reasoning_effort="high",
+        reasoning_tokens=4096,
+        voice_id="should-drop",
+    )
+
+    result = asyncio.run(
+        put_stage_setting("study_material_image", payload, _workspace(), repo),  # type: ignore[arg-type]
+    )
+
+    assert repo.upserted[0]["provider"] == "google"
+    assert repo.upserted[0]["model"] == "gemini-3.1-flash-image"
+    assert repo.upserted[0]["reasoning_effort"] is None
+    assert repo.upserted[0]["reasoning_tokens"] is None
+    assert repo.upserted[0]["voice_id"] is None
+    assert result.is_overridden is True
+    assert result.model == "gemini-3.1-flash-image"
+    assert repo.upserted[0]["image_quality"] == "minimal"
+    assert result.image_quality == "minimal"
+    assert result.voice_id is None
+
+
+def test_put_design_image_stores_quality() -> None:
+    repo = FakeStageSettingsRepo()
+    payload = StageSettingUpdate(
+        provider="openai",
+        model=OPENAI_IMAGE_SUNBURST_MODEL,
+        image_quality=" Max ",
+    )
+
+    result = asyncio.run(
+        put_stage_setting("study_material_image", payload, _workspace(), repo),  # type: ignore[arg-type]
+    )
+
+    assert repo.upserted[0]["image_quality"] == "max"
+    assert result.image_quality == "max"
+
+
+def test_put_design_image_rejects_quality_for_the_other_provider() -> None:
+    repo = FakeStageSettingsRepo()
+    payload = StageSettingUpdate(
+        provider="openai",
+        model=OPENAI_IMAGE_SUNBURST_MODEL,
+        image_quality="minimal",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            put_stage_setting("study_material_image", payload, _workspace(), repo),  # type: ignore[arg-type]
+        )
+
+    assert exc.value.status_code == 422
+    assert repo.upserted == []
 
 
 def test_put_audio_narration_accepts_cartesia() -> None:

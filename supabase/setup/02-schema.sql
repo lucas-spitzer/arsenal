@@ -66,6 +66,7 @@ create table public.workspace_stage_settings (
   reasoning_effort text,
   reasoning_tokens integer,
   voice_id text,
+  image_quality text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint workspace_stage_settings_provider_check

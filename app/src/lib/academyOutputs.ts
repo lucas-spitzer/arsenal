@@ -25,6 +25,8 @@ export interface OutputItem {
   isAudio: boolean
   isEbook: boolean
   isNarration: boolean
+  /** Term labels for a grouped wiki card. Included in Library search only. */
+  searchText?: string
 }
 
 export function isIncompleteNarrationArtifact(artifact: {
@@ -53,11 +55,11 @@ function difficultyRank(difficulty: string): number {
   return DIFFICULTY_ORDER[difficulty] ?? 9
 }
 
-function countLabel(value: unknown, unit: string): string {
+function countLabel(value: unknown, unit: string, plural = `${unit}s`): string {
   const n = Number(value)
   if (!Number.isFinite(n) || n <= 0) return ''
   const rounded = Math.round(n)
-  return `${rounded} ${unit}${rounded === 1 ? '' : 's'}`
+  return `${rounded} ${rounded === 1 ? unit : plural}`
 }
 
 function displayVoice(voiceId: string): string | null {
@@ -66,14 +68,18 @@ function displayVoice(voiceId: string): string | null {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
 }
 
+function durationTitle(manifest: Record<string, unknown>): string {
+  const seconds = Number(manifest.total_duration_seconds)
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
+  return formatDuration(Math.round(seconds))
+}
+
 function narrationInstanceTitle(manifest: Record<string, unknown>): string {
   const parts: string[] = []
   const voice = displayVoice(String(manifest.voice_id ?? ''))
   if (voice) parts.push(voice)
-  const seconds = Number(manifest.total_duration_seconds)
-  if (Number.isFinite(seconds) && seconds > 0) {
-    parts.push(formatDuration(Math.round(seconds)))
-  }
+  const duration = durationTitle(manifest)
+  if (duration) parts.push(duration)
   return parts.join(' · ')
 }
 
@@ -104,7 +110,7 @@ export function artifactLibraryCard(artifact: Pick<
     title = typeof artifact.manifest.title === 'string' ? artifact.manifest.title : ''
   } else if (isNarration) {
     chipLabel = 'Audio'
-    title = narrationInstanceTitle(artifact.manifest)
+    title = durationTitle(artifact.manifest)
   } else if (isAudio) {
     chipLabel = 'Audio'
     title = narrationInstanceTitle(artifact.manifest)
@@ -144,24 +150,36 @@ export function wikiEntriesToOutputItems(
   wikiEntries: WikiEntry[],
   nameOf: (id: string | null | undefined) => string,
 ): OutputItem[] {
-  return wikiEntries
-    .filter((entry) => entry.status !== 'deprecated')
-    .map((entry) => {
-      const sourceId = wikiSourceId(entry)
-      return {
-        kind: 'wiki',
-        id: entry.id,
-        title: entry.preferred_label,
-        sourceId,
-        sourceName: nameOf(sourceId),
-        badge: entry.entry_kind || entry.importance,
-        createdAt: entry.created_at,
-        runnerPage: 'wiki',
-        isAudio: false,
-        isEbook: false,
-        isNarration: false,
-      }
-    })
+  const groups = new Map<string, WikiEntry[]>()
+  for (const entry of wikiEntries) {
+    if (entry.status === 'deprecated') continue
+    const sourceId = wikiSourceId(entry)
+    const key = sourceId ?? ''
+    const list = groups.get(key) ?? []
+    list.push(entry)
+    groups.set(key, list)
+  }
+
+  return [...groups.entries()].map(([key, entries]) => {
+    const sourceId = key || null
+    const newest = entries.reduce((latest, entry) =>
+      entry.created_at > latest.created_at ? entry : latest,
+    )
+    return {
+      kind: 'wiki',
+      id: sourceId ?? 'unassigned',
+      title: countLabel(entries.length, 'entry', 'entries'),
+      sourceId,
+      sourceName: nameOf(sourceId),
+      badge: '',
+      createdAt: newest.created_at,
+      runnerPage: 'wiki',
+      isAudio: false,
+      isEbook: false,
+      isNarration: false,
+      searchText: entries.map((entry) => entry.preferred_label).join(' '),
+    }
+  })
 }
 
 export function useOutputs(): { items: OutputItem[]; sources: { id: string; name: string }[] } {
@@ -261,7 +279,7 @@ export function filterOutputs(
     if (type !== 'all' && item.kind !== type) return false
     if (sourceId && item.sourceId !== sourceId) return false
     if (q) {
-      const haystack = `${item.title} ${item.sourceName} ${outputChipLabel(item)}`.toLowerCase()
+      const haystack = `${item.title} ${item.sourceName} ${outputChipLabel(item)} ${item.searchText ?? ''}`.toLowerCase()
       if (!haystack.includes(q)) return false
     }
     return true

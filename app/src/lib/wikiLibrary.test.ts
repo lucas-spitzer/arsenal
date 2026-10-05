@@ -6,7 +6,7 @@ vi.mock('../features/auth/authService', () => ({
 
 import { academyRailItems } from '../components/academy/types'
 import { railItems } from '../components/foundry/types'
-import { wikiEntriesToOutputItems } from './academyOutputs'
+import { filterOutputs, wikiEntriesToOutputItems } from './academyOutputs'
 import { ARTIFACT_OPTIONS, type WikiEntry } from './workspaceApi'
 
 function wikiEntry(overrides: Partial<WikiEntry> = {}): WikiEntry {
@@ -43,7 +43,7 @@ describe('wiki knowledge on New Run and Library', () => {
     expect(academyRailItems.map((item) => item.id)).not.toContain('wiki')
   })
 
-  it('maps canonical wiki entries into Library outputs', () => {
+  it('maps each source’s canonical wiki entries into one Library card', () => {
     const items = wikiEntriesToOutputItems(
       [
         wikiEntry(),
@@ -62,20 +62,59 @@ describe('wiki knowledge on New Run and Library', () => {
       (id) => (id === 'src-origin' ? 'OCS Prep' : id === 'src-evidence' ? 'Evidence Book' : 'Unassigned'),
     )
 
-    expect(items.map((item) => item.id)).toEqual(['wiki-1', 'wiki-3'])
+    expect(items.map((item) => item.id)).toEqual(['src-origin', 'src-evidence'])
     expect(items[0]).toMatchObject({
       kind: 'wiki',
-      title: 'Enemy System',
-      badge: 'concept',
+      title: '1 entry',
       sourceId: 'src-origin',
       sourceName: 'OCS Prep',
       runnerPage: 'wiki',
+      searchText: 'Enemy System',
     })
     expect(items[1]).toMatchObject({
-      id: 'wiki-3',
+      id: 'src-evidence',
+      title: '1 entry',
       sourceId: 'src-evidence',
       sourceName: 'Evidence Book',
       runnerPage: 'wiki',
+      searchText: 'Tempo',
     })
+  })
+
+  it('counts every canonical term on the same source', () => {
+    const items = wikiEntriesToOutputItems(
+      [
+        wikiEntry(),
+        wikiEntry({
+          id: 'wiki-4',
+          preferred_label: 'Friction',
+          created_at: '2026-09-15T00:00:00Z',
+        }),
+        wikiEntry({
+          id: 'wiki-2',
+          preferred_label: 'Retired',
+          status: 'deprecated',
+        }),
+      ],
+      () => 'OCS Prep',
+    )
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      id: 'src-origin',
+      title: '2 entries',
+      createdAt: '2026-09-15T00:00:00Z',
+      searchText: 'Enemy System Friction',
+    })
+  })
+
+  it('finds a source wiki card by term label', () => {
+    const items = wikiEntriesToOutputItems(
+      [wikiEntry({ preferred_label: 'War' })],
+      () => 'MCDP 1 Warfighting',
+    )
+
+    expect(filterOutputs(items, { search: 'War', type: 'all', sourceId: null })).toEqual(items)
+    expect(filterOutputs(items, { search: 'missing', type: 'all', sourceId: null })).toEqual([])
   })
 })

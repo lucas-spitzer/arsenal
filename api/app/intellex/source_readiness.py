@@ -4,7 +4,7 @@ from typing import Any
 
 # Bumped when classify / structure-body semantics change so already-ingested
 # sources re-run normalize→chunk without re-parsing or re-researching.
-CURRENT_STRUCTURE_VERSION = "1.3"
+CURRENT_STRUCTURE_VERSION = "1.5"
 
 
 def _source_metadata(source: dict[str, Any]) -> dict[str, Any]:

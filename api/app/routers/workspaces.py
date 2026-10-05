@@ -11,7 +11,16 @@ from app.dependencies.services import (
 )
 from app.dependencies.workspace import require_workspace
 from app.errors import is_duplicate_key_error
+from app.image_defaults import (
+    STUDY_MATERIAL_IMAGE_ACTION,
+    STUDY_MATERIAL_IMAGE_LABEL,
+)
 from app.llm_actions import LLM_ACTIONS
+from app.mathesys.study_material.images import (
+    effective_stage_image_quality,
+    normalize_stage_image_quality,
+    stage_image_options,
+)
 from app.models.auth import CurrentUser
 from app.models.stage_settings import (
     StageSetting,
@@ -21,6 +30,7 @@ from app.models.stage_settings import (
 from app.models.workspace import WorkspaceCreate, WorkspaceResponse, WorkspaceUpdate
 from app.repositories.stage_settings import StageSettingsRepository
 from app.repositories.workspaces import WorkspaceRepository
+from app.services.images.catalog import validate_image_selection
 from app.services.llm.model_catalog import validate_selection
 from app.services.supabase_rest import SupabaseRestError
 from app.services.tts.catalog import validate_tts_selection
@@ -34,6 +44,7 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 _STAGE_ACTION_LABELS: dict[str, str] = {
     **{action.key: action.label for action in LLM_ACTIONS},
     AUDIO_NARRATION_ACTION: AUDIO_NARRATION_LABEL,
+    STUDY_MATERIAL_IMAGE_ACTION: STUDY_MATERIAL_IMAGE_LABEL,
 }
 
 
@@ -41,6 +52,14 @@ def _default_provider_model(stage_action: str) -> tuple[str, str]:
     if stage_action == AUDIO_NARRATION_ACTION:
         narration = get_settings().narration
         return narration.provider, narration.model_id
+    if stage_action == STUDY_MATERIAL_IMAGE_ACTION:
+        study = get_settings().study_material
+        model = (
+            study.google_image_model
+            if study.image_provider == "google"
+            else study.openai_image_model
+        )
+        return study.image_provider, model
     resolved = get_settings().llm.resolve_action(stage_action)
     return resolved.provider, resolved.model
 
@@ -51,6 +70,22 @@ def _default_voice_id(stage_action: str) -> str | None:
     return None
 
 
+def _image_controls(
+    stage_action: str,
+    provider: str,
+    model: str,
+    row: dict[str, object] | None,
+    default_provider: str,
+    default_model: str,
+) -> tuple[str | None, str | None]:
+    if stage_action != STUDY_MATERIAL_IMAGE_ACTION:
+        return None, None
+    _, default_quality = stage_image_options(default_provider, default_model)
+    stored_quality = str(row.get("image_quality") or "") if row else None
+    quality = effective_stage_image_quality(provider, model, stored_quality)
+    return quality, default_quality
+
+
 def _setting_from_row(
     *,
     stage_action: str,
@@ -58,18 +93,30 @@ def _setting_from_row(
 ) -> StageSetting:
     default_provider, default_model = _default_provider_model(stage_action)
     default_voice = _default_voice_id(stage_action)
+    provider = str(row["provider"]) if row else default_provider
+    model = str(row["model"]) if row else default_model
+    image_quality, default_image_quality = _image_controls(
+        stage_action,
+        provider,
+        model,
+        row,
+        default_provider,
+        default_model,
+    )
     return StageSetting(
         stage_action=stage_action,
         label=_STAGE_ACTION_LABELS[stage_action],
-        provider=str(row["provider"]) if row else default_provider,
-        model=str(row["model"]) if row else default_model,
+        provider=provider,
+        model=model,
         reasoning_effort=row.get("reasoning_effort") if row else None,
         reasoning_tokens=row.get("reasoning_tokens") if row else None,
         voice_id=(str(row["voice_id"]) if row and row.get("voice_id") else default_voice),
+        image_quality=image_quality,
         is_overridden=row is not None,
         default_provider=default_provider,
         default_model=default_model,
         default_voice_id=default_voice,
+        default_image_quality=default_image_quality,
     )
 
 
@@ -180,6 +227,12 @@ async def get_stage_settings(
             row=stored.get(AUDIO_NARRATION_ACTION),
         ),
     )
+    settings.append(
+        _setting_from_row(
+            stage_action=STUDY_MATERIAL_IMAGE_ACTION,
+            row=stored.get(STUDY_MATERIAL_IMAGE_ACTION),
+        ),
+    )
 
     return StageSettingsResponse(settings=settings)
 
@@ -202,6 +255,8 @@ async def put_stage_setting(
 
     if stage_action == AUDIO_NARRATION_ACTION:
         error = validate_tts_selection(payload.provider, payload.model)
+    elif stage_action == STUDY_MATERIAL_IMAGE_ACTION:
+        error = validate_image_selection(payload.provider, payload.model)
     else:
         error = validate_selection(payload.provider, payload.model)
     if error is not None:
@@ -210,8 +265,11 @@ async def put_stage_setting(
             detail=error,
         )
 
+    provider = payload.provider.strip().lower()
+    model = payload.model.strip()
     reasoning_effort = payload.reasoning_effort.strip().lower() if payload.reasoning_effort else None
     voice_id = payload.voice_id.strip() if payload.voice_id else None
+    image_quality: str | None = None
     if stage_action == AUDIO_NARRATION_ACTION:
         if not voice_id:
             raise HTTPException(
@@ -220,6 +278,16 @@ async def put_stage_setting(
             )
         reasoning_effort = None
         reasoning_tokens = None
+    elif stage_action == STUDY_MATERIAL_IMAGE_ACTION:
+        reasoning_effort = None
+        reasoning_tokens = None
+        voice_id = None
+        image_quality = normalize_stage_image_quality(provider, model, payload.image_quality)
+        if image_quality is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Quality '{payload.image_quality}' is not available for this image model.",
+            )
     else:
         reasoning_tokens = payload.reasoning_tokens
         voice_id = None
@@ -227,11 +295,12 @@ async def put_stage_setting(
     row = await stage_settings.upsert(
         workspace_id=workspace.id,
         stage_action=stage_action,
-        provider=payload.provider.strip().lower(),
-        model=payload.model.strip(),
+        provider=provider,
+        model=model,
         reasoning_effort=reasoning_effort or None,
         reasoning_tokens=reasoning_tokens,
         voice_id=voice_id,
+        image_quality=image_quality,
     )
 
     return _setting_from_row(stage_action=stage_action, row=row)

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from app.llm_defaults import (
     GPT_6_LUNA_MODEL,
     GPT_6_SOL_MODEL,
-    SONNET_5_MODEL,
+    SONNET_55_MODEL,
 )
 
 
@@ -41,7 +41,7 @@ LLM_ACTIONS: tuple[LLMAction, ...] = (
         "source_web_enrichment",
         "Source Web Enrichment",
         "anthropic",
-        SONNET_5_MODEL,
+        SONNET_55_MODEL,
         "SOURCE_WEB_ENRICHMENT_MODEL",
     ),
     LLMAction(
@@ -69,7 +69,7 @@ LLM_ACTIONS: tuple[LLMAction, ...] = (
         "qngen_critique",
         "Assessment Critique",
         "anthropic",
-        SONNET_5_MODEL,
+        SONNET_55_MODEL,
         "CRITIQUE_MODEL",
     ),
     LLMAction(
@@ -82,8 +82,8 @@ LLM_ACTIONS: tuple[LLMAction, ...] = (
     LLMAction(
         "study_material",
         "Study Material",
-        "openai",
-        GPT_6_SOL_MODEL,
+        "anthropic",
+        SONNET_55_MODEL,
         "STUDY_MATERIAL_MODEL",
     ),
     LLMAction(
@@ -101,4 +101,4 @@ LLM_ACTION_DEFAULTS: dict[str, tuple[str, str]] = {
     action.key: (action.provider, action.model) for action in LLM_ACTIONS
 }
 
-LLM_GLOBAL_DEFAULT: tuple[str, str] = ("anthropic", SONNET_5_MODEL)
+LLM_GLOBAL_DEFAULT: tuple[str, str] = ("anthropic", SONNET_55_MODEL)

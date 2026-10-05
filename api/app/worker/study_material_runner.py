@@ -43,6 +43,7 @@ from app.mathesys.study_material.prompts import ComponentPromptContext, SiblingS
 from app.mathesys.study_material.render import render_document
 from app.mathesys.study_material.validation import fit_issues, pdf_issues
 from app.pipeline import STUDY_MATERIAL_RENDER_STEP
+from app.services.images.catalog import ImageStageDefault, image_default_from_rows
 from app.services.llm import (
     get_llm_client,
     overrides_from_rows,
@@ -92,6 +93,7 @@ class _Job:
     versions: list[dict[str, Any]]
     files: dict[str, list[ComponentFile]] = field(default_factory=dict)
     image_uris: dict[str, str] = field(default_factory=dict)
+    image_default: ImageStageDefault | None = None
 
     @property
     def versions_by_id(self) -> dict[str, dict[str, Any]]:
@@ -209,6 +211,23 @@ class StudyMaterialRunner:
             section_notes=str(notes.get(section.id) or ""),
         )
 
+    def _planned_model(self, job: _Job, component: dict[str, Any]) -> tuple[str, str]:
+        if component["component_type"] == "image":
+            image_default = job.image_default
+            settings = resolve_image_settings(
+                component.get("settings"),
+                default_provider=image_default.provider if image_default else None,
+                default_model=image_default.model if image_default else None,
+                default_quality=image_default.quality if image_default else None,
+            )
+            return str(settings["provider"]), str(settings["model"])
+
+        client = self.completer_factory("study_material")
+        return (
+            str(getattr(client, "provider", "") or ""),
+            str(getattr(client, "model", "") or ""),
+        )
+
     def _generate(self, job: _Job, component: dict[str, Any]) -> GeneratedComponent:
         ctx = self._prompt_context(job, component)
         component_type = component["component_type"]
@@ -217,7 +236,13 @@ class StudyMaterialRunner:
         if component_type == "text":
             return generate_text_component(ctx, self.completer_factory("study_material"))
 
-        settings = resolve_image_settings(component.get("settings"))
+        image_default = job.image_default
+        settings = resolve_image_settings(
+            component.get("settings"),
+            default_provider=image_default.provider if image_default else None,
+            default_model=image_default.model if image_default else None,
+            default_quality=image_default.quality if image_default else None,
+        )
         aspect = settings["aspect_ratio"]
         if aspect == "auto":
             section_rows = [row for row in job.components if row["section_id"] == component["section_id"]]
@@ -228,7 +253,9 @@ class StudyMaterialRunner:
             client,
             aspect_ratio=aspect,
             quality=settings["quality"],
+            resolution=settings["resolution"],
             image_size=settings["image_size"],
+            thinking_level=settings.get("thinking_level"),
             references=[item for item in self._component_files(job, component) if item.is_image],
         )
 
@@ -313,7 +340,11 @@ class StudyMaterialRunner:
             )
             stage_run_id = str(stage_run["id"])
             last_stage_run_id = stage_run_id
+            planned_model = ""
             try:
+                planned_model = self._planned_model(job, component)[1]
+                if planned_model:
+                    self.db.update_stage_run(stage_run_id, {"model": planned_model})
                 generated = self._generate(job, component)
                 version = self._store_version(job, component, generated, stage_run_id)
                 if component_type == "image":
@@ -347,10 +378,14 @@ class StudyMaterialRunner:
                 )
             except Exception as exc:
                 logger.exception("Study material component %s failed", component["id"])
-                self.db.update_stage_run(
-                    stage_run_id,
-                    {"status": "failed", "error": str(exc), "completed_at": utc_now_iso()},
-                )
+                failure: dict[str, Any] = {
+                    "status": "failed",
+                    "error": str(exc),
+                    "completed_at": utc_now_iso(),
+                }
+                if planned_model:
+                    failure["model"] = planned_model
+                self.db.update_stage_run(stage_run_id, failure)
                 raise RuntimeError(f"{label} failed: {exc}") from exc
 
         noun = TYPE_NOUNS[component_type]
@@ -430,7 +465,12 @@ class StudyMaterialRunner:
             },
         )
         stage_run_id = str(stage_run["id"])
+        planned_model = ""
         try:
+            completer = self.completer_factory("study_material_orchestrator")
+            planned_model = str(getattr(completer, "model", "") or "")
+            if planned_model:
+                self.db.update_stage_run(stage_run_id, {"model": planned_model})
             by_section: dict[str, list[LayoutComponent]] = {}
             versions = job.versions_by_id
             for row in job.components:
@@ -452,7 +492,7 @@ class StudyMaterialRunner:
                 template=job.template,
                 components_by_section=by_section,
                 section_notes={str(key): str(value) for key, value in notes.items()},
-                completer=self.completer_factory("study_material_orchestrator"),
+                completer=completer,
             )
             with self.renderer_factory() as renderer:
                 layouts, report = self._fit(job, plan.sections, renderer)
@@ -489,10 +529,14 @@ class StudyMaterialRunner:
                 },
             )
         except Exception as exc:
-            self.db.update_stage_run(
-                stage_run_id,
-                {"status": "failed", "error": str(exc), "completed_at": utc_now_iso()},
-            )
+            failure: dict[str, Any] = {
+                "status": "failed",
+                "error": str(exc),
+                "completed_at": utc_now_iso(),
+            }
+            if planned_model:
+                failure["model"] = planned_model
+            self.db.update_stage_run(stage_run_id, failure)
             raise
         return mark_step(pipeline, "orchestrate-layout", status="completed", stage_run_id=stage_run_id, detail=detail)
 
@@ -510,11 +554,11 @@ class StudyMaterialRunner:
         workspace_id = str(run["workspace_id"])
         self.db.update_production_run(production_run_id, {"status": "running", "error": None})
         self.db.update_study_material(str(material["id"]), {"status": "generating", "error": None})
-        override_token = set_workspace_overrides(
-            overrides_from_rows(self.db.list_workspace_stage_settings(workspace_id)),
-        )
+        stage_rows = self.db.list_workspace_stage_settings(workspace_id)
+        override_token = set_workspace_overrides(overrides_from_rows(stage_rows))
         try:
             job = self._load_job(material)
+            job.image_default = image_default_from_rows(stage_rows)
             for component_type, step_name, _action in GENERATION_STEPS:
                 pipeline = self._run_generation_step(
                     job,

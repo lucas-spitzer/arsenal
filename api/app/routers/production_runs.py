@@ -8,6 +8,7 @@ from app.dependencies.services import (
     get_production_run_repository,
     get_stage_run_repository,
     get_source_repository,
+    get_supabase_storage_client,
     get_wiki_ingest_batch_repository,
     get_workspace_repository,
 )
@@ -26,7 +27,9 @@ from app.services.production_runs import (
     ProductionRunEnqueueError,
     ProductionRunValidationError,
     create_and_enqueue_production_run,
+    purge_production_run,
 )
+from app.services.supabase_storage import SupabaseStorageClient
 from app.services.stage_run_backfill import enrich_stage_run_row
 
 router = APIRouter(tags=["production-runs"])
@@ -133,6 +136,37 @@ async def get_production_run(
         )
 
     return ProductionRunResponse.model_validate(row)
+
+
+@router.delete(
+    "/workspaces/{workspace_id}/production-runs/{production_run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_production_run(
+    production_run_id: str,
+    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    production_runs: Annotated[
+        ProductionRunRepository,
+        Depends(get_production_run_repository),
+    ],
+    storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
+) -> None:
+    row = await production_runs.get_for_owner(production_run_id, user.id)
+
+    if not row or str(row["workspace_id"]) != str(workspace.id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Production run not found.",
+        )
+
+    await purge_production_run(
+        production_run_id=production_run_id,
+        settings=settings,
+        production_runs=production_runs,
+        storage=storage,
+    )
 
 
 @router.get(

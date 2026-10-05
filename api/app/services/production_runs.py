@@ -7,7 +7,8 @@ from app.config import Settings
 from app.pipeline import build_pipeline
 from app.repositories.production_runs import ProductionRunRepository
 from app.repositories.wiki_ingest_batches import WikiIngestBatchRepository
-from app.services.queue import enqueue_production_run
+from app.services.queue import cancel_queued_jobs_for_run, enqueue_production_run
+from app.services.supabase_storage import SupabaseStorageClient
 
 logger = logging.getLogger(__name__)
 
@@ -144,3 +145,27 @@ async def create_and_enqueue_production_run(
         raise ProductionRunEnqueueError(str(exc)) from exc
 
     return row
+
+
+def _storage_keys_by_bucket(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for row in rows:
+        bucket = str(row.get("bucket") or "").strip()
+        name = str(row.get("name") or "").strip()
+        if not bucket or not name or name == "pending":
+            continue
+        grouped.setdefault(bucket, []).append(name)
+    return grouped
+
+
+async def purge_production_run(
+    *,
+    production_run_id: str,
+    settings: Settings,
+    production_runs: ProductionRunRepository,
+    storage: SupabaseStorageClient,
+) -> None:
+    cancel_queued_jobs_for_run(settings, production_run_id)
+    rows = await production_runs.purge(production_run_id)
+    for bucket, paths in _storage_keys_by_bucket(rows).items():
+        await storage.delete_paths(bucket=bucket, paths=paths)

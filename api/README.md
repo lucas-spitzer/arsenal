@@ -143,7 +143,7 @@ GET    /workspaces/{workspace_id}/sources/{source_id}/segments
 DELETE /workspaces/{workspace_id}/sources/{source_id}
 ```
 
-`POST /sources` accepts `multipart/form-data` with a `file` field. Each successful upload automatically queues an ingest-only production run (Intellex base pipeline through `web-enrichment`; wiki entries are not extracted here). Redis and the RQ worker must be running.
+`POST /sources` accepts `multipart/form-data` with a `file` field. Each successful upload automatically queues an ingest-only production run (Intellex base pipeline through `source-research`; wiki entries are not extracted here). Redis and the RQ worker must be running.
 
 ### Stages
 
@@ -220,7 +220,7 @@ Example production run body:
 
 Supported `target_artifacts` values:
 
-- `electronic_book` — Mathesys create-ebook (chapter-based EPUB per source)
+- `electronic_book` — Intellex web-enrichment, then Mathesys create-ebook (chapter-based EPUB per source)
 - `narration_audio` — Mathesys generate-narration (timed clips + manifest per source)
 - `wiki_json` — Mathesys export-wiki-json (curated wiki snapshot per source)
 - `wiki_knowledge` — Intellex transcribe-wiki-notes + structure-wiki-notes (canonical wiki entries from each selected source file)
@@ -230,7 +230,8 @@ Supported `target_artifacts` values:
 
 Full pipeline worker behavior:
 
-- always completes Intellex ingest (`store`, `parse`, `normalize-document`, `trim-document-boundaries`, `structure-document`, `validate-structure`, `chunk`, `source-research`, `web-enrichment`); reuses prior ingest/Intellex results when a source was already processed; skips Intellex for markdown sources
+- always completes Intellex ingest (`store`, `parse`, `normalize-document`, `trim-document-boundaries`, `structure-document`, `validate-structure`, `chunk`, `source-research`); reuses prior ingest/Intellex results when a source was already processed; skips Intellex for markdown sources
+- when `electronic_book` is a target, runs `web-enrichment` immediately before `create-ebook` (skipped when the source is already enriched, or when the distribution line marks it non-public)
 - when `wiki_knowledge` is a target, inserts one ingest batch per source (attachments point at the existing source object), then runs `transcribe-wiki-notes` (markdown passthrough; skipped when notes are already filled or there are no files) then `structure-wiki-notes` (writes canonical wiki entries)
 - optionally runs Mathesys stages and QnGen stages based on `target_artifacts`
 - promotes artifacts and assessment entities

@@ -6,7 +6,7 @@ import pytest
 
 from app.services.api_pricing import cost_anthropic_usage, cost_llm_usage
 from app.services.llm.anthropic_client import _parse_json_object
-from app.llm_defaults import SONNET_5_MODEL
+from app.llm_defaults import SONNET_55_MODEL
 from app.services.llm.factory import get_llm_client, resolve_action
 from app.services.llm.openai_adapter import OpenAILLMClient
 from app.services.openai_client import OpenAICompletionResult
@@ -31,7 +31,7 @@ def test_resolve_action_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     provider, model = resolve_action("extract_knowledge")
 
     assert provider == "anthropic"
-    assert model == SONNET_5_MODEL
+    assert model == SONNET_55_MODEL
 
 
 def test_resolve_action_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,6 +64,29 @@ def test_resolve_action_uses_dedicated_model_env(
 
     assert provider == "openai"
     assert model == "gpt-4o"
+
+
+def test_resolve_model_family_maps_names_and_passes_ids_through() -> None:
+    from app.config import resolve_model_family
+
+    assert resolve_model_family("sol") == "gpt-6.1-sol"
+    assert resolve_model_family("Sonnet") == SONNET_55_MODEL
+    assert resolve_model_family("gemini-flash-tts") == "gemini-3.8-flash-tts"
+    assert resolve_model_family("gpt-4o") == "gpt-4o"
+
+
+def test_resolve_action_expands_model_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LLM_WIKI_STRUCTURING_PROVIDER", raising=False)
+    monkeypatch.setenv("WIKI_STRUCTURING_MODEL", "sol")
+    monkeypatch.setenv("CRITIQUE_MODEL", "sonnet")
+
+    provider, model = resolve_action("wiki_structuring")
+    critique_provider, critique_model = resolve_action("qngen_critique")
+
+    assert provider == "openai"
+    assert model == "gpt-6.1-sol"
+    assert critique_provider == "anthropic"
+    assert critique_model == SONNET_55_MODEL
 
 
 def test_openai_adapter_adds_provider(monkeypatch: pytest.MonkeyPatch) -> None:

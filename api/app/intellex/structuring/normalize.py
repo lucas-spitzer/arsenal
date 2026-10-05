@@ -2,15 +2,18 @@
 
 Flatten LlamaParse's structured `pages[].items[]` output into a single flat,
 reading-order list of Elements, dropping page furniture (running headers and
-footers / page numbers). Replaces the clutter-removal half of the old
-prepare-document step, but does it structurally (by item type) rather than with
-heuristics + an LLM call.
+footers / page numbers). A header or footer whose text is a chapter or part
+label is kept and retyped as a heading, because some books set "CHAPTER ONE"
+as a small kicker above the real title. Replaces the clutter-removal half of
+the old prepare-document step, but does it structurally (by item type) rather
+than with heuristics + an LLM call.
 """
 from __future__ import annotations
 
 import re
 from typing import Any, Iterable
 
+from app.intellex.structuring.boundaries import is_division_label
 from app.intellex.structuring.models import FURNITURE_TYPES, Element
 
 
@@ -75,9 +78,15 @@ def normalize_structured_pages(
         page_no = page.get("page_number")
         for item in page.get("items", []):
             itype = item.get("type")
-            if itype in furniture:
+            text = _clean_text(item)
+            # Chapter kickers are often small running-header lines ("CHAPTER ONE"
+            # under the page number). Keep those as headings; still drop titles
+            # and page numbers.
+            if itype in furniture and not is_division_label(text):
                 dropped[itype] = dropped.get(itype, 0) + 1
                 continue
+            if itype in furniture:
+                itype = "heading"
             labels, min_confidence, max_confidence, fragment_count = (
                 _layout_provenance(item)
             )
@@ -87,7 +96,7 @@ def normalize_structured_pages(
                     page=page_no,
                     type=itype,
                     level=item.get("level"),
-                    text=_clean_text(item),
+                    text=text,
                     md=item.get("md") or "",
                     layout_labels=labels,
                     min_layout_confidence=min_confidence,

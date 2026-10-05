@@ -400,44 +400,70 @@ function providerToolLabel(provider: unknown): string | null {
   return API_PROVIDER_LABELS[provider.trim().toLowerCase()] ?? provider
 }
 
+function stringField(record: Record<string, unknown> | null | undefined, key: string): string {
+  if (!record) return ''
+  const value = record[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function modelToolLabel(model: string): string | null {
+  const normalized = model.trim().toLowerCase()
+  if (!normalized || normalized === 'unknown' || normalized === 'deterministic-passthrough') {
+    return null
+  }
+  if (normalized.startsWith('eleven') || normalized.includes('elevenlabs')) return 'ElevenLabs'
+  if (normalized.startsWith('sonic') || normalized.includes('cartesia')) return 'Cartesia'
+  if (normalized.startsWith('simba') || normalized.includes('speechify')) return 'Speechify'
+  if (normalized.includes('tts')) return 'Google TTS'
+  if (normalized.includes('image')) {
+    if (normalized.includes('gemini') || normalized.includes('google')) return 'Gemini Image'
+    return 'OpenAI Image'
+  }
+  if (normalized === 'llamaparse') return 'LlamaParse'
+  if (normalized.includes('claude') || normalized.includes('anthropic')) return 'Claude'
+  if (normalized.includes('gpt') || normalized.includes('openai')) return 'OpenAI'
+  if (normalized.includes('gemini') || normalized.includes('google')) return 'Gemini'
+  return null
+}
+
+function callToolLabel(call: Record<string, unknown>, stageId: string): string | null {
+  const fromModel = typeof call.model === 'string' ? modelToolLabel(call.model) : null
+  if (fromModel) return fromModel
+
+  const provider = typeof call.provider === 'string' ? call.provider.trim().toLowerCase() : ''
+  if (stageId === 'generate-narration' && provider === 'google') return 'Google TTS'
+  if (stageId === 'generate-images' && provider === 'google') return 'Gemini Image'
+  if (stageId === 'generate-images' && provider === 'openai') return 'OpenAI Image'
+  return providerToolLabel(call.provider)
+}
+
+function stageRunModelCandidates(stageRun: StageRun): string[] {
+  return [
+    (stageRun.model ?? '').trim(),
+    stringField(stageRun.output, 'model_id'),
+    stringField(stageRun.inputs, 'model_id'),
+  ].filter((model) => model.length > 0)
+}
+
 export function apiRequestStageLabel(stageId: string): string | null {
   return API_REQUEST_STAGES[stageId] ? (PIPELINE_STEP_LABELS[stageId] ?? stageId) : null
 }
 
 export function stageRunApiToolLabel(stageRun: StageRun): string {
-  if (stageRun.stage_id === 'generate-narration') {
-    for (const call of stageRunApiCalls(stageRun)) {
-      const label = providerToolLabel(call.provider)
-      if (label) return label
-    }
-    const model = String(
-      stageRun.output?.model_id ?? stageRun.model ?? '',
-    ).toLowerCase()
-    if (model.includes('eleven')) return 'ElevenLabs'
-    if (model.includes('sonic')) return 'Cartesia'
-    if (model.includes('gemini')) return 'Gemini'
-    return 'Speechify'
+  const labels = new Set<string>()
+  for (const call of stageRunApiCalls(stageRun)) {
+    const label = callToolLabel(call, stageRun.stage_id)
+    if (label) labels.add(label)
+  }
+  if (labels.size > 0) return [...labels].join(' · ')
+
+  for (const model of stageRunModelCandidates(stageRun)) {
+    const label = modelToolLabel(model)
+    if (label) return label
   }
 
   const configuredTool = API_REQUEST_STAGES[stageRun.stage_id]?.tool
   if (configuredTool) return configuredTool
-
-  const labels = new Set<string>()
-
-  for (const call of stageRunApiCalls(stageRun)) {
-    const label = providerToolLabel(call.provider)
-    if (label) labels.add(label)
-  }
-
-  const model = (stageRun.model ?? '').trim().toLowerCase()
-  if (model === 'llamaparse') labels.add('LlamaParse')
-  if (model.includes('claude') || model.includes('anthropic')) labels.add('Claude')
-  if (model.includes('gpt') || model.includes('openai')) labels.add('OpenAI')
-
-  if (labels.size > 0) {
-    return [...labels].join(' · ')
-  }
-
   return stageRun.model ?? '—'
 }
 
@@ -485,6 +511,9 @@ export function isApiRequestStageRun(stageRun: StageRun): boolean {
 
   const model = (stageRun.model ?? '').trim().toLowerCase()
   if (model && model !== 'unknown') return true
+  // Failed TTS and image calls keep the model on the progress output when the
+  // stage row itself never got a model column.
+  if (modelToolLabel(stringField(stageRun.output, 'model_id'))) return true
 
   return false
 }

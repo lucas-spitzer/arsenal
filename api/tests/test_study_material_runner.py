@@ -188,6 +188,9 @@ class FakeImageClient:
 
 
 class Completer:
+    provider = "openai"
+    model = "gpt-6-sol"
+
     def __init__(self, content: dict[str, Any]) -> None:
         self.content = content
         self.prompts: list[str] = []
@@ -204,6 +207,9 @@ class Completer:
 
 class StudyMaterialCompleter:
     """One action serves diagrams and text; pick the payload from the prompt."""
+
+    provider = "anthropic"
+    model = "claude-sonnet-5-5"
 
     def __init__(self, diagram: dict[str, Any], text: dict[str, Any]) -> None:
         self.diagram = diagram
@@ -316,6 +322,9 @@ def test_failed_component_fails_the_run_and_material() -> None:
         raise AssertionError("expected failure")
     assert db.run["status"] == "failed"
     assert db.material["status"] == "failed"
+    diagram_run = next(row for row in db.stage_runs.values() if row["stage_id"] == "generate-diagrams")
+    assert diagram_run["status"] == "failed"
+    assert diagram_run["model"] == "claude-sonnet-5-5"
 
 
 def test_finalize_prints_pdf_into_the_library() -> None:

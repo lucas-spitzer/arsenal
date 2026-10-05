@@ -12,6 +12,11 @@ from dataclasses import dataclass
 from app.tts_defaults import (
     AUDIO_NARRATION_ACTION,
     DEFAULT_NARRATION_MODEL,
+    ELEVEN_V3_MODEL,
+    GEMINI_FLASH_LITE_TTS_MODEL,
+    GEMINI_FLASH_TTS_MODEL,
+    SIMBA_MODEL,
+    SONIC_MODEL,
     tts_provider_for_model,
 )
 
@@ -80,7 +85,7 @@ def _voices(*pairs: tuple[str, str]) -> tuple[TtsVoice, ...]:
 
 TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
     TtsCatalogModel(
-        model="simba-3.2",
+        model=SIMBA_MODEL,
         provider="speechify",
         display_name="Simba 3.2",
         default_voice_id="hugh_32",
@@ -89,7 +94,7 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         capability_tier=1,
     ),
     TtsCatalogModel(
-        model="eleven_v3",
+        model=ELEVEN_V3_MODEL,
         provider="elevenlabs",
         display_name="Eleven v3",
         default_voice_id=ELEVENLABS_DEFAULT_VOICE_ID,
@@ -98,7 +103,7 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         capability_tier=5,
     ),
     TtsCatalogModel(
-        model="sonic-3.6",
+        model=SONIC_MODEL,
         provider="cartesia",
         display_name="Sonic 3.6",
         default_voice_id=CARTESIA_DEFAULT_VOICE_ID,
@@ -110,7 +115,7 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         capability_tier=4,
     ),
     TtsCatalogModel(
-        model="gemini-3.8-flash-tts",
+        model=GEMINI_FLASH_TTS_MODEL,
         provider="google",
         display_name="Gemini 3.8 Flash TTS",
         default_voice_id=GEMINI_DEFAULT_VOICE_ID,
@@ -122,7 +127,7 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         capability_tier=3,
     ),
     TtsCatalogModel(
-        model="gemini-3.8-flash-lite-tts",
+        model=GEMINI_FLASH_LITE_TTS_MODEL,
         provider="google",
         display_name="Gemini 3.8 Flash-Lite TTS",
         default_voice_id=GEMINI_DEFAULT_VOICE_ID,

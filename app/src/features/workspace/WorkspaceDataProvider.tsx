@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   createProductionRun as createProductionRunRequest,
+  deleteProductionRun as deleteProductionRunRequest,
   getArtifactDownloadUrl,
   listArtifacts,
   listFlashcards,
@@ -185,6 +186,18 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
     [workspaceId, refresh],
   )
 
+  const deleteProductionRun = useCallback(
+    async (runId: string) => {
+      if (!workspaceId) {
+        throw new Error('No active workspace.')
+      }
+
+      await deleteProductionRunRequest(workspaceId, runId)
+      await refresh()
+    },
+    [workspaceId, refresh],
+  )
+
   const downloadArtifact = useCallback(async (artifactId: string) => {
     const { download_url } = await getArtifactDownloadUrl(artifactId)
     window.open(download_url, '_blank', 'noopener,noreferrer')
@@ -215,6 +228,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       uploadSource,
       uploadArtifact,
       createProductionRun,
+      deleteProductionRun,
       downloadArtifact,
       addWikiEntry,
       refresh,
@@ -234,6 +248,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       uploadSource,
       uploadArtifact,
       createProductionRun,
+      deleteProductionRun,
       downloadArtifact,
       addWikiEntry,
       refresh,

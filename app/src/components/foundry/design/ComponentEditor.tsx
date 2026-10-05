@@ -7,6 +7,7 @@ import {
   deleteComponentFile,
   updateComponent,
   uploadComponentFile,
+  type ImageControlOptions,
   type ImageProvider,
   type ImageSettings,
   type StudyCatalog,
@@ -24,6 +25,37 @@ const INSTRUCTION_HINTS: Record<StudyComponent['component_type'], string> = {
 }
 
 const PROVIDER_LABELS: Record<ImageProvider, string> = { openai: 'OpenAI', google: 'Google' }
+
+const QUALITY_LABELS: Record<string, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+  minimal: 'Minimal',
+}
+
+function imageControls(
+  catalog: StudyCatalog,
+  provider: ImageProvider,
+  model: string,
+): ImageControlOptions {
+  if (provider === 'google') {
+    return catalog.image.controls.google[model] ?? { qualities: [], resolutions: ['1K', '2K', '4K'] }
+  }
+  return catalog.image.controls.openai
+}
+
+function fallbackResolution(current: string | undefined, allowed: string[]): string {
+  if (current && allowed.includes(current)) return current
+  if (current === '0.5K' && allowed.includes('1K')) return '1K'
+  if (allowed.includes('2K')) return '2K'
+  return allowed[0] ?? '2K'
+}
+
+function qualityLabel(value: string): string {
+  return QUALITY_LABELS[value] ?? value
+}
 
 interface ComponentEditorProps {
   materialId: string
@@ -78,8 +110,22 @@ export function ComponentEditor({
 
   const saveSettings = (patch: Partial<ImageSettings>) => {
     const next: Partial<ImageSettings> = { ...component.settings, ...patch }
+    const nextProvider = next.provider ?? catalog.image.default_provider
     if (patch.provider && patch.provider !== component.settings.provider) {
       next.model = catalog.image.default_models[patch.provider]
+    }
+    const model = next.model ?? catalog.image.default_models[nextProvider]
+    const options = imageControls(catalog, nextProvider, model)
+    if (nextProvider === 'openai') {
+      if (!next.quality || !options.qualities.includes(next.quality)) next.quality = 'high'
+      if (!next.resolution || !options.resolutions.includes(next.resolution)) next.resolution = '1K'
+    } else {
+      next.thinking_level = options.qualities.length === 0
+        ? null
+        : next.thinking_level && options.qualities.includes(next.thinking_level)
+          ? next.thinking_level
+          : 'minimal'
+      next.image_size = fallbackResolution(next.image_size, options.resolutions)
     }
     void run(async () => {
       onChange(await updateComponent(materialId, component.id, { settings: next }))
@@ -110,6 +156,8 @@ export function ComponentEditor({
   }
 
   const provider: ImageProvider = component.settings.provider ?? catalog.image.default_provider
+  const model = component.settings.model ?? catalog.image.default_models[provider]
+  const controls = imageControls(catalog, provider, model)
   const locked = disabled || busy
 
   return (
@@ -215,7 +263,7 @@ export function ComponentEditor({
             <span className="as-console__field-label dsn-label-sm">Model</span>
             <select
               className="as-console__select as-console__select--sm dsn-select"
-              value={component.settings.model ?? catalog.image.default_models[provider]}
+              value={model}
               disabled={locked}
               onChange={(event) => saveSettings({ model: event.target.value })}
             >
@@ -241,39 +289,60 @@ export function ComponentEditor({
               ))}
             </select>
           </label>
-          {provider === 'openai' ? (
+          {controls.qualities.length > 0 ? (
             <label className="dsn-setting">
               <span className="as-console__field-label dsn-label-sm">Quality</span>
               <select
                 className="as-console__select as-console__select--sm dsn-select"
-                value={component.settings.quality ?? 'high'}
+                value={
+                  provider === 'openai'
+                    ? component.settings.quality ?? 'high'
+                    : component.settings.thinking_level ?? 'minimal'
+                }
                 disabled={locked}
-                onChange={(event) => saveSettings({ quality: event.target.value })}
+                onChange={(event) =>
+                  saveSettings(
+                    provider === 'openai'
+                      ? { quality: event.target.value }
+                      : { thinking_level: event.target.value },
+                  )
+                }
               >
-                {catalog.image.qualities.map((quality) => (
+                {controls.qualities.map((quality) => (
                   <option key={quality} value={quality}>
-                    {quality}
+                    {qualityLabel(quality)}
                   </option>
                 ))}
               </select>
             </label>
-          ) : (
-            <label className="dsn-setting">
-              <span className="as-console__field-label dsn-label-sm">Resolution</span>
-              <select
-                className="as-console__select as-console__select--sm dsn-select"
-                value={component.settings.image_size ?? '2K'}
-                disabled={locked}
-                onChange={(event) => saveSettings({ image_size: event.target.value })}
-              >
-                {catalog.image.image_sizes.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+          ) : null}
+          <label className="dsn-setting">
+            <span className="as-console__field-label dsn-label-sm">Resolution</span>
+            <select
+              className="as-console__select as-console__select--sm dsn-select"
+              value={
+                provider === 'openai'
+                  ? component.settings.resolution && controls.resolutions.includes(component.settings.resolution)
+                    ? component.settings.resolution
+                    : '1K'
+                  : fallbackResolution(component.settings.image_size, controls.resolutions)
+              }
+              disabled={locked}
+              onChange={(event) =>
+                saveSettings(
+                  provider === 'openai'
+                    ? { resolution: event.target.value }
+                    : { image_size: event.target.value },
+                )
+              }
+            >
+              {controls.resolutions.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       ) : null}
 

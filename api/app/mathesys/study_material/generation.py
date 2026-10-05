@@ -203,6 +203,8 @@ def generate_image_component(
     quality: str,
     image_size: str,
     references: list[Any],
+    resolution: str = "1K",
+    thinking_level: str | None = None,
 ) -> GeneratedComponent:
     prompt = image_prompt(ctx, orientation=orientation_label(aspect_ratio))
     result = client.generate(
@@ -210,7 +212,9 @@ def generate_image_component(
             prompt=prompt,
             aspect_ratio=aspect_ratio,
             quality=quality,
+            resolution=resolution,
             image_size=image_size,
+            thinking_level=thinking_level,
             references=references,
         ),
     )

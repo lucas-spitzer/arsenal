@@ -135,23 +135,24 @@ Intellex **base ingest** always runs (or is skipped when that source is already 
 ```mermaid
 flowchart LR
     subgraph base["Intellex base ingest"]
-        S1[store] --> S2[parse] --> S3[normalize-document] --> S4[trim-document-boundaries] --> S5[structure-document] --> S6[validate-structure] --> S7[chunk] --> S8[source-research] --> S9[web-enrichment]
+        S1[store] --> S2[parse] --> S3[normalize-document] --> S4[trim-document-boundaries] --> S5[structure-document] --> S6[validate-structure] --> S7[chunk] --> S8[source-research]
     end
 
     subgraph optional["Optional — per target"]
         direction TB
         W1[wiki_knowledge]
-        M1[create-ebook / generate-narration / export-wiki-json]
+        WEB[web-enrichment] --> EBOOK[create-ebook]
+        M1[generate-narration / export-wiki-json]
         Q1[generate-flashcards / generate-questions / generate-scenarios]
     end
 
-    S9 --> optional
+    S8 --> optional
 ```
 
 | `target_artifact` | Pipeline step | Module | Output kind |
 |-------------------|---------------|--------|-------------|
 | `wiki_knowledge` | `transcribe-wiki-notes` + `structure-wiki-notes` | Intellex | Wiki entries |
-| `electronic_book` | `create-ebook` | Mathesys | Artifact (EPUB) |
+| `electronic_book` | `web-enrichment` then `create-ebook` | Intellex, then Mathesys | Artifact (EPUB) |
 | `narration_audio` | `generate-narration` | Mathesys | Artifact |
 | `wiki_json` | `export-wiki-json` | Mathesys | Artifact (snapshot of wiki) |
 | `flashcards` | `generate-flashcards` | QnGen | Assessments |
@@ -177,8 +178,7 @@ flowchart TD
         VAL[validate-structure]
         CHUNK[chunk]
         RESEARCH[source-research]
-        WEB[web-enrichment]
-        STORE --> PARSE --> NORM --> TRIM --> STRUCT --> VAL --> CHUNK --> RESEARCH --> WEB
+        STORE --> PARSE --> NORM --> TRIM --> STRUCT --> VAL --> CHUNK --> RESEARCH
     end
 
     subgraph wiki["Intellex wiki — if wiki_knowledge"]
@@ -187,8 +187,13 @@ flowchart TD
         TWN --> SWN
     end
 
-    subgraph mathesys["Mathesys — selected artifacts"]
+    subgraph ebook["Electronic book — if electronic_book"]
+        WEB[web-enrichment]
         EBOOK[create-ebook]
+        WEB --> EBOOK
+    end
+
+    subgraph mathesys["Mathesys — selected artifacts"]
         NAR[generate-narration]
         WJ[export-wiki-json]
     end
@@ -200,10 +205,11 @@ flowchart TD
     end
 
     RUNNING --> STORE
-    WEB --> wiki
+    RESEARCH --> wiki
+    RESEARCH --> ebook
     SWN --> WIKI[(wiki_entries)]
-    WEB --> mathesys
-    mathesys --> ART[(artifacts + Storage)]
+    EBOOK --> ART[(artifacts + Storage)]
+    mathesys --> ART
     WIKI --> qngen
     qngen --> ASSESS[(flashcards · quizzes · scenarios)]
     qngen --> DONE([status = completed])
