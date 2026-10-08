@@ -68,8 +68,9 @@ const BUDGET_OPTIONS = [2048, 4096, 8192] as const
 const DEFAULT_EFFORT = 'medium'
 const DEFAULT_BUDGET = 2048
 
-// Which reasoning control fits a model: budget-mode models (Anthropic Haiku/4.5)
-// take a token cap; everything else reasoning-capable takes an effort dial.
+// Which reasoning control fits a model: budget-mode models (Anthropic Haiku 4.5
+// and earlier) take a token cap; Haiku 5.5 and everything else reasoning-capable
+// take an effort dial.
 function reasoningKind(entry: CatalogModel | undefined): 'effort' | 'budget' | 'none' {
   if (!entry || !entry.supports_reasoning) {
     return 'none'
