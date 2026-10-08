@@ -1,5 +1,5 @@
 # Shared LLM defaults — kept outside app.services.llm to avoid import cycles with config.
-HAIKU_45_MODEL = "claude-haiku-4-5-20251001"
+HAIKU_55_MODEL = "claude-haiku-5-5"
 SONNET_55_MODEL = "claude-sonnet-5-5"
 OPUS_55_MODEL = "claude-opus-5-5"
 GPT_6_ASTRA_MODEL = "gpt-6-astra"
@@ -22,7 +22,7 @@ MODEL_FAMILIES: dict[str, str] = {
     "astra": GPT_6_ASTRA_MODEL,
     "luna": GPT_6_LUNA_MODEL,
     "sol": GPT_6_SOL_MODEL,
-    "haiku": HAIKU_45_MODEL,
+    "haiku": HAIKU_55_MODEL,
     "opus": OPUS_55_MODEL,
     "sonnet": SONNET_55_MODEL,
     "gemini-flash": GEMINI_38_FLASH_MODEL,
