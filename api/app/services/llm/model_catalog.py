@@ -26,7 +26,7 @@ from app.llm_defaults import (
     GPT_6_ASTRA_MODEL,
     GPT_6_LUNA_MODEL,
     GPT_6_SOL_MODEL,
-    HAIKU_45_MODEL,
+    HAIKU_55_MODEL,
     OPUS_55_MODEL,
     SONNET_55_MODEL,
 )
@@ -46,6 +46,9 @@ class CatalogModel:
 
 
 # Prices are USD per million tokens (standard on-demand, short context).
+# Claude Haiku 5.5 uses tiered pricing by prompt length ($0.10/$0.50 for prompts
+# up to 100k tokens, $0.50/$2.50 above); the catalog holds the sub-100k tier,
+# which covers ~90% of requests per Anthropic.
 # OpenAI GPT-6 Astra / GPT-6.1 Sol / GPT-6 Luna list prices are $10/$50, $2/$10, and $0.10/$0.50.
 # Gemini 3.8 Flash uses introductory list prices through 2026-12-31
 # ($1.50 / $7.50 after that). Gemini 3.1 Pro is the <=200k-token rate;
@@ -75,15 +78,15 @@ MODEL_CATALOG: tuple[CatalogModel, ...] = (
         output_per_million=10.00,
     ),
     CatalogModel(
-        model=HAIKU_45_MODEL,
+        model=HAIKU_55_MODEL,
         provider="anthropic",
-        display_name="Claude Haiku 4.5",
+        display_name="Claude Haiku 5.5",
         capability_tier=2,
         supports_reasoning=True,
-        reasoning_modes=("budget",),
-        context_window=200_000,
-        input_per_million=1.00,
-        output_per_million=5.00,
+        reasoning_modes=("adaptive",),
+        context_window=1_000_000,
+        input_per_million=0.10,
+        output_per_million=0.50,
     ),
     # --- OpenAI ---
     CatalogModel(
