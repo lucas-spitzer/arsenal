@@ -45,10 +45,14 @@ Run these only on databases that already have a Foundry schema and need a target
 |------|-------------|
 | `../maintenance/alter-study-material.sql` | DB was created before Study Material. Adds `production_runs.label`, the `study_materials` / `study_material_components` / `study_material_component_versions` tables with RLS + revokes, swaps `study_sheet` for `study_material` in `artifacts_type_check`, widens the `sources` bucket MIME list (text, CSV, HTML, PNG, JPEG, WebP), and seeds the four Study Material stages. Idempotent. |
 | `alter-library-slugs.sql` | DB was created before frozen workspace/source slugs. Adds `workspaces.slug`, unique workspace names, and `sources.slug`. |
+| `../maintenance/alter-knowledge-plan-layout.sql` | DB was created before flashcard layouts. Adds `knowledge_item_plans.layout`. Idempotent. |
+| `../maintenance/alter-answer-pool.sql` | DB was created before the knowledge composer. Adds `quizzes.answer_pool`, `quizzes.bloom_level`, `scenarios.bloom_level`, `knowledge_projects.batch_instructions`, `knowledge_item_plans.instructions` and `.draft`. Idempotent. |
+| `../maintenance/alter-sources-kind.sql` | DB was created before structured data sources. Adds `sources.source_kind` (`document` or `structured_data`). Idempotent. |
 | `alter-wiki-knowledge-pipeline.sql` | DB was created before wiki ingest as a production-run target. Adds `wiki_ingest_batches.production_run_id`. Re-run `03-seed-stages.sql` for the new wiki stages. |
 | `alter-stage-settings-tts.sql` | DB was created before Speechify narration settings. Widens `workspace_stage_settings.provider` to include `speechify` / `elevenlabs` and adds nullable `voice_id`. |
 | `alter-stage-settings-providers.sql` | DB was created before Google and Cartesia stage settings. Widens `workspace_stage_settings.provider` to include `google` / `cartesia`. |
 | `../maintenance/alter-stage-settings-image-quality.sql` | DB was created before Design Image quality defaults. Adds nullable `workspace_stage_settings.image_quality` and drops `image_resolution` if it was added. |
+| `../maintenance/alter-stage-settings-xai.sql` | DB was created before Grok Imagine stage settings. Widens `workspace_stage_settings.provider` to include `xai`. |
 | `alter-sources-bucket-wav.sql` | DB was created before Cartesia/Gemini WAV clips. Adds `audio/wav` to the `sources` bucket allowlist. |
 | `alter-drop-artifacts-bucket.sql` | Operator note only (SQL no-op). Supabase blocks dropping `storage.buckets` / `storage.objects` from SQL. After migrating objects into the `sources` bucket, purge the legacy `artifacts` bucket via the Storage API or Dashboard. |
 | `alter-discussion-threads.sql` | DB was created before persisted discussion threads. Adds `discussion_threads` and `discussion_messages` with RLS + role revokes. Idempotent. |
@@ -205,7 +209,7 @@ cd api && python -m scripts.publish_narration_artifacts
 
 - `ndr_segments` — chunked parsed text with page locators, optional `md`, and embeddings
 - `document_chapters` — persisted chapter/section segmentation (`sections` jsonb)
-- `wiki_entries` — canonical terms, concepts, and insights (`entry_kind`; optional `candidate` status)
+- `wiki_entries` — canonical terms and lists (`entry_kind`; optional `significance`, `category`, and `items`)
 - `wiki_disputes` — non-blocking conflict log
 - `wiki_ingest_batches` — one row per source on a `wiki_knowledge` production run; attachments point at the existing source file; structuring writes canonical `wiki_entries`
 

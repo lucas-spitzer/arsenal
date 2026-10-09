@@ -14,6 +14,7 @@ import {
   type TtsCatalogModel,
 } from '../../lib/workspaceApi'
 import { ErrorBanner } from './ErrorBanner'
+import { FoundryLoader } from './FoundryLoader'
 
 const AUDIO_NARRATION_ACTION = 'audio_narration'
 const DESIGN_IMAGE_ACTION = 'study_material_image'
@@ -49,7 +50,8 @@ function formatImagePrice(pricePerImage: number | null | undefined): string {
   if (pricePerImage == null) {
     return 'Price n/a'
   }
-  return `$${pricePerImage.toFixed(3)} / image`
+  const digits = pricePerImage < 0.1 && pricePerImage !== Number(pricePerImage.toFixed(3)) ? 4 : 3
+  return `$${pricePerImage.toFixed(digits)} / image`
 }
 
 function stageOptionLabel(entry: CatalogModel | TtsCatalogModel | ImageCatalogModel): string {
@@ -360,7 +362,9 @@ export function FoundryStageSettings() {
         {!workspaceId ? (
           <div className="as-console__empty">Select a workspace to configure stage models.</div>
         ) : isLoading && settings.length === 0 ? (
-          <div className="as-console__empty">Loading stage settings…</div>
+          <div className="as-console__empty">
+            <FoundryLoader label="Loading stage settings" size="sm" />
+          </div>
         ) : (
           <div className="as-console__stage-settings">
             {settings.map((setting) => {

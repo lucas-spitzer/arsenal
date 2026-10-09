@@ -7,11 +7,15 @@ import {
   reviseWikiEntry,
   updateWikiEntry,
 } from '../../lib/wikiApi'
-import type { WikiEntry } from '../../lib/workspaceApi'
+import type { WikiEntry, WikiListItem } from '../../lib/workspaceApi'
 import { StudyHead } from './StudySessionChrome'
 
-const ENTRY_KINDS = ['term', 'concept', 'insight'] as const
+const ENTRY_KINDS = ['term', 'list'] as const
 const IMPORTANCE_LEVELS = ['essential', 'supporting', 'contextual'] as const
+
+function asEntryKind(value: string): (typeof ENTRY_KINDS)[number] {
+  return value === 'list' ? 'list' : 'term'
+}
 
 function KindPill({ value }: { value: string }) {
   return <span className={`academy-wiki__pill academy-wiki__pill--${value}`}>{value}</span>
@@ -32,7 +36,10 @@ function EntryRow({
   const [isEditing, setIsEditing] = useState(startEditing)
   const [label, setLabel] = useState(entry.preferred_label)
   const [definition, setDefinition] = useState(entry.definition)
-  const [kind, setKind] = useState(entry.entry_kind)
+  const [significance, setSignificance] = useState(entry.significance ?? '')
+  const [category, setCategory] = useState(entry.category ?? '')
+  const [items, setItems] = useState<WikiListItem[]>(entry.items ?? [])
+  const [kind, setKind] = useState(asEntryKind(entry.entry_kind))
   const [importance, setImportance] = useState(entry.importance)
   const [aliases, setAliases] = useState(entry.aliases.join(', '))
   const [instruction, setInstruction] = useState('')
@@ -47,6 +54,14 @@ function EntryRow({
       await updateWikiEntry(activeWorkspace.id, entry.id, {
         preferred_label: label,
         definition,
+        significance: significance.trim() || null,
+        category: category.trim() || null,
+        items:
+          kind === 'list'
+            ? items
+                .map((item) => ({ name: item.name.trim(), details: item.details.trim() }))
+                .filter((item) => item.name)
+            : [],
         entry_kind: kind,
         importance,
         aliases: aliases
@@ -115,12 +130,73 @@ function EntryRow({
               rows={4}
               value={definition}
               onChange={(event) => setDefinition(event.target.value)}
-              aria-label="Definition"
+              aria-label={kind === 'list' ? 'Overview' : 'Definition'}
             />
+            <textarea
+              className="academy-wiki__textarea"
+              rows={2}
+              value={significance}
+              onChange={(event) => setSignificance(event.target.value)}
+              aria-label="Significance"
+              placeholder="Why it matters"
+            />
+            <input
+              className="academy-wiki__input"
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              aria-label="Category"
+              placeholder="Category"
+            />
+            {kind === 'list' ? (
+              <div className="academy-wiki__items-edit">
+                {items.map((item, index) => (
+                  <div className="academy-wiki__item-edit" key={index}>
+                    <input
+                      className="academy-wiki__input"
+                      value={item.name}
+                      aria-label={`Item ${index + 1} name`}
+                      placeholder="Name"
+                      onChange={(event) => {
+                        const name = event.target.value
+                        setItems((current) =>
+                          current.map((row, rowIndex) => (rowIndex === index ? { ...row, name } : row)),
+                        )
+                      }}
+                    />
+                    <input
+                      className="academy-wiki__input"
+                      value={item.details}
+                      aria-label={`Item ${index + 1} details`}
+                      placeholder="Details"
+                      onChange={(event) => {
+                        const details = event.target.value
+                        setItems((current) =>
+                          current.map((row, rowIndex) => (rowIndex === index ? { ...row, details } : row)),
+                        )
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="academy-wiki__action academy-wiki__action--cancel"
+                      onClick={() => setItems((current) => current.filter((_, rowIndex) => rowIndex !== index))}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="academy-wiki__action"
+                  onClick={() => setItems((current) => [...current, { name: '', details: '' }])}
+                >
+                  Add item
+                </button>
+              </div>
+            ) : null}
             <div className="academy-wiki__edit-row">
               <label className="academy-wiki__select">
                 <span>Kind</span>
-                <select value={kind} onChange={(event) => setKind(event.target.value)}>
+                <select value={kind} onChange={(event) => setKind(asEntryKind(event.target.value))}>
                   {ENTRY_KINDS.map((value) => (
                     <option key={value} value={value}>
                       {value}
@@ -186,7 +262,10 @@ function EntryRow({
                   onEditingChange(false)
                   setLabel(entry.preferred_label)
                   setDefinition(entry.definition)
-                  setKind(entry.entry_kind)
+                  setSignificance(entry.significance ?? '')
+                  setCategory(entry.category ?? '')
+                  setItems(entry.items ?? [])
+                  setKind(asEntryKind(entry.entry_kind))
                   setImportance(entry.importance)
                   setAliases(entry.aliases.join(', '))
                   setInstruction('')
@@ -230,7 +309,19 @@ function EntryRow({
         ) : null}
       </td>
       <td className="academy-wiki__definition" colSpan={2}>
+        {entry.category ? <div className="academy-wiki__category">{entry.category}</div> : null}
         {entry.definition}
+        {entry.significance ? <p className="academy-wiki__significance">{entry.significance}</p> : null}
+        {entry.entry_kind === 'list' && entry.items?.length ? (
+          <ol className="academy-wiki__items">
+            {entry.items.map((item) => (
+              <li key={item.name}>
+                <strong>{item.name}</strong>
+                {item.details ? <span> — {item.details}</span> : null}
+              </li>
+            ))}
+          </ol>
+        ) : null}
       </td>
       <td>
         <KindPill value={entry.entry_kind} />

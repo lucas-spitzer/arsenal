@@ -4,17 +4,25 @@ import { formatDate, statusLabel } from '../../lib/foundryFormat'
 import { mapSourceDisplay } from '../../lib/foundryMappers'
 import { FoundryViewToggle } from './FoundryViewToggle'
 import { ErrorBanner } from './ErrorBanner'
+import { FoundryLoader } from './FoundryLoader'
 import type { FoundryView } from './types'
 
 export function FoundrySources() {
-  const { sources, isLoading, error, uploadSource } = useWorkspaceData()
+  const { sources, structuredSources, isLoading, error, uploadSource, uploadStructuredData } = useWorkspaceData()
   const [query, setQuery] = useState('')
   const [view, setView] = useState<FoundryView>('grid')
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const dataInputRef = useRef<HTMLInputElement>(null)
 
-  const displaySources = useMemo(() => sources.map(mapSourceDisplay), [sources])
+  const displaySources = useMemo(
+    () =>
+      [...sources, ...structuredSources]
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .map(mapSourceDisplay),
+    [sources, structuredSources],
+  )
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase()
@@ -29,7 +37,7 @@ export function FoundrySources() {
     )
   }, [displaySources, query])
 
-  const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = async (event: ChangeEvent<HTMLInputElement>, structured: boolean) => {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
@@ -38,7 +46,7 @@ export function FoundrySources() {
     setUploadError(null)
 
     try {
-      await uploadSource(file)
+      await (structured ? uploadStructuredData(file) : uploadSource(file))
     } catch (caught) {
       setUploadError(caught instanceof Error ? caught.message : 'Upload failed.')
     } finally {
@@ -58,14 +66,28 @@ export function FoundrySources() {
           ref={fileInputRef}
           type="file"
           hidden
-          onChange={(event) => void handleUpload(event)}
+          onChange={(event) => void handleUpload(event, false)}
         />
+        <input
+          ref={dataInputRef}
+          type="file"
+          accept=".json,application/json"
+          hidden
+          onChange={(event) => void handleUpload(event, true)}
+        />
+        <button
+          className="as-console__cta as-console__cta--ghost"
+          disabled={isUploading}
+          onClick={() => dataInputRef.current?.click()}
+        >
+          {isUploading ? 'Uploading…' : '⇪ Upload structured data'}
+        </button>
         <button
           className="as-console__cta as-console__cta--ghost"
           disabled={isUploading}
           onClick={() => fileInputRef.current?.click()}
         >
-          {isUploading ? 'Uploading…' : '⇪ Upload source'}
+          {isUploading ? 'Uploading…' : '⇪ Upload document'}
         </button>
       </header>
       <div className="as-console__scroll">
@@ -81,7 +103,9 @@ export function FoundrySources() {
           <span className="as-count">{filtered.length} files</span>
         </div>
         {isLoading && filtered.length === 0 ? (
-          <div className="as-console__empty">Loading sources…</div>
+          <div className="as-console__empty">
+            <FoundryLoader label="Loading sources" size="sm" />
+          </div>
         ) : filtered.length === 0 ? (
           <div className="as-console__empty">
             No sources yet. Upload a file to ingest it into the knowledge base.
@@ -154,7 +178,7 @@ export function FoundrySources() {
                     {source.purpose
                       ? `Purpose: ${source.purpose}`
                       : [source.documentType, source.issuingAuthority].filter(Boolean).join(' · ') ||
-                        (source.status === 'stored' || source.status === 'processing'
+                        (!source.isStructuredData && (source.status === 'stored' || source.status === 'processing')
                           ? 'Ingest in progress'
                           : source.filename)}
                   </div>

@@ -13,6 +13,7 @@ import {
   type StudyCatalog,
   type StudyComponent,
 } from '../../../lib/studyMaterialApi'
+import { FoundryDialog } from '../FoundryDialog'
 import { COMPONENT_ICONS } from './componentIcons'
 
 const DOCUMENT_ACCEPT = '.pdf,.md,.markdown,.txt,.csv'
@@ -21,10 +22,10 @@ const IMAGE_ACCEPT = '.png,.jpg,.jpeg,.webp'
 const INSTRUCTION_HINTS: Record<StudyComponent['component_type'], string> = {
   text: 'What should this text cover? Name the structure if it matters: steps, key terms, a comparison table, questions.',
   diagram: 'What relationships should the diagram show? A process, a breakdown, or a cycle.',
-  image: 'Describe the illustration. The theme style is added automatically; no text is drawn in images.',
+  image: 'Describe the illustration. These instructions are the whole prompt.',
 }
 
-const PROVIDER_LABELS: Record<ImageProvider, string> = { openai: 'OpenAI', google: 'Google' }
+const PROVIDER_LABELS: Record<ImageProvider, string> = { openai: 'OpenAI', google: 'Google', xai: 'xAI' }
 
 const QUALITY_LABELS: Record<string, string> = {
   low: 'Low',
@@ -43,7 +44,14 @@ function imageControls(
   if (provider === 'google') {
     return catalog.image.controls.google[model] ?? { qualities: [], resolutions: ['1K', '2K', '4K'] }
   }
+  if (provider === 'xai') return catalog.image.controls.xai
   return catalog.image.controls.openai
+}
+
+function defaultImageQuality(provider: ImageProvider): string {
+  if (provider === 'xai') return 'medium'
+  if (provider === 'google') return 'medium'
+  return 'high'
 }
 
 function fallbackResolution(current: string | undefined, allowed: string[]): string {
@@ -85,6 +93,7 @@ export function ComponentEditor({
   const baseId = useId()
   const [instructions, setInstructions] = useState(component.instructions)
   const [busy, setBusy] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const Icon = COMPONENT_ICONS[component.component_type]
   const isImage = component.component_type === 'image'
   const version = component.active_version
@@ -116,16 +125,17 @@ export function ComponentEditor({
     }
     const model = next.model ?? catalog.image.default_models[nextProvider]
     const options = imageControls(catalog, nextProvider, model)
-    if (nextProvider === 'openai') {
-      if (!next.quality || !options.qualities.includes(next.quality)) next.quality = 'high'
-      if (!next.resolution || !options.resolutions.includes(next.resolution)) next.resolution = '1K'
-    } else {
+    if (nextProvider === 'google') {
       next.thinking_level = options.qualities.length === 0
         ? null
         : next.thinking_level && options.qualities.includes(next.thinking_level)
           ? next.thinking_level
-          : 'minimal'
+          : defaultImageQuality('google')
       next.image_size = fallbackResolution(next.image_size, options.resolutions)
+    } else {
+      const fallbackQuality = defaultImageQuality(nextProvider)
+      if (!next.quality || !options.qualities.includes(next.quality)) next.quality = fallbackQuality
+      if (!next.resolution || !options.resolutions.includes(next.resolution)) next.resolution = '1K'
     }
     void run(async () => {
       onChange(await updateComponent(materialId, component.id, { settings: next }))
@@ -147,12 +157,12 @@ export function ComponentEditor({
     }, 'Could not remove the file.')
   }
 
-  const remove = () => {
-    if (!window.confirm(`Delete ${COMPONENT_TYPE_LABELS[component.component_type]} ${index}?`)) return
+  const confirmRemove = () => {
+    if (busy) return
     void run(async () => {
       await deleteComponent(materialId, component.id)
       onDelete(component.id)
-    }, 'Could not delete the component.')
+    }, 'Could not delete the component.').finally(() => setConfirmOpen(false))
   }
 
   const provider: ImageProvider = component.settings.provider ?? catalog.image.default_provider
@@ -173,7 +183,7 @@ export function ComponentEditor({
         <button
           type="button"
           className="dsn-icon-btn dsn-icon-btn--danger"
-          onClick={remove}
+          onClick={() => setConfirmOpen(true)}
           disabled={locked}
           aria-label={`Delete ${COMPONENT_TYPE_LABELS[component.component_type]} ${index}`}
         >
@@ -295,16 +305,21 @@ export function ComponentEditor({
               <select
                 className="as-console__select as-console__select--sm dsn-select"
                 value={
-                  provider === 'openai'
-                    ? component.settings.quality ?? 'high'
-                    : component.settings.thinking_level ?? 'minimal'
+                  provider === 'google'
+                    ? component.settings.thinking_level &&
+                      controls.qualities.includes(component.settings.thinking_level)
+                      ? component.settings.thinking_level
+                      : defaultImageQuality('google')
+                    : component.settings.quality && controls.qualities.includes(component.settings.quality)
+                      ? component.settings.quality
+                      : defaultImageQuality(provider)
                 }
                 disabled={locked}
                 onChange={(event) =>
                   saveSettings(
-                    provider === 'openai'
-                      ? { quality: event.target.value }
-                      : { thinking_level: event.target.value },
+                    provider === 'google'
+                      ? { thinking_level: event.target.value }
+                      : { quality: event.target.value },
                   )
                 }
               >
@@ -321,18 +336,18 @@ export function ComponentEditor({
             <select
               className="as-console__select as-console__select--sm dsn-select"
               value={
-                provider === 'openai'
-                  ? component.settings.resolution && controls.resolutions.includes(component.settings.resolution)
+                provider === 'google'
+                  ? fallbackResolution(component.settings.image_size, controls.resolutions)
+                  : component.settings.resolution && controls.resolutions.includes(component.settings.resolution)
                     ? component.settings.resolution
                     : '1K'
-                  : fallbackResolution(component.settings.image_size, controls.resolutions)
               }
               disabled={locked}
               onChange={(event) =>
                 saveSettings(
-                  provider === 'openai'
-                    ? { resolution: event.target.value }
-                    : { image_size: event.target.value },
+                  provider === 'google'
+                    ? { image_size: event.target.value }
+                    : { resolution: event.target.value },
                 )
               }
             >
@@ -351,6 +366,31 @@ export function ComponentEditor({
           v{version.version} · {version.provider ?? 'model'} {version.model}
         </p>
       ) : null}
+      <FoundryDialog
+        title="Delete component"
+        open={confirmOpen}
+        onClose={() => {
+          if (!busy) setConfirmOpen(false)
+        }}
+      >
+        <p className="as-console__confirm-copy">
+          Delete {COMPONENT_TYPE_LABELS[component.component_type]} {index}?
+        </p>
+        <div className="as-console__dialog-actions">
+          <button
+            type="button"
+            className="as-console__cta as-console__cta--ghost"
+            onClick={() => setConfirmOpen(false)}
+            disabled={busy}
+            autoFocus
+          >
+            Cancel
+          </button>
+          <button type="button" className="as-console__cta" onClick={confirmRemove} disabled={busy}>
+            {busy ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </FoundryDialog>
     </article>
   )
 }

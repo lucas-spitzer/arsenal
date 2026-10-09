@@ -35,6 +35,25 @@ def enqueue_study_material_finalize(settings: Settings, study_material_id: str) 
     return job.id
 
 
+def enqueue_knowledge_run(settings: Settings, production_run_id: str, job: str) -> str:
+    names = {
+        "structure": "app.worker.jobs.structure_knowledge",
+        "draft": "app.worker.jobs.draft_knowledge",
+        "attach": "app.worker.jobs.attach_knowledge_visuals",
+    }
+    try:
+        function_name = names[job]
+    except KeyError as exc:
+        raise ValueError(f"Unknown knowledge job {job}.") from exc
+    queue = get_task_queue(settings)
+    queued = queue.enqueue(
+        function_name,
+        production_run_id,
+        job_timeout=settings.production_run_job_timeout,
+    )
+    return queued.id
+
+
 def enqueue_production_run(settings: Settings, production_run_id: str) -> str:
     queue = get_task_queue(settings)
     job = queue.enqueue(

@@ -4,6 +4,7 @@ import os
 import re
 
 from app.intellex.ingest import PDF_MIME_TYPES
+from app.knowledge.structured_notes import StructuredNotesError, require_structured_notes
 
 PDF_MAGIC = b"%PDF-"
 MAX_FILENAME_LENGTH = 255
@@ -90,3 +91,46 @@ def validate_source_upload(
     )
 
     return safe_filename, mime_type
+
+
+STRUCTURED_DATA_MIME_TYPE = "application/json"
+
+
+def validate_structured_data_upload(
+    *,
+    filename: str | None,
+    content: bytes,
+    max_bytes: int,
+) -> tuple[str, str]:
+    """Validate a structured data (JSON) upload and return (safe_filename, mime_type).
+
+    Structured data is stored as-is. It must be a ``.json`` file holding terms
+    and lists the knowledge forge can read.
+    """
+    if not filename:
+        raise SourceUploadValidationError("Uploaded file must include a filename.")
+
+    if not content:
+        raise SourceUploadValidationError("Uploaded file is empty.")
+
+    if len(content) > max_bytes:
+        max_megabytes = max_bytes // (1024 * 1024)
+        raise SourceUploadValidationError(
+            f"Uploaded file exceeds the {max_megabytes} MB limit.",
+        )
+
+    safe_filename = sanitize_upload_filename(filename)
+    if not safe_filename.lower().endswith(".json"):
+        raise SourceUploadValidationError("Structured data must be a .json file.")
+
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise SourceUploadValidationError("Structured data must be valid UTF-8.") from exc
+
+    try:
+        require_structured_notes(text, filename=safe_filename)
+    except StructuredNotesError as exc:
+        raise SourceUploadValidationError(str(exc)) from exc
+
+    return safe_filename, STRUCTURED_DATA_MIME_TYPE

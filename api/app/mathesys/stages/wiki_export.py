@@ -55,6 +55,9 @@ def _export_entry(
         "entry_kind": entry.get("entry_kind"),
         "importance": entry.get("importance"),
         "definition": entry.get("definition"),
+        "significance": entry.get("significance"),
+        "category": entry.get("category"),
+        "items": entry.get("items") or [],
         "pronunciation": entry.get("pronunciation"),
         "aliases": entry.get("aliases") or [],
         # Labels, not ids — the export should read standalone.
@@ -101,7 +104,7 @@ def build_wiki_export(
             continue
 
         exported.append(_export_entry(entry, scope=scope, label_by_id=label_by_id))
-        kind = str(entry.get("entry_kind") or "concept")
+        kind = str(entry.get("entry_kind") or "term")
         kind_counts[kind] = kind_counts.get(kind, 0) + 1
         scope_counts[scope] = scope_counts.get(scope, 0) + 1
 

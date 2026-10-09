@@ -94,8 +94,8 @@ The three-file split (HTML / CSS / JS) is the generation contract. Packaging for
 
 - **Identifier:** `study_material`
 - **Definition:** A printable page built from a predefined template, a predefined theme, and generated Text, Diagram, and Image components. Replaces the retired Study Sheet.
-- **Format:** One-page PDF (US Letter) plus the finalized HTML it was printed from.
-- **Model:** Diagrams and text share the workspace-configurable `study_material` action (default GPT 6 Sol). Layout uses `study_material_orchestrator` (default GPT 6 Sol). Images default to OpenAI `gpt-image-2.5-flare`; each image component can switch to Google `gemini-3.1-flash-image` or either provider's premium model.
+- **Format:** US Letter PDF (one page, or two for Flashcards Cutout) plus the finalized HTML it was printed from.
+- **Model:** Diagrams and text share the workspace-configurable `study_material` action (default GPT 6 Sol). Layout uses `study_material_orchestrator` (default GPT 6 Sol). Images default to OpenAI `gpt-image-2.5-sunburst`; each image component can switch to Google `gemini-nano-banana-2.1` or either provider's premium model.
 - **Academy use:** Download and print from the Library's Study Material group. Not source-bound.
 
 ### Design intent
@@ -104,7 +104,7 @@ Template defines where content can exist. Theme defines how it looks. Components
 
 Built in the Foundry **Design** tab (DSN): title, theme, and template first, then components per template section, then generation. Diagrams and images generate before text so text is written around them. The model describes diagrams as nodes and connections only; code lays them out and renders SVG. The orchestrator plans order, size, spacing, and emphasis per section, then a Chromium fit loop tightens visual sizes and text density until nothing is clipped. Finalize re-checks page size, clipping, image resolution (150 DPI minimum), fonts, and assets, prints with headless Chromium, and adds the PDF to the Library.
 
-Themes (`usmc`, `field-manual`) and templates (`branded-sheet`, `branded-sheet-split`, `index-card-cutout`) are JSON files in `api/app/mathesys/study_material/catalog/`. The USMC theme follows the Marines.mil style guide, ships the Eagle, Globe, and Anchor and MARINES wordmark (the author chooses whether to lock one into the logo band), and always prints the disclaimer “Unofficial knowledge for educational use; not endorsed by the USMC or DoD.” in the footer, or on every card for Index Card Cutout.
+Themes (`usmc`, `field-manual`) and templates (`branded-sheet`, `branded-sheet-split`, `basic-sheet`, `index-card-cutout`, `flashcard`) are JSON files in `api/app/mathesys/study_material/catalog/`. The USMC theme follows the Marines.mil style guide, ships the Eagle, Globe, and Anchor and MARINES wordmark (the author chooses whether to lock one into the logo band), and always prints the disclaimer “Unofficial knowledge for educational use; not endorsed by the USMC or DoD.” in the footer, or on every card for Index Card Cutout. Field Manual prints “Unofficial — Not endorsed by the Department of Defense or United States Marine Corps.” in that same place. Basic Sheet is the branded sheet without a logo: a centered title at 5% of the safe height and a centered footer at 2%. Flashcards Cutout is the index-card grid printed on two pages; the back mirrors left to right, so duplex printing (flip on the long edge) puts each card’s back on its front.
 
 Every generated component keeps a version row (output, instructions, model, settings, theme, reference files, time). Phase 2 adds regeneration with side-by-side comparison and section re-layout instructions.
 

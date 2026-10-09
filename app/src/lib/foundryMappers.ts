@@ -235,19 +235,25 @@ export function narrationSegmentProgress(
 ): { done: number; total: number } | null {
   const output = stageRun.output
   if (!output) return null
-  const done = Number(output.segments_done)
   const total = Number(output.segments_total)
-  if (!Number.isFinite(done) || !Number.isFinite(total) || total <= 0) return null
-  return { done, total }
+  if (!Number.isFinite(total) || total <= 0) return null
+  const reused = Number(output.segments_reused)
+  const narrated = Number(output.segments_narrated)
+  const covered =
+    Number.isFinite(reused) && Number.isFinite(narrated)
+      ? reused + narrated
+      : Number(output.segments_done)
+  if (!Number.isFinite(covered)) return null
+  return { done: covered, total }
 }
 
 export function stageRunSummary(stageRun: StageRun): string {
+  const progress = narrationSegmentProgress(stageRun)
+  if (progress) return `${progress.done}/${progress.total} clips`
   if (stageRun.error) return 'Execution failed.'
   if (stageRun.output && typeof stageRun.output.summary === 'string') {
     return stageRun.output.summary
   }
-  const progress = narrationSegmentProgress(stageRun)
-  if (progress) return `${progress.done}/${progress.total} clips`
   if (stageRun.status === 'completed') return 'Completed successfully.'
   if (stageRun.status === 'running') return 'In progress…'
   if (stageRun.status === 'queued') return 'Queued.'
@@ -338,6 +344,7 @@ const PIPELINE_STEP_LABELS: Record<string, string> = {
   'generate-flashcards': 'Generate Flashcards',
   'generate-questions': 'Generate Questions',
   'generate-scenarios': 'Generate Scenarios',
+  'attach-visuals': 'Attach Images',
 }
 
 export function stageRunDisplayName(stageRun: StageRun): string {
@@ -369,6 +376,7 @@ const API_REQUEST_STAGES: Record<string, { tool: string }> = {
   'generate-flashcards': { tool: 'Claude' },
   'generate-questions': { tool: 'Claude' },
   'generate-scenarios': { tool: 'Claude' },
+  'attach-visuals': { tool: 'Local' },
 }
 
 const API_PROVIDER_LABELS: Record<string, string> = {
@@ -584,6 +592,13 @@ export function pipelineStepDetail(
   if (step.detail) return step.detail
 
   if (step.stage_id) {
+    const narrationRun = [...stageRuns]
+      .reverse()
+      .find((stageRun) => stageRun.stage_id === step.stage_id)
+    if (narrationRun && narrationSegmentProgress(narrationRun)) {
+      return stageRunSummary(narrationRun)
+    }
+
     const activeStageRun = stageRuns.find(
       (stageRun) =>
         stageRun.stage_id === step.stage_id &&
@@ -630,16 +645,20 @@ export interface SourceDisplay {
   confidence: number | null
   status: string
   uploadedAt: string
+  isStructuredData: boolean
 }
 
+export const STRUCTURED_DATA_LABEL = 'Structured data'
+
 export function mapSourceDisplay(source: Source): SourceDisplay {
+  const isStructuredData = source.source_kind === 'structured_data'
   return {
     id: source.id,
     filename: source.filename,
     title: sourceDisplayName(source),
     bibliographicTitle: sourceBibliographicTitle(source),
     identifier: sourceIdentifier(source),
-    documentType: sourceDocumentType(source),
+    documentType: isStructuredData ? STRUCTURED_DATA_LABEL : sourceDocumentType(source),
     issuingAuthority: sourceIssuingAuthority(source),
     purpose: sourcePurpose(source),
     audience: sourceAudience(source),
@@ -650,6 +669,7 @@ export function mapSourceDisplay(source: Source): SourceDisplay {
     confidence: sourceConfidence(source),
     status: source.status,
     uploadedAt: source.created_at,
+    isStructuredData,
   }
 }
 

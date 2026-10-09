@@ -139,17 +139,9 @@ Reference material:
 """
 
 
-def image_prompt(ctx: ComponentPromptContext, *, orientation: str) -> str:
-    excerpt = ctx.reference_text.strip()[:2000]
-    context = f"\nSupporting context:\n{excerpt}" if excerpt else ""
-    return (
-        f"{ctx.instructions.strip() or 'An instructional illustration for this study material.'}\n\n"
-        f"Style: {ctx.theme.guidance.get('illustration', '')}\n"
-        f"Composition: {orientation} image for a {_section_line(ctx)} region of a printed study sheet "
-        f"titled \"{ctx.title}\". One clear subject, generous whitespace, prints well on white paper. "
-        "No text, letters, numbers, labels, watermarks, logos, insignia, or seals."
-        f"{context}"
-    )
+def image_prompt(instructions: str) -> str:
+    """The image model receives the author's instructions and nothing else."""
+    return instructions.strip()
 
 
 def orchestrator_user_prompt(

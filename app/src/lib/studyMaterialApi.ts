@@ -2,7 +2,7 @@ import { apiRequest, apiRequestText, apiRequestVoid, apiUrl } from './apiClient'
 import { uploadMultipart } from './workspaceApi'
 
 export type ComponentType = 'text' | 'diagram' | 'image'
-export type ImageProvider = 'openai' | 'google'
+export type ImageProvider = 'openai' | 'google' | 'xai'
 export type StudyMaterialStatus =
   | 'configuring'
   | 'generating'
@@ -23,6 +23,8 @@ interface SectionBase {
   label: string
   box: SectionBox
   size_in: [number, number]
+  page: 'front' | 'back'
+  pair: string | null
 }
 
 export interface FlexibleSection extends SectionBase {
@@ -35,6 +37,7 @@ export interface StrictSection extends SectionBase {
   kind: 'strict'
   content: 'title' | 'logo' | 'footer'
   max_words: number | null
+  align: 'center' | null
 }
 
 export type TemplateSection = FlexibleSection | StrictSection
@@ -48,7 +51,20 @@ export interface StudyTemplate {
   disclaimer: 'footer' | 'per_section'
   cut_lines: boolean
   has_logo_section: boolean
+  page_count: number
   sections: TemplateSection[]
+}
+
+export function templateFaces(template: StudyTemplate): Array<'front' | 'back'> {
+  const faces: Array<'front' | 'back'> = []
+  for (const section of template.sections) {
+    if (!faces.includes(section.page)) faces.push(section.page)
+  }
+  if (faces.includes('front')) {
+    faces.splice(faces.indexOf('front'), 1)
+    faces.unshift('front')
+  }
+  return faces.length > 0 ? faces : ['front']
 }
 
 export interface ThemeLogo {
@@ -84,6 +100,7 @@ export interface ImageCatalog {
   controls: {
     openai: ImageControlOptions
     google: Record<string, ImageControlOptions>
+    xai: ImageControlOptions
   }
 }
 

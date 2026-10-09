@@ -9,11 +9,17 @@ design tab's default quality ``high`` and 1024x1024, that is 1,756 tokens,
 $0.05268, shown as $0.053.
 https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst
 
-Gemini 3.1 Flash Image bills image output at $60 per million tokens. Google's
-published 1K (1024x1024) equivalent is 1,120 tokens, $0.067. The design tab
-can still request 2K or 4K on a component. The stage row uses the 1K sticker
-so it lines up with the OpenAI 1024 figure.
+Nano Banana 2.1 bills image output at $30 per million tokens. Google's
+published 1K (1024x1024) equivalent is 1,120 tokens, $0.0336. 2K is $0.0504
+and 4K is $0.113. Input is $1.50 per million tokens. The stage row uses the
+1K sticker. Thinking defaults to medium.
 https://ai.google.dev/gemini-api/docs/pricing
+
+Grok Imagine Image 2.0 bills per image. The sticker is 1K at medium quality,
+$0.06, which is the Design Image default. Low is $0.04 / $0.05 / $0.06 and
+medium is $0.06 / $0.07 / $0.08 at 1K, 1.5K, and 2K. Each reference image
+adds $0.01.
+https://docs.x.ai/developers/models/grok-imagine-image-2.0
 """
 
 from __future__ import annotations
@@ -22,14 +28,16 @@ from dataclasses import dataclass
 
 from app.image_defaults import STUDY_MATERIAL_IMAGE_ACTION
 from app.llm_defaults import (
-    GEMINI_31_FLASH_IMAGE_MODEL,
+    GEMINI_NANO_BANANA_21_MODEL,
+    GROK_IMAGINE_IMAGE_2_MODEL,
     OPENAI_IMAGE_SUNBURST_MODEL,
 )
+from app.services.api_pricing import XAI_IMAGE_1K_MEDIUM_PRICE
 from app.mathesys.study_material.images import effective_stage_image_quality
 
 # Rounded from $0.05268 (1,756 tokens at $30 / 1M).
 OPENAI_IMAGE_HIGH_1024_PRICE = 0.053
-GEMINI_FLASH_IMAGE_1K_PRICE = 0.067
+NANO_BANANA_21_1K_PRICE = 0.0336
 
 
 @dataclass(frozen=True)
@@ -43,10 +51,10 @@ class ImageCatalogModel:
 
 IMAGE_MODEL_CATALOG: tuple[ImageCatalogModel, ...] = (
     ImageCatalogModel(
-        model=GEMINI_31_FLASH_IMAGE_MODEL,
+        model=GEMINI_NANO_BANANA_21_MODEL,
         provider="google",
-        display_name="Gemini 3.1 Flash Image",
-        price_per_image=GEMINI_FLASH_IMAGE_1K_PRICE,
+        display_name="Nano Banana 2.1",
+        price_per_image=NANO_BANANA_21_1K_PRICE,
         capability_tier=4,
     ),
     ImageCatalogModel(
@@ -54,11 +62,18 @@ IMAGE_MODEL_CATALOG: tuple[ImageCatalogModel, ...] = (
         provider="openai",
         display_name="GPT Image 2.5 Sunburst",
         price_per_image=OPENAI_IMAGE_HIGH_1024_PRICE,
+        capability_tier=2,
+    ),
+    ImageCatalogModel(
+        model=GROK_IMAGINE_IMAGE_2_MODEL,
+        provider="xai",
+        display_name="Grok Imagine 2.0",
+        price_per_image=XAI_IMAGE_1K_MEDIUM_PRICE,
         capability_tier=3,
     ),
 )
 
-IMAGE_SELECTABLE_PROVIDERS: frozenset[str] = frozenset({"openai", "google"})
+IMAGE_SELECTABLE_PROVIDERS: frozenset[str] = frozenset({"openai", "google", "xai"})
 
 IMAGE_CATALOG_BY_MODEL: dict[str, ImageCatalogModel] = {
     entry.model: entry for entry in IMAGE_MODEL_CATALOG

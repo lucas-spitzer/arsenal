@@ -1429,6 +1429,11 @@
   margin-top: 0;
 }
 
+.quiz__scope {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .study__btn {
   display: inline-flex;
   align-items: center;
@@ -1515,6 +1520,19 @@
   font-size: 1.35rem;
   line-height: 1.5;
   color: var(--academy-ink);
+}
+
+.flashcard__body--beside {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+
+.study-visual__img {
+  display: block;
+  max-width: min(100%, 420px);
+  height: auto;
+  margin: 0 auto 16px;
 }
 
 /* ---- quiz ----------------------------------------------------------------- */
@@ -3324,6 +3342,40 @@
   line-height: 1.5;
 }
 
+.academy-wiki__category {
+  color: var(--text-muted, var(--text-secondary));
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.academy-wiki__significance {
+  margin: 0.35rem 0 0;
+}
+
+.academy-wiki__items {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.academy-wiki__items-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.academy-wiki__item-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.academy-wiki__item-edit .academy-wiki__input {
+  flex: 1 1 10rem;
+}
+
 .academy-wiki__importance {
   color: var(--text-secondary);
   font-size: 0.85rem;
@@ -3366,7 +3418,8 @@
   color: var(--color-navy);
 }
 
-.academy-wiki__pill--concept {
+.academy-wiki__pill--concept,
+.academy-wiki__pill--list {
   border-color: var(--color-gold);
   color: var(--color-gold);
 }

@@ -14,7 +14,9 @@ evidence segments. Flashcards target the **Remember** level of Bloom's taxonomy.
 
 ## Subtypes
 
-- `term_definition` (preferred): front = term, back = definition
+- `term_definition` (preferred): front = term, back = definition. When `significance` is present, it may follow the definition on the back.
+- `list`: front = the list's `preferred_label`. Back = the overview (`definition`) plus the member `name`s, in order.
+- `list_item`: front = one member `name`, back = that member's `details`. Cite the list `wiki_id`. Skip a member whose name is already another concept's `preferred_label`; that concept gets its own `term_definition` card.
 - `basic`: front = question, back = answer
 - `cloze`: front = sentence with blank, back = missing term
 
@@ -31,7 +33,7 @@ evidence segments. Flashcards target the **Remember** level of Bloom's taxonomy.
   concept; skip thin or redundant concepts.
 - When an item budget is provided for the batch, stay within it and choose the
   number by how much memorable material the batch genuinely supports.
-- Never emit two cards for the same term; one definition per concept.
+- Never emit two cards for the same term or the same list; one card per entry.
 
 ## Draft Checklist
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.worker.wiki_knowledge_executors import (
@@ -227,6 +228,47 @@ def test_structure_promotes_canonical_entries(monkeypatch) -> None:
     assert entry["evidence"][0]["segment_id"] == "seg-1"
     assert db.batch["status"] == "committed"
     assert db.stage_runs[stage_run_id]["status"] == "completed"
+
+
+def test_structure_imports_json_entries_without_calling_the_model(monkeypatch) -> None:
+    notes = json.dumps(
+        {
+            "arsenal_wiki_export": "1.0",
+            "entries": [
+                {
+                    "preferred_label": "Enemy system",
+                    "definition": "Interdependent parts.",
+                    "entry_kind": "concept",
+                },
+                {
+                    "preferred_label": "Center of gravity",
+                    "definition": "The hub of power.",
+                    "entry_kind": "concept",
+                    "importance": "essential",
+                    "prerequisites": ["Enemy system"],
+                    "aliases": ["COG"],
+                },
+            ],
+        },
+    )
+    db = FakeWikiWorkerDb(_batch(raw_notes=notes))
+
+    def fail_if_called(_action: str):
+        raise AssertionError("structured JSON must not call the model")
+
+    monkeypatch.setattr("app.worker.wiki_knowledge_executors.get_llm_client", fail_if_called)
+    executor = StructureWikiNotesStageExecutor(db=db)  # type: ignore[arg-type]
+
+    stage_run_id = executor.run(production_run_id="run-1", workspace_id="ws-1", source_id="src-1")
+
+    labels = {row["preferred_label"]: row for row in db.wiki_rows.values()}
+    assert set(labels) == {"Enemy system", "Center of gravity"}
+    assert labels["Center of gravity"]["importance"] == "essential"
+    assert labels["Center of gravity"]["aliases"] == ["COG"]
+    assert labels["Center of gravity"]["prerequisites"] == [labels["Enemy system"]["id"]]
+    assert db.batch["model"] == "structured-json"
+    assert db.batch["status"] == "committed"
+    assert db.stage_runs[stage_run_id]["output"]["structured_json"] is True
 
 
 def test_structure_failure_marks_batch_and_stage_failed(monkeypatch) -> None:

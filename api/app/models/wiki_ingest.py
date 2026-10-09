@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-EntryKind = Literal["term", "concept", "insight"]
+EntryKind = Literal["term", "list"]
 Importance = Literal["essential", "supporting", "contextual"]
 Resolution = Literal["new", "merge", "conflict"]
 EvidenceStatus = Literal["linked", "weak", "unlinked"]
@@ -43,8 +43,11 @@ class WikiIngestSimilarEntry(BaseModel):
 class WikiIngestEntry(BaseModel):
     index: int
     label: str
-    entry_kind: EntryKind = "concept"
+    entry_kind: EntryKind = "term"
     definition: str
+    significance: str | None = None
+    category: str | None = None
+    items: list[dict[str, Any]] = Field(default_factory=list)
     aliases: list[str] = Field(default_factory=list)
     pronunciation: str | None = None
     importance: Importance = "supporting"

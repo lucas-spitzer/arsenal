@@ -16,6 +16,8 @@ per chapter, not one-per-concept.
   themes that involve a real trade-off, competing options, or a judgment call.
 - Do **not** manufacture a scenario for every concept. A weak, decision-free
   prompt is worse than fewer strong ones.
+- When a concept has `entry_kind` `list`, the decision must turn on its
+  `items`. Cite that list, and cite a member concept when the decision uses one.
 
 ## Anatomy of a tactical decision game
 
@@ -68,6 +70,7 @@ per chapter, not one-per-concept.
       "type": "scenario",
       "subtype": "decision_prompt",
       "difficulty": "medium|hard",
+      "bloom_level": "apply|analyze",
       "wiki_ids_cited": ["wiki-id"],
       "source_chunk_ids": ["segment-id"],
       "title": "short scenario title",

@@ -127,6 +127,7 @@ async def get_catalog(
             "default_models": {
                 "openai": settings.study_material.openai_image_model,
                 "google": settings.study_material.google_image_model,
+                "xai": settings.study_material.xai_image_model,
             },
             "aspect_ratios": list(ASPECT_RATIOS),
             "controls": image_control_catalog(),

@@ -23,7 +23,7 @@ class WikiEntryRepository:
 
         if search:
             filters["or"] = (
-                f"(preferred_label.ilike.*{search}*,definition.ilike.*{search}*)"
+                f"(preferred_label.ilike.*{search}*,definition.ilike.*{search}*,significance.ilike.*{search}*)"
             )
 
         return await self.db.select_many(

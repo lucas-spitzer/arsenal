@@ -123,44 +123,96 @@ def test_conflict_with_override_applies_candidate_definition() -> None:
     assert updates[0]["status"] == "canonical"
 
 
-def test_insight_diverges_from_definitional_slug() -> None:
-    existing = _existing_entry("tempo", "Tempo", "The rate of operations.")
+def test_list_diverges_from_term_slug() -> None:
+    existing = _existing_entry("tempo", "Tempo", "The rate of operations.", entry_kind="term")
 
     inserts, updates, _ = promote_candidates(
         workspace_id="ws-1",
         candidates=[
             _candidate(
                 "Tempo",
-                "Faster decision cycles beat stronger forces.",
-                entry_kind="insight",
+                "The pace of operations and the moments between them.",
+                entry_kind="list",
+                items=[{"name": "Friction", "details": "Resistance."}],
             ),
         ],
         existing_entries=[existing],
     )
 
     assert updates == []
-    assert inserts[0]["canonical_slug"] == "tempo--insight"
+    assert inserts[0]["canonical_slug"] == "tempo--list"
+    assert inserts[0]["entry_kind"] == "list"
 
 
-def test_term_and_concept_share_a_slug() -> None:
-    existing = _existing_entry(
-        "tempo",
-        "Tempo",
-        "The rate of operations.",
-        entry_kind="term",
-    )
+def test_list_merge_appends_items_without_duplicating_names() -> None:
+    existing = _existing_entry("principles-of-war", "Principles of war", "Nine principles.")
+    existing["entry_kind"] = "list"
+    existing["items"] = [
+        {"name": "Friction", "details": "The collective force that resists action."},
+    ]
 
-    inserts, updates, _ = promote_candidates(
+    inserts, updates, conflicted = promote_candidates(
         workspace_id="ws-1",
         candidates=[
-            _candidate("Tempo", "The rate of operations.", entry_kind="concept"),
+            _candidate(
+                "Principles of war",
+                "Nine principles.",
+                entry_kind="list",
+                items=[
+                    {"name": "Friction", "details": "A different paraphrase that must not replace the first."},
+                    {"name": "Tempo", "details": "The pace of operations."},
+                ],
+            ),
         ],
         existing_entries=[existing],
     )
 
     assert inserts == []
-    # Kind upgrades to the richer concept.
-    assert updates[0]["entry_kind"] == "concept"
+    assert conflicted == []
+    assert updates[0]["items"] == [
+        {"name": "Friction", "details": "The collective force that resists action."},
+        {"name": "Tempo", "details": "The pace of operations."},
+    ]
+
+
+def test_significance_fills_when_empty_and_follows_override() -> None:
+    existing = _existing_entry("tempo", "Tempo", "The rate of operations.", entry_kind="term")
+    existing["significance"] = None
+    existing["category"] = "Characteristics of War"
+
+    _, updates, conflicted = promote_candidates(
+        workspace_id="ws-1",
+        candidates=[
+            _candidate(
+                "Tempo",
+                "The rate of operations.",
+                significance="A competitive dynamic.",
+                category="Something else",
+            ),
+        ],
+        existing_entries=[existing],
+    )
+
+    assert conflicted == []
+    assert updates[0]["significance"] == "A competitive dynamic."
+    assert updates[0]["category"] == "Characteristics of War"
+
+    _, overridden, _ = promote_candidates(
+        workspace_id="ws-1",
+        candidates=[
+            _candidate(
+                "Tempo",
+                "A musical term.",
+                significance="Why the new definition matters.",
+                category="Music",
+            ),
+        ],
+        existing_entries=[existing],
+        override_conflicts=True,
+    )
+
+    assert overridden[0]["significance"] == "Why the new definition matters."
+    assert overridden[0]["category"] == "Music"
 
 
 def test_resolve_prerequisites_maps_labels_to_ids() -> None:

@@ -1,9 +1,12 @@
 -- App delete for one production run and the rows it created.
 --
 -- Ports supabase/maintenance/delete-production-run.sql and
--- delete-study-material-run.sql. Study material runs take the study cascade;
--- every other run takes the pipeline cascade. Source rows, original uploads,
--- and Intellex structure stay (purge_ingest is off).
+-- delete-study-material-run.sql. Study material runs take the study cascade.
+-- A knowledge structure run that no later draft or visual run still uses takes
+-- the project, its plans, notes, and images with it. A draft run removes the
+-- questions and scenarios it created. Every other run takes the pipeline
+-- cascade. Source rows, original uploads, and Intellex structure stay
+-- (purge_ingest is off).
 --
 -- Foreign keys on production_run_id are ON DELETE SET NULL, so the run row
 -- is deleted only after its children. Supabase blocks DELETE on
@@ -34,6 +37,8 @@ declare
   wiki_ids uuid[] := '{}';
   narration_ids uuid[] := '{}';
   storage_names text[] := '{}';
+  drop_project_ids uuid[] := '{}';
+  knowledge_paths text[] := '{}';
   run_owned_tables text[] := array[
     'flashcards',
     'quizzes',
@@ -90,6 +95,86 @@ begin
       where a.production_run_id = p_run_id
         and a.artifact_type = 'study_material'
     );
+
+  -- A structure run owns the project until a later draft or visual run exists.
+  -- Dropping it removes the notes, plans, images, and drafted items. A draft
+  -- run only removes the questions and scenarios that run added.
+  if to_regclass('public.knowledge_projects') is not null then
+    select coalesce(array_agg(kp.id), '{}')
+    into drop_project_ids
+    from public.knowledge_projects kp
+    where kp.structure_run_id = p_run_id
+      and (kp.draft_run_id is null or kp.draft_run_id = p_run_id)
+      and (kp.visual_run_id is null or kp.visual_run_id = p_run_id);
+
+    select coalesce(array_agg(distinct path), '{}')
+    into knowledge_paths
+    from (
+      select kp.notes_storage_path as path
+      from public.knowledge_projects kp
+      where kp.id = any (drop_project_ids)
+        and coalesce(kp.notes_storage_path, '') <> ''
+      union
+      select plan.visual->>'storage_path'
+      from public.knowledge_item_plans plan
+      where plan.knowledge_project_id = any (drop_project_ids)
+        and coalesce(plan.visual->>'storage_path', '') <> ''
+      union
+      select item.visual->>'storage_path'
+      from (
+        select visual from public.flashcards
+        where knowledge_project_id = any (drop_project_ids)
+        union all
+        select visual from public.quizzes
+        where knowledge_project_id = any (drop_project_ids)
+        union all
+        select visual from public.scenarios
+        where knowledge_project_id = any (drop_project_ids)
+      ) item
+      where coalesce(item.visual->>'storage_path', '') <> ''
+      union
+      select so.name
+      from public.knowledge_projects kp
+      join public.workspaces w on w.id = kp.workspace_id
+      join public.sources s on s.id = kp.source_id
+      join storage.objects so
+        on so.bucket_id = 'sources'
+       and (
+         so.name like (
+           replace(replace(w.slug || '/knowledge/' || kp.id::text, '%', '\%'), '_', '\_')
+           || '/%'
+         ) escape '\'
+         or so.name like (
+           replace(
+             replace(w.slug || '/' || s.slug || '/knowledge/' || kp.id::text, '%', '\%'),
+             '_',
+             '\_'
+           )
+           || '/%'
+         ) escape '\'
+       )
+      where kp.id = any (drop_project_ids)
+    ) paths;
+
+    delete from public.flashcards
+    where knowledge_project_id = any (drop_project_ids);
+    delete from public.quizzes
+    where knowledge_project_id = any (drop_project_ids);
+    delete from public.scenarios
+    where knowledge_project_id = any (drop_project_ids);
+
+    delete from public.knowledge_item_plans plan
+    where plan.item_type in ('question', 'scenario')
+      and plan.knowledge_project_id in (
+        select kp.id
+        from public.knowledge_projects kp
+        where kp.draft_run_id = p_run_id
+          and not (kp.id = any (drop_project_ids))
+      );
+
+    delete from public.knowledge_projects
+    where id = any (drop_project_ids);
+  end if;
 
   if is_study then
     select coalesce(array_agg(distinct id), '{}')
@@ -198,12 +283,25 @@ begin
     select 'sources'::text, so.name
     from storage.objects so
     where so.bucket_id = 'sources'
-      and so.name = any (storage_names)
+      and (
+        so.name = any (storage_names)
+        or so.name = any (knowledge_paths)
+      )
       and not exists (
         select 1 from public.artifacts a where a.storage_path = so.name
       )
       and not exists (
         select 1 from public.study_materials sm where sm.final_html_path = so.name
+      )
+      and not exists (
+        select 1
+        from public.knowledge_projects kp
+        where kp.notes_storage_path = so.name
+      )
+      and not exists (
+        select 1
+        from public.knowledge_item_plans plan
+        where plan.visual->>'storage_path' = so.name
       )
       and not exists (
         select 1
@@ -281,7 +379,28 @@ begin
         from public.sources s
         where s.storage_path = att->>'storage_path'
       )
+      and not exists (
+        select 1
+        from public.knowledge_projects kp
+        where kp.notes_storage_path = att->>'storage_path'
+      )
+    union
+    select path
+    from unnest(knowledge_paths) as path
+    where coalesce(path, '') <> ''
   ) paths;
+
+  if to_regclass('public.knowledge_item_plans') is not null then
+    update public.knowledge_item_plans
+    set assessment_id = null
+    where assessment_id in (
+      select id from public.flashcards where production_run_id = p_run_id
+      union
+      select id from public.quizzes where production_run_id = p_run_id
+      union
+      select id from public.scenarios where production_run_id = p_run_id
+    );
+  end if;
 
   foreach rel in array run_owned_tables loop
     if to_regclass('public.' || rel) is null then
@@ -339,6 +458,16 @@ begin
       from public.wiki_ingest_batches b
       cross join lateral jsonb_array_elements(coalesce(b.attachments, '[]'::jsonb)) att
       where att->>'storage_path' = so.name
+    )
+    and not exists (
+      select 1
+      from public.knowledge_projects kp
+      where kp.notes_storage_path = so.name
+    )
+    and not exists (
+      select 1
+      from public.knowledge_item_plans plan
+      where plan.visual->>'storage_path' = so.name
     )
   order by so.name;
 end

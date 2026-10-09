@@ -31,7 +31,11 @@ from app.repositories.ndr_segments import NdrSegmentRepository
 from app.repositories.production_runs import ProductionRunRepository
 from app.repositories.sources import SourceRepository
 from app.services.production_runs import ProductionRunEnqueueError, create_and_enqueue_production_run
-from app.services.source_upload import SourceUploadValidationError, validate_source_upload
+from app.services.source_upload import (
+    SourceUploadValidationError,
+    validate_source_upload,
+    validate_structured_data_upload,
+)
 from app.services.supabase_rest import SupabaseRestError
 from app.services.supabase_storage import SupabaseStorageClient
 
@@ -75,11 +79,100 @@ async def upload_source(
             detail=str(exc),
         ) from exc
 
+    row = await _store_source(
+        workspace=workspace,
+        user=user,
+        settings=settings,
+        sources=sources,
+        storage=storage,
+        filename=safe_filename,
+        mime_type=mime_type,
+        content=content,
+        source_kind="document",
+        source_status="stored",
+    )
+    source_id = str(row["id"])
+
+    if is_pdf_source(mime_type, safe_filename):
+        try:
+            await create_and_enqueue_production_run(
+                workspace_id=workspace.id,
+                owner_id=user.id,
+                source_ids=[source_id],
+                target_artifacts=[],
+                settings=settings,
+                production_runs=production_runs,
+            )
+        except ProductionRunEnqueueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Source uploaded but ingest could not be queued. Is Redis running?",
+            ) from exc
+
+    return SourceResponse.model_validate(row)
+
+
+@router.post(
+    "/structured-data",
+    response_model=SourceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_structured_data_source(
+    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    sources: Annotated[SourceRepository, Depends(get_source_repository)],
+    storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
+    file: UploadFile = File(...),
+) -> SourceResponse:
+    """Store a JSON notes file as-is. No ingest run and no other stages."""
+    content = await file.read()
+
+    try:
+        safe_filename, mime_type = validate_structured_data_upload(
+            filename=file.filename,
+            content=content,
+            max_bytes=settings.max_source_upload_bytes,
+        )
+    except SourceUploadValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    row = await _store_source(
+        workspace=workspace,
+        user=user,
+        settings=settings,
+        sources=sources,
+        storage=storage,
+        filename=safe_filename,
+        mime_type=mime_type,
+        content=content,
+        source_kind="structured_data",
+        source_status="ready",
+    )
+    return SourceResponse.model_validate(row)
+
+
+async def _store_source(
+    *,
+    workspace: WorkspaceResponse,
+    user: CurrentUser,
+    settings: Settings,
+    sources: SourceRepository,
+    storage: SupabaseStorageClient,
+    filename: str,
+    mime_type: str,
+    content: bytes,
+    source_kind: str,
+    source_status: str,
+) -> dict:
+    """Upload the original file and insert its ``sources`` row."""
     file_hash = hashlib.sha256(content).hexdigest()
-    source_id = str(uuid.uuid4())
     taken = await sources.list_slugs_for_workspace(workspace.id)
-    slug = next_available_slug(slug_from_filename(safe_filename), taken)
-    storage_path = original_path(workspace.slug, slug, safe_filename)
+    slug = next_available_slug(slug_from_filename(filename), taken)
+    storage_path = original_path(workspace.slug, slug, filename)
 
     await storage.upload(
         bucket=settings.sources_bucket,
@@ -90,18 +183,19 @@ async def upload_source(
     )
 
     try:
-        row = await sources.create(
+        return await sources.create(
             {
-                "id": source_id,
+                "id": str(uuid.uuid4()),
                 "workspace_id": workspace.id,
                 "owner_id": user.id,
-                "filename": safe_filename,
+                "filename": filename,
                 "slug": slug,
                 "mime_type": mime_type,
                 "storage_path": storage_path,
                 "file_hash": file_hash,
                 "file_size_bytes": len(content),
-                "status": "stored",
+                "status": source_status,
+                "source_kind": source_kind,
             },
         )
     except SupabaseRestError as exc:
@@ -123,24 +217,6 @@ async def upload_source(
             ) from exc
 
         raise
-
-    if is_pdf_source(mime_type, safe_filename):
-        try:
-            await create_and_enqueue_production_run(
-                workspace_id=workspace.id,
-                owner_id=user.id,
-                source_ids=[source_id],
-                target_artifacts=[],
-                settings=settings,
-                production_runs=production_runs,
-            )
-        except ProductionRunEnqueueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Source uploaded but ingest could not be queued. Is Redis running?",
-            ) from exc
-
-    return SourceResponse.model_validate(row)
 
 
 @router.get("/{source_id}", response_model=SourceResponse)

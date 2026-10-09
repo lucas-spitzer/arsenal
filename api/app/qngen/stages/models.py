@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -21,6 +23,8 @@ class GeneratedQuizQuestion(BaseModel):
     question_type: str = "multiple_choice"
     options: list[str] = Field(default_factory=list)
     correct_answer: str
+    answer_pool: dict[str, Any] = Field(default_factory=dict)
+    bloom_level: str | None = None
     explanation: str | None = None
     difficulty: str = "medium"
     wiki_ids_cited: list[str] = Field(default_factory=list)
@@ -36,6 +40,7 @@ class GeneratedScenario(BaseModel):
     prompt: str
     context: str | None = None
     evaluation_criteria: list[str] = Field(default_factory=list)
+    bloom_level: str | None = None
     difficulty: str = "medium"
     wiki_ids_cited: list[str] = Field(default_factory=list)
     segment_ids_used: list[str] = Field(default_factory=list)

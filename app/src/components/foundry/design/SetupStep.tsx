@@ -70,8 +70,8 @@ export function SetupStep({ catalog, onCancel, onCreated }: SetupStepProps) {
     <>
       <header className="as-console__header">
         <div>
-          <div className="as-console__eyebrow">Study Material · Step 1 of 4</div>
-          <h2>New study material</h2>
+          <div className="as-console__eyebrow">Study material</div>
+          <h2>Design Forge</h2>
         </div>
         <div className="dsn-header-actions">
           <button type="button" className="as-console__cta as-console__cta--ghost" onClick={onCancel}>

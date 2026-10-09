@@ -5,8 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.config import Settings, get_settings
 from app.dependencies.auth import require_approved_user
 from app.dependencies.services import (
+    get_artifact_repository,
+    get_narration_segment_repository,
     get_production_run_repository,
     get_stage_run_repository,
+    get_stage_settings_repository,
     get_source_repository,
     get_supabase_storage_client,
     get_wiki_ingest_batch_repository,
@@ -18,8 +21,11 @@ from app.models.production_run import ProductionRunCreate, ProductionRunResponse
 from app.models.stage_run import StageRunResponse
 from app.models.workspace import WorkspaceResponse
 from app.pipeline import SUPPORTED_TARGET_ARTIFACTS
+from app.repositories.artifacts import ArtifactRepository
+from app.repositories.narration_segments import NarrationSegmentRepository
 from app.repositories.production_runs import ProductionRunRepository
 from app.repositories.stage_runs import StageRunRepository
+from app.repositories.stage_settings import StageSettingsRepository
 from app.repositories.sources import SourceRepository
 from app.repositories.wiki_ingest_batches import WikiIngestBatchRepository
 from app.repositories.workspaces import WorkspaceRepository
@@ -81,6 +87,16 @@ async def create_production_run(
         ProductionRunRepository,
         Depends(get_production_run_repository),
     ],
+    stage_settings: Annotated[
+        StageSettingsRepository,
+        Depends(get_stage_settings_repository),
+    ],
+    narration_segments: Annotated[
+        NarrationSegmentRepository,
+        Depends(get_narration_segment_repository),
+    ],
+    artifacts: Annotated[ArtifactRepository, Depends(get_artifact_repository)],
+    storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
 ) -> ProductionRunResponse:
     _validate_target_artifacts(payload.target_artifacts)
 
@@ -95,7 +111,6 @@ async def create_production_run(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="One or more source_ids are invalid for this workspace.",
         )
-
     try:
         row = await create_and_enqueue_production_run(
             workspace_id=workspace.id,
@@ -106,6 +121,11 @@ async def create_production_run(
             production_runs=production_runs,
             sources=found_sources,
             batches=batches,
+            narration_restart_source_ids=payload.narration_restart_source_ids,
+            stage_settings=stage_settings,
+            narration_segments=narration_segments,
+            artifacts=artifacts,
+            storage=storage,
         )
     except ProductionRunValidationError as exc:
         raise HTTPException(

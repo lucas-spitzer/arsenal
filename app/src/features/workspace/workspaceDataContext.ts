@@ -11,7 +11,9 @@ import type {
 } from '../../lib/workspaceApi'
 
 export interface WorkspaceDataContextValue {
+  /** Document sources only. Structured data lives in `structuredSources`. */
   sources: Source[]
+  structuredSources: Source[]
   productionRuns: ProductionRun[]
   stageRunsByRunId: Record<string, StageRun[]>
   artifacts: Artifact[]
@@ -23,10 +25,12 @@ export interface WorkspaceDataContextValue {
   error: string | null
   activeRunCount: number
   uploadSource: (file: File) => Promise<Source>
+  uploadStructuredData: (file: File) => Promise<Source>
   uploadArtifact: (file: File) => Promise<Artifact>
   createProductionRun: (payload: {
     source_ids: string[]
     target_artifacts: string[]
+    narration_restart_source_ids?: string[]
   }) => Promise<ProductionRun>
   deleteProductionRun: (runId: string) => Promise<void>
   downloadArtifact: (artifactId: string) => Promise<void>

@@ -1,5 +1,6 @@
 import { formatDate } from '../../../lib/foundryFormat'
 import type { StudyCatalog, StudyMaterial, StudyMaterialStatus } from '../../../lib/studyMaterialApi'
+import { FoundryLoader } from '../FoundryLoader'
 import { TemplateCanvas } from './TemplateCanvas'
 
 const STATUS_LABELS: Record<StudyMaterialStatus, string> = {
@@ -30,7 +31,11 @@ interface StudyMaterialListProps {
 
 export function StudyMaterialList({ catalog, materials, isLoading, onOpen, onCreate }: StudyMaterialListProps) {
   if (isLoading && materials.length === 0) {
-    return <div className="as-console__empty">Loading study material…</div>
+    return (
+      <div className="as-console__empty">
+        <FoundryLoader label="Loading study material" size="sm" />
+      </div>
+    )
   }
   if (materials.length === 0) {
     return (

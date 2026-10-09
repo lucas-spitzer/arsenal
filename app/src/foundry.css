@@ -17,10 +17,31 @@
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #0a1b25;
+}
+
+/* The gallery is the whole app. Tie the document to it so a short tab cannot
+   leave the white page background showing underneath the console. */
+html:has(.as-gallery--full),
+body:has(.as-gallery--full),
+#root:has(.as-gallery--full) {
+  height: 100%;
+  background: #0a1b25;
+}
+
+html:has(.as-console--academy),
+body:has(.as-console--academy),
+#root:has(.as-console--academy),
+.as-gallery--full:has(.as-console--academy) {
+  background: #fbfaf7;
 }
 
 .as-gallery--full .as-console {
-  height: 100%;
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto;
   min-height: 0;
 }
 
@@ -49,6 +70,7 @@
   font-family: var(--as-plex);
   display: grid;
   grid-template-columns: 76px 1fr;
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 100vh;
   overflow: hidden;
@@ -175,6 +197,7 @@
   min-height: 0;
   padding: var(--space-6);
   overflow: auto;
+  background: #0a1b25;
 }
 
 .as-console__metrics {
@@ -381,6 +404,64 @@
 .as-console__empty {
   display: grid; place-items: center; min-height: 220px; text-align: center;
   color: #8aa1ab; font-family: var(--as-mono); font-size: 0.82rem; padding: 24px;
+}
+
+/* Inline Foundry loading mark. Full-page and security loaders use their own patterns. */
+.as-console__loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 14px;
+}
+.as-console__loader-mark {
+  --as-loader-size: 88px;
+  width: var(--as-loader-size);
+  height: var(--as-loader-size);
+  display: grid;
+  place-items: center;
+}
+.as-console__loader--sm .as-console__loader-mark { --as-loader-size: 40px; }
+.as-console__loader-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.as-console__loader-ring-track,
+.as-console__loader-ring-progress {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.as-console__loader-ring-track {
+  stroke: rgba(132, 117, 78, 0.22);
+  stroke-width: 2;
+}
+.as-console__loader-ring-progress {
+  stroke: var(--color-gold);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 70 200;
+  transform-origin: 50px 50px;
+  animation: as-foundry-loader-ring 1.8s linear infinite;
+}
+.as-console__loader-cartridge {
+  fill: #f5f2e9;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.08));
+}
+.as-console__loader-label {
+  font-family: var(--as-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-gold);
+}
+@keyframes as-foundry-loader-ring {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-console__loader-ring-progress { animation: none; }
 }
 
 /* console view toggle (grid vs list) — mirrors the Drive variant placement */
@@ -610,6 +691,13 @@
 .as-console__dialog-actions {
   display: flex; justify-content: flex-end; gap: 10px;
 }
+.as-console__dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.as-console__dialog-form .as-console__field-label { margin: 0; }
+.as-console__dialog-form .as-console__alert { margin-bottom: 0; }
 .as-console__menu {
   position: fixed; z-index: 90; min-width: 160px; padding: 4px;
   background: #0e2330; border: 1px solid rgba(255, 255, 255, 0.12);

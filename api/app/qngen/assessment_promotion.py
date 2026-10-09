@@ -36,6 +36,7 @@ def promote_flashcards(
     stage_id: str,
     stage_version: str,
     flashcards: list[dict[str, Any]],
+    knowledge_project_id: str | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
 
@@ -60,6 +61,7 @@ def promote_flashcards(
                     "stage_id": stage_id,
                     "stage_version": stage_version,
                 },
+                **({"knowledge_project_id": knowledge_project_id} if knowledge_project_id else {}),
             },
         )
 
@@ -75,6 +77,7 @@ def promote_quizzes(
     stage_id: str,
     stage_version: str,
     questions: list[dict[str, Any]],
+    knowledge_project_id: str | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
 
@@ -89,6 +92,8 @@ def promote_quizzes(
                 "question_type": question.get("question_type") or "multiple_choice",
                 "options": question.get("options") or [],
                 "correct_answer": question["correct_answer"],
+                "answer_pool": question.get("answer_pool") or {},
+                "bloom_level": question.get("bloom_level"),
                 "explanation": question.get("explanation"),
                 "difficulty": normalize_difficulty(question.get("difficulty")),
                 "citations": build_citations(
@@ -101,6 +106,7 @@ def promote_quizzes(
                     "stage_id": stage_id,
                     "stage_version": stage_version,
                 },
+                **({"knowledge_project_id": knowledge_project_id} if knowledge_project_id else {}),
             },
         )
 
@@ -116,6 +122,7 @@ def promote_scenarios(
     stage_id: str,
     stage_version: str,
     scenarios: list[dict[str, Any]],
+    knowledge_project_id: str | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
 
@@ -130,6 +137,7 @@ def promote_scenarios(
                 "prompt": scenario["prompt"],
                 "context": scenario.get("context"),
                 "evaluation_criteria": scenario.get("evaluation_criteria") or [],
+                "bloom_level": scenario.get("bloom_level"),
                 "difficulty": normalize_difficulty(scenario.get("difficulty")),
                 "citations": build_citations(
                     wiki_ids=scenario.get("wiki_ids_cited") or [],
@@ -141,6 +149,7 @@ def promote_scenarios(
                     "stage_id": stage_id,
                     "stage_version": stage_version,
                 },
+                **({"knowledge_project_id": knowledge_project_id} if knowledge_project_id else {}),
             },
         )
 

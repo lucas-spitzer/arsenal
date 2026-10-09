@@ -28,6 +28,7 @@ SUPABASE_SERVICE_ROLE_KEY
 OPENAI_API_KEY
 ANTHROPIC_API_KEY
 GEMINI_API_KEY (optional; required only if a stage uses Gemini, including Gemini TTS)
+XAI_API_KEY (optional; required only if a stage uses Grok Imagine)
 CARTESIA_API_KEY (optional; required only if a stage uses Cartesia Sonic TTS)
 LLAMAPARSE_API_KEY
 ```
@@ -45,7 +46,7 @@ Infrastructure variables have defaults (see `.env.example`).
 | `generate-flashcards` / `generate-questions` / `generate-scenarios` | `DRAFT_MODEL`, `CRITIQUE_MODEL`, `LLM_QNGEN_{DRAFT,CRITIQUE}_PROVIDER`, `CONCEPT_BATCH_SIZE`, `QNGEN_MAX_REPAIR_TURNS`, `QNGEN_FLASHCARDS_PER_CHAPTER_{MIN,MAX}`, `QNGEN_SCENARIOS_PER_CHAPTER_{MIN,MAX}` | Blueprint-driven generation (per-chapter count bands) + draft + critique + grounding-repair passes |
 | `create-ebook` | — | Deterministic EPUB build |
 | `generate-narration` | `SPEECHIFY_API_KEY`, `ELEVENLABS_API_KEY`, `CARTESIA_API_KEY`, and/or `GEMINI_API_KEY`; `AUDIO_NARRATION_MODEL`, `AUDIO_NARRATION_VOICE_ID` | Default TTS is Gemini 3.8 Flash TTS (`gemini-3.8-flash-tts` / `Sadaltager`). Model prefix selects the provider: `eleven*` → ElevenLabs, `sonic*` → Cartesia, `gemini*` → Gemini TTS. |
-| Study Material (Design tab) | `STUDY_MATERIAL_MODEL`, `STUDY_MATERIAL_ORCHESTRATOR_MODEL`, `STUDY_MATERIAL_IMAGE_PROVIDER`, `STUDY_MATERIAL_{OPENAI,GOOGLE}_IMAGE_MODEL`, `STUDY_MATERIAL_MAX_FILE_BYTES`, `STUDY_MATERIAL_MAX_FILES_PER_COMPONENT`, `STUDY_MATERIAL_JOB_TIMEOUT` | Diagrams and text share `STUDY_MATERIAL_MODEL` (default `gpt-6.1-sol`). Images default to OpenAI `gpt-image-2.5-flare` (Google default `gemini-3.1-flash-image`). Rendering and PDF need Playwright Chromium (see below). |
+| Study Material (Design tab) | `STUDY_MATERIAL_MODEL`, `STUDY_MATERIAL_ORCHESTRATOR_MODEL`, `STUDY_MATERIAL_IMAGE_PROVIDER`, `STUDY_MATERIAL_{OPENAI,GOOGLE,XAI}_IMAGE_MODEL`, `STUDY_MATERIAL_MAX_FILE_BYTES`, `STUDY_MATERIAL_MAX_FILES_PER_COMPONENT`, `STUDY_MATERIAL_JOB_TIMEOUT` | Diagrams and text share `STUDY_MATERIAL_MODEL` (default `gpt-6.1-sol`). Images default to OpenAI `gpt-image-2.5-sunburst` (Google default `gemini-nano-banana-2.1`, xAI default `grok-imagine-image-2.0`). Rendering and PDF need Playwright Chromium (see below). |
 
 Each LLM action has a dedicated model env var (`SOURCE_RESEARCH_MODEL`, `SOURCE_WEB_ENRICHMENT_MODEL`, `WIKI_STRUCTURING_MODEL`, `WIKI_REVISE_MODEL`, `DRAFT_MODEL`, `CRITIQUE_MODEL`, `READER_DEFINE_MODEL`, `STUDY_MATERIAL_MODEL`, `STUDY_MATERIAL_ORCHESTRATOR_MODEL`). Optional `LLM_<ACTION>_PROVIDER` overrides the registry provider. Defaults and supported actions live in [`app/llm_actions.py`](app/llm_actions.py).
 

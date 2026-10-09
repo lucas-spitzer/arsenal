@@ -20,6 +20,7 @@ interface TemplateCanvasProps {
   selectedSectionId?: string | null
   onSelect?: (sectionId: string) => void
   mini?: boolean
+  page?: 'front' | 'back'
 }
 
 function boxStyle(section: TemplateSection): CSSProperties {
@@ -123,6 +124,7 @@ export function TemplateCanvas({
   selectedSectionId = null,
   onSelect,
   mini = false,
+  page = 'front',
 }: TemplateCanvasProps) {
   const { width_in, height_in, margin_in } = template.page
   const pageStyle = {
@@ -140,11 +142,12 @@ export function TemplateCanvas({
       aria-hidden={mini ? true : undefined}
     >
       <div className="dsn-page__safe">
-        {template.sections.map((section) => {
+        {template.sections.filter((section) => section.page === page).map((section) => {
           const sectionComponents = components.filter((item) => item.section_id === section.id)
           const className = [
             'dsn-page__section',
             `dsn-page__section--${section.kind === 'strict' ? section.content : 'flexible'}`,
+            section.kind === 'strict' && section.align === 'center' ? 'is-centered' : '',
             selectedSectionId === section.id ? 'is-selected' : '',
           ]
             .filter(Boolean)

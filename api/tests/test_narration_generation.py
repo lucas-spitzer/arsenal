@@ -50,7 +50,6 @@ def test_progress_output_summary_is_fraction() -> None:
     from app.worker.narration_executor import _progress_output
 
     output = _progress_output(
-        done=2,
         total=280,
         narrated=2,
         reused=0,
@@ -62,8 +61,23 @@ def test_progress_output_summary_is_fraction() -> None:
 
     assert output["summary"] == "2/280 clips"
     assert output["segments_done"] == 2
-    assert output["segments_total"] == 280
-    assert output["segments_narrated"] == 2
+
+
+def test_progress_output_adds_reused_clips_and_ignores_skips() -> None:
+    from app.worker.narration_executor import _progress_output
+
+    output = _progress_output(
+        total=81,
+        narrated=18,
+        reused=18,
+        skipped=16,
+        character_count=40000,
+        voice_id="Sadaltager",
+        model_id="gemini-3.8-flash-tts",
+    )
+
+    assert output["summary"] == "36/81 clips"
+    assert output["segments_done"] == 36
 
 
 def test_display_markdown_keeps_emphasis_and_word_parity() -> None:
@@ -978,6 +992,60 @@ def test_narrate_source_reuses_matching_chapter_clip() -> None:
     assert chars == 0
     assert output["segments_reused"] == 1
     assert output["segments_narrated"] == 0
+    assert output["summary"] == "1/1 clips"
+    assert output["segments_done"] == 1
+
+
+def test_narrate_source_counts_reused_clip_plus_new_clip() -> None:
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    audio_path = (
+        "ocs-prep/src-1/audio/speechify/simba-3-2/voice-1/ch-1-00.mp3"
+    )
+    db = _FakeWorkerDb(
+        [
+            {
+                "segment_id": "p1",
+                "audio_path": audio_path,
+                "model_id": "simba-3.2",
+                "text_hash": hashlib.sha256(b"Hello there.").hexdigest(),
+            },
+        ]
+    )
+    db.chapters = [
+        {
+            "id": "ch-1",
+            "title": "One",
+            "sequence_index": 0,
+            "segment_ids": ["p1", "p2"],
+        }
+    ]
+    db.ndr_segments = [
+        {"id": "p1", "kind": "paragraph", "text": "Hello there."},
+        {"id": "p2", "kind": "paragraph", "text": "More words here."},
+    ]
+    client = _FakeTts()
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=client,  # type: ignore[arg-type]
+        max_segment_chars=20,
+    )
+    output, _chars, _ctx = executor._narrate_source(
+        workspace_id="ws-1",
+        source={
+            "id": "src-1",
+            "slug": "src-1",
+            "workspace_slug": "ocs-prep",
+            "storage_path": "ocs-prep/src-1/file.pdf",
+        },
+        stage_run_id="sr-1",
+    )
+    assert client.texts == ["More words here."]
+    assert output["segments_reused"] == 1
+    assert output["segments_narrated"] == 1
+    assert output["segments_done"] == 2
+    assert output["summary"] == "2/2 clips"
 
 
 def test_narrate_source_skips_mid_run_gemini_invalid_argument() -> None:
@@ -1033,6 +1101,8 @@ def test_narrate_source_skips_mid_run_gemini_invalid_argument() -> None:
     assert output["segments_narrated"] == 1
     assert output["segments_skipped"] == 1
     assert output["segments_total"] == 2
+    assert output["segments_done"] == 1
+    assert output["summary"] == "1/2 clips"
     assert len(db.narration_rows) == 1
     assert chars == 10
 

@@ -10,8 +10,9 @@ GEMINI_31_PRO_MODEL = "gemini-3.1-pro-preview"
 # Image generation (Study Material image components).
 OPENAI_IMAGE_FLARE_MODEL = "gpt-image-2.5-flare"
 OPENAI_IMAGE_SUNBURST_MODEL = "gpt-image-2.5-sunburst"
-GEMINI_31_FLASH_IMAGE_MODEL = "gemini-3.1-flash-image"
+GEMINI_NANO_BANANA_21_MODEL = "gemini-nano-banana-2.1"
 GEMINI_3_PRO_IMAGE_MODEL = "gemini-3-pro-image"
+GROK_IMAGINE_IMAGE_2_MODEL = "grok-imagine-image-2.0"
 # Constructor fallback when an OpenAI client is built without a model.
 # Per-action defaults live in env vars (SOURCE_RESEARCH_MODEL, etc.).
 DEFAULT_OPENAI_MODEL = GPT_6_LUNA_MODEL

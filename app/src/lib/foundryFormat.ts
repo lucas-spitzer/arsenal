@@ -36,6 +36,9 @@ const artifactKindLabels: Record<string, string> = {
   flashcards: 'Flashcards',
   quizzes: 'Quizzes',
   scenarios: 'Scenarios',
+  knowledge_structure: 'Knowledge',
+  knowledge_draft: 'Assessments',
+  knowledge_visuals: 'Images',
 }
 
 const artifactKindShortLabels: Record<string, string> = {
@@ -50,6 +53,9 @@ const artifactKindShortLabels: Record<string, string> = {
   flashcards: 'Flashcards',
   quizzes: 'Quizzes',
   scenarios: 'Scenarios',
+  knowledge_structure: 'Knowledge',
+  knowledge_draft: 'Assessments',
+  knowledge_visuals: 'Images',
 }
 
 export function artifactKindLabel(kind: string): string {

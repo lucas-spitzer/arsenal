@@ -186,6 +186,44 @@ def _format_count_band(
     )
 
 
+def _author_note(
+    *,
+    artifact_type: str,
+    required_subtype: str,
+    instructions: str,
+    bloom_level: str,
+    items_per_concept: int | None,
+    avoid_stems: list[str],
+    context_concepts: list[ConceptCard],
+) -> str:
+    note = ""
+    if required_subtype.strip():
+        note += f"\nEvery item must use subtype \"{required_subtype.strip()}\".\n"
+    if bloom_level.strip():
+        note += (
+            f"\nTarget cognitive level: {bloom_level.strip()}. Set \"bloom_level\" to this value "
+            "and write the item so it demands that level, not plain recall.\n"
+        )
+    if items_per_concept:
+        plural = "item" if items_per_concept == 1 else "items"
+        note += (
+            f"\nWrite exactly {items_per_concept} {artifact_type} {plural} per concept in this batch. "
+            "Each must take a different angle (definition, contrast with a sibling, application, membership).\n"
+        )
+    if avoid_stems:
+        listed = "\n".join(f"- {stem}" for stem in avoid_stems if stem.strip())
+        note += f"\nAlready asked (do not repeat or lightly reword these):\n{listed}\n"
+    if context_concepts:
+        note += (
+            "\nDistractor candidates (sibling concepts from the same category; do NOT write items "
+            "about them, cite them only in distractors):\n"
+            f"{format_concepts_for_llm(context_concepts)}\n"
+        )
+    if instructions.strip():
+        note += f"\nAuthor instructions:\n{instructions.strip()}\n"
+    return note
+
+
 def run_skill_batch(
     *,
     skill_name: str,
@@ -194,19 +232,40 @@ def run_skill_batch(
     concepts: list[ConceptCard],
     learning_objectives: list[dict[str, Any]],
     count_band: tuple[int, int] | None = None,
+    instructions: str = "",
+    required_subtype: str = "",
+    bloom_level: str = "",
+    items_per_concept: int | None = None,
+    avoid_stems: list[str] | None = None,
+    context_concepts: list[ConceptCard] | None = None,
     draft_client: LLMClient | None = None,
     critique_client: LLMClient | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Run draft → critique → revise for one concept batch and artifact type."""
+    """Run draft → critique → revise for one concept batch and artifact type.
+
+    ``context_concepts`` are shown only as distractor material; items may not
+    be written about them or cite them. ``avoid_stems`` lists questions that
+    already exist for these concepts so variants cover new ground.
+    """
     draft_llm = draft_client or get_llm_client("qngen_draft")
     critique_llm = critique_client or get_llm_client("qngen_critique")
     skill_md = load_skill_markdown(skill_name)
+    author_note = _author_note(
+        artifact_type=artifact_type,
+        required_subtype=required_subtype,
+        instructions=instructions,
+        bloom_level=bloom_level,
+        items_per_concept=items_per_concept,
+        avoid_stems=avoid_stems or [],
+        context_concepts=context_concepts or [],
+    )
 
     user_prompt = f"""Source metadata:
 {format_json_block(source_metadata)}
 
 Artifact type: {artifact_type}
 {_format_count_band(artifact_type, count_band)}
+{author_note}
 Learning objectives:
 {_format_objectives(learning_objectives)}
 
@@ -302,6 +361,12 @@ def run_skill_generation(
     source_metadata: dict[str, Any],
     concept_batches: list[list[ConceptCard]],
     learning_objectives: list[dict[str, Any]],
+    instructions: str = "",
+    required_subtype: str = "",
+    bloom_level: str = "",
+    items_per_concept: int | None = None,
+    avoid_stems: list[str] | None = None,
+    context_concepts: list[ConceptCard] | None = None,
     draft_client: LLMClient | None = None,
     critique_client: LLMClient | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -318,6 +383,12 @@ def run_skill_generation(
             source_metadata=source_metadata,
             concepts=batch,
             learning_objectives=learning_objectives,
+            instructions=instructions,
+            required_subtype=required_subtype,
+            bloom_level=bloom_level,
+            items_per_concept=items_per_concept,
+            avoid_stems=avoid_stems,
+            context_concepts=context_concepts,
             draft_client=draft_client,
             critique_client=critique_client,
         )

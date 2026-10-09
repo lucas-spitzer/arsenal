@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.api_pricing import cost_image_usage, cost_llamaparse_usage, cost_llm_usage
+from app.services.api_pricing import (
+    cost_image_usage,
+    cost_llamaparse_usage,
+    cost_llm_usage,
+    cost_xai_image_usage,
+)
 
 
 def _token_count(usage: dict[str, Any], *keys: str) -> int:
@@ -78,14 +83,28 @@ def image_stage_run_completion_fields(
     provider: str,
     model: str,
     token_usage: dict[str, int],
+    settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Image tokens bill at image rates, so skip the LLM token pricing path."""
-    call = cost_image_usage(
-        provider=provider,
-        model=model,
-        input_tokens=int(token_usage.get("input_tokens") or 0),
-        output_tokens=int(token_usage.get("output_tokens") or 0),
-    )
+    """Image tokens bill at image rates, so skip the LLM token pricing path.
+
+    Grok Imagine bills per image. ``settings`` carries resolution, quality,
+    and how many reference images were sent.
+    """
+    if provider == "xai":
+        image_settings = settings or {}
+        call = cost_xai_image_usage(
+            model=model,
+            resolution=str(image_settings.get("resolution") or "1K"),
+            quality=str(image_settings.get("quality") or "medium"),
+            reference_images=int(image_settings.get("reference_count") or 0),
+        )
+    else:
+        call = cost_image_usage(
+            provider=provider,
+            model=model,
+            input_tokens=int(token_usage.get("input_tokens") or 0),
+            output_tokens=int(token_usage.get("output_tokens") or 0),
+        )
     api_usage = build_api_usage({}, extra_calls=[call])
     return {
         "model": model,

@@ -14,6 +14,7 @@ import {
   type StudyMaterialOptions,
   type StudyTemplate,
   type StudyTheme,
+  templateFaces,
 } from '../../../lib/studyMaterialApi'
 import { ErrorBanner } from '../ErrorBanner'
 import { ComponentEditor } from './ComponentEditor'
@@ -47,10 +48,20 @@ export function ConfigureStep({
   onBack,
   onDelete,
 }: ConfigureStepProps) {
+  const faces = templateFaces(template)
   const firstFlexible = template.sections.find((section) => section.kind === 'flexible')
   const [selectedId, setSelectedId] = useState<string | null>(firstFlexible?.id ?? null)
+  const [face, setFace] = useState<(typeof faces)[number]>(faces[0] ?? 'front')
   const [error, setError] = useState<string | null>(null)
   const selected = template.sections.find((section) => section.id === selectedId) ?? null
+
+  const selectFace = (next: (typeof faces)[number]) => {
+    setFace(next)
+    const onFace = template.sections.filter((section) => section.page === next)
+    if (onFace.some((section) => section.id === selectedId)) return
+    const first = onFace.find((section) => section.kind === 'flexible') ?? onFace[0]
+    setSelectedId(first?.id ?? null)
+  }
   const components = material.components
 
   const setComponents = (next: StudyComponent[]) => {
@@ -83,8 +94,8 @@ export function ConfigureStep({
     <>
       <header className="as-console__header">
         <div>
-          <div className="as-console__eyebrow">Study Material · Step 2 of 4</div>
-          <h2>{material.title}</h2>
+          <div className="as-console__eyebrow">Study material</div>
+          <h2>Design Forge</h2>
         </div>
         <div className="dsn-header-actions">
           <button type="button" className="as-console__cta as-console__cta--ghost" onClick={onBack}>
@@ -117,7 +128,23 @@ export function ConfigureStep({
           <section className="dsn-canvas-panel" aria-label="Template">
             <p className="dsn-hint">
               {template.name} · {theme.name}. Select a section to configure it.
+              {faces.length > 1 ? ' Print duplex, flip on the long edge.' : ''}
             </p>
+            {faces.length > 1 ? (
+              <div className="dsn-faces" role="group" aria-label="Card side">
+                {faces.map((faceId) => (
+                  <button
+                    key={faceId}
+                    type="button"
+                    className={face === faceId ? 'is-selected' : undefined}
+                    aria-pressed={face === faceId}
+                    onClick={() => selectFace(faceId)}
+                  >
+                    {faceId === 'front' ? 'Front' : 'Back'}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <TemplateCanvas
               template={template}
               theme={theme}
@@ -126,6 +153,7 @@ export function ConfigureStep({
               components={components}
               selectedSectionId={selectedId}
               onSelect={setSelectedId}
+              page={face}
             />
           </section>
 

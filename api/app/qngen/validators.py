@@ -19,7 +19,15 @@ def validate_assessment_items(
     concepts: list[ConceptCard],
     segment_ids: set[str],
     wiki_ids: set[str],
+    max_per_concept: int | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Drop ungrounded or unanswerable items and cap items per concept.
+
+    ``max_per_concept`` overrides the quiz and scenario caps when a caller
+    asks for several variants of one concept.
+    """
+    quiz_cap = max_per_concept or _MAX_QUIZZES_PER_CONCEPT
+    scenario_cap = max_per_concept or _MAX_SCENARIOS_PER_CONCEPT
     labels_by_wiki_id = {
         concept.wiki_id: {
             concept.preferred_label.lower(),
@@ -38,6 +46,7 @@ def validate_assessment_items(
     dropped_invalid_quiz_answer = 0
     repaired_quiz_answer = 0
     dropped_per_concept_cap = 0
+    repaired_pool_overlap = 0
     label_warnings: list[str] = []
 
     flashcard_counts: dict[str, int] = {}
@@ -79,7 +88,12 @@ def validate_assessment_items(
                 item["correct_answer"] = coerced
                 repaired_quiz_answer += 1
 
-        if primary_wiki:
+            cleaned, overlapped = _strip_pool_overlap(item)
+            if overlapped:
+                item = cleaned
+                repaired_pool_overlap += 1
+
+        if primary_wiki and item.get("subtype") != "list_item":
             if item_type == "flashcard":
                 count = flashcard_counts.get(primary_wiki, 0)
                 if count >= _MAX_FLASHCARDS_PER_CONCEPT:
@@ -88,13 +102,13 @@ def validate_assessment_items(
                 flashcard_counts[primary_wiki] = count + 1
             elif item_type == "quiz":
                 count = quiz_counts.get(primary_wiki, 0)
-                if count >= _MAX_QUIZZES_PER_CONCEPT:
+                if count >= quiz_cap:
                     dropped_per_concept_cap += 1
                     continue
                 quiz_counts[primary_wiki] = count + 1
             elif item_type == "scenario":
                 count = scenario_counts.get(primary_wiki, 0)
-                if count >= _MAX_SCENARIOS_PER_CONCEPT:
+                if count >= scenario_cap:
                     dropped_per_concept_cap += 1
                     continue
                 scenario_counts[primary_wiki] = count + 1
@@ -113,10 +127,37 @@ def validate_assessment_items(
         "dropped_invalid_citations": dropped_invalid_citations,
         "dropped_invalid_quiz_answer": dropped_invalid_quiz_answer,
         "repaired_quiz_answer": repaired_quiz_answer,
+        "repaired_pool_overlap": repaired_pool_overlap,
         "dropped_per_concept_cap": dropped_per_concept_cap,
         "label_warnings": label_warnings,
     }
     return validated, report
+
+
+def _strip_pool_overlap(item: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Remove model-emitted distractors that repeat a correct answer."""
+    distractors = item.get("distractors")
+    if not isinstance(distractors, list) or not distractors:
+        return item, False
+    correct: set[str] = set()
+    answer = item.get("correct_answer")
+    if isinstance(answer, str):
+        correct.update(part.strip().lower() for part in answer.split(";") if part.strip())
+    elif isinstance(answer, list):
+        correct.update(str(part).strip().lower() for part in answer)
+    correct.update(str(text).strip().lower() for text in item.get("correct_variants") or [])
+
+    kept = []
+    for raw in distractors:
+        text = raw.get("text") if isinstance(raw, dict) else raw
+        if str(text or "").strip().lower() in correct:
+            continue
+        kept.append(raw)
+    if len(kept) == len(distractors):
+        return item, False
+    cleaned = dict(item)
+    cleaned["distractors"] = kept
+    return cleaned, True
 
 
 def _item_text(item: dict[str, Any]) -> str:

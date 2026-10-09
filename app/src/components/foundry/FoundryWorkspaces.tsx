@@ -4,6 +4,8 @@ import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { formatDate, statusLabel } from '../../lib/foundryFormat'
 import { ErrorBanner } from './ErrorBanner'
+import { FoundryDialog } from './FoundryDialog'
+import { FoundryLoader } from './FoundryLoader'
 
 export function FoundryWorkspaces() {
   const { activeWorkspace, workspaces, isLoading, error, selectWorkspace, createWorkspace } =
@@ -19,6 +21,8 @@ export function FoundryWorkspaces() {
     activeRunCount,
   } = useWorkspaceData()
   const [isCreating, setIsCreating] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [workspaceName, setWorkspaceName] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
 
   const overview = useMemo(
@@ -45,13 +49,26 @@ export function FoundryWorkspaces() {
     ],
   )
 
+  const openCreate = () => {
+    setWorkspaceName('')
+    setCreateError(null)
+    setCreateOpen(true)
+  }
+
+  const closeCreate = () => {
+    if (isCreating) return
+    setCreateOpen(false)
+  }
+
   const handleCreate = async () => {
-    const name = window.prompt('New workspace name')?.trim()
-    if (!name) return
+    const name = workspaceName.trim()
+    if (!name || isCreating) return
     setIsCreating(true)
     setCreateError(null)
     try {
       await createWorkspace(name)
+      setCreateOpen(false)
+      setWorkspaceName('')
     } catch (caught) {
       setCreateError(caught instanceof Error ? caught.message : 'Failed to create workspace.')
     } finally {
@@ -69,14 +86,13 @@ export function FoundryWorkspaces() {
         <span className="as-console__live">
           <span className="as-live-dot" /> {workspaces.length} available
         </span>
-        <button className="as-console__cta" onClick={() => void handleCreate()} disabled={isCreating}>
+        <button type="button" className="as-console__cta" onClick={openCreate} disabled={isCreating}>
           {isCreating ? 'Creating…' : '+ New workspace'}
         </button>
       </header>
 
       <div className="as-console__scroll">
         {error ? <ErrorBanner message={error} /> : null}
-        {createError ? <ErrorBanner message={createError} /> : null}
 
         {activeWorkspace ? (
           <div className="as-console__metrics">
@@ -91,7 +107,9 @@ export function FoundryWorkspaces() {
         ) : null}
 
         {isLoading && workspaces.length === 0 ? (
-          <div className="as-console__empty">Loading workspaces…</div>
+          <div className="as-console__empty">
+            <FoundryLoader label="Loading workspaces" size="sm" />
+          </div>
         ) : workspaces.length === 0 ? (
           <div className="as-console__empty">
             No workspaces yet. Create one to begin production.
@@ -130,6 +148,42 @@ export function FoundryWorkspaces() {
           </div>
         )}
       </div>
+
+      <FoundryDialog title="New workspace" open={createOpen} onClose={closeCreate}>
+        <form
+          className="as-console__dialog-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void handleCreate()
+          }}
+        >
+          {createError ? <ErrorBanner message={createError} /> : null}
+          <label className="as-console__field-label" htmlFor="new-workspace-name">
+            Name
+          </label>
+          <input
+            id="new-workspace-name"
+            className="as-wiki__input"
+            value={workspaceName}
+            onChange={(event) => setWorkspaceName(event.target.value)}
+            autoFocus
+            disabled={isCreating}
+          />
+          <div className="as-console__dialog-actions">
+            <button
+              type="button"
+              className="as-console__cta as-console__cta--ghost"
+              onClick={closeCreate}
+              disabled={isCreating}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="as-console__cta" disabled={isCreating || !workspaceName.trim()}>
+              {isCreating ? 'Creating…' : 'Create workspace'}
+            </button>
+          </div>
+        </form>
+      </FoundryDialog>
     </>
   )
 }

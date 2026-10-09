@@ -31,6 +31,25 @@ def test_resolve_image_as_binary() -> None:
     assert mime == "image/heic"
 
 
+def test_json_is_not_a_note_attachment() -> None:
+    with pytest.raises(WikiTranscriptionError, match="structured data source"):
+        resolve_attachment_mime_type(
+            filename="entries.json",
+            content_type="application/json",
+        )
+
+
+def test_validate_note_attachment_rejects_json() -> None:
+    with pytest.raises(WikiTranscriptionError, match="structured data source"):
+        validate_note_attachment(
+            order=0,
+            filename="entries.json",
+            content_type="application/json",
+            content=b'{"entries":[{"label":"Tempo","definition":"The rate of operations."}]}',
+            max_bytes=10_000,
+        )
+
+
 def test_reject_unsupported_extension() -> None:
     with pytest.raises(WikiTranscriptionError, match="Unsupported"):
         resolve_attachment_mime_type(filename="notes.xlsx", content_type=None)

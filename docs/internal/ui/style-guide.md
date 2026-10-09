@@ -235,6 +235,17 @@ Generated lesson artifacts should use:
 | Error | Scarlet or dark scarlet border |
 | Critical | Dark scarlet fill with white text |
 
+### Loading states
+
+Use the shared `FoundryLoader` Primer ring for loading data or a bounded component inside Foundry. Typical uses include fetching workspace records, sources, production runs, API requests, stage settings, templates, previews, and other database-backed assets.
+
+- Use `size="sm"` for registries, empty-state panels, previews, and other inline component loading.
+- Use the default large size only for a substantial panel-bound process, such as generating or validating an artifact.
+- Keep the visible label specific to the resource or operation being loaded.
+- Preserve the component's `role="status"`, polite live region, and reduced-motion behavior.
+- Do not use `FoundryLoader` for app startup, route-level or full-page loading, the home page, authentication, workspace access gates, or security checks. Those processes retain their dedicated full-page treatments.
+- Do not replace short button progress labels such as "Uploading…" or "Saving…" with the Primer ring.
+
 ## 8. Icons
 
 Use Font Awesome 5 Free medium-weight icons when possible. Icons should be functional, not decorative.
@@ -317,6 +328,7 @@ Before merging UI work, verify:
 - Layout is clean, left-aligned, and structured.
 - Registry cards keep `var(--space-3)` between the last body block and the footer divider; grid cards use `.as-console__card-fill` so the footer stays bottom-aligned without extra vertical gap.
 - Icons are functional and consistent.
+- Inline Foundry data and component loading uses `FoundryLoader`; full-page, authentication, and security loading patterns remain separate.
 - UI does not imply official Marine Corps endorsement.
 - Accessibility contrast and keyboard navigation are acceptable.
 - Generated artifacts follow the same visual system.

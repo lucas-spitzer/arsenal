@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from typing import Any, Literal
 
+from app.knowledge.answer_pool import BLOOM_LEVELS, pool_from_generated
+
 ArtifactType = Literal["flashcard", "quiz", "scenario"]
 
 _VALID_DIFFICULTIES = {"easy", "medium", "hard"}
@@ -51,6 +53,13 @@ def assessment_item_to_flashcard(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def normalize_bloom_level(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().lower()
+    return cleaned if cleaned in BLOOM_LEVELS else None
+
+
 def assessment_item_to_quiz(item: dict[str, Any]) -> dict[str, Any]:
     subtype = item.get("subtype") or "multiple_choice"
     correct_answer = item.get("correct_answer") or ""
@@ -64,6 +73,8 @@ def assessment_item_to_quiz(item: dict[str, Any]) -> dict[str, Any]:
         "question_type": normalize_question_type(subtype),
         "options": choices,
         "correct_answer": correct_answer,
+        "answer_pool": pool_from_generated(item) or {},
+        "bloom_level": normalize_bloom_level(item.get("bloom_level")),
         "explanation": item.get("explanation"),
         "difficulty": normalize_difficulty(item.get("difficulty")),
         "wiki_ids_cited": item.get("wiki_ids_cited") or [],
@@ -85,6 +96,7 @@ def assessment_item_to_scenario(item: dict[str, Any]) -> dict[str, Any]:
         "prompt": task,
         "context": situation,
         "evaluation_criteria": criteria,
+        "bloom_level": normalize_bloom_level(item.get("bloom_level")),
         "difficulty": normalize_difficulty(item.get("difficulty")),
         "wiki_ids_cited": item.get("wiki_ids_cited") or [],
         "segment_ids_used": item.get("source_chunk_ids") or [],

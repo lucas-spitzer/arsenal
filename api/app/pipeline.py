@@ -260,3 +260,40 @@ STUDY_MATERIAL_RENDER_STEP: dict[str, Any] = {
 
 def build_study_material_pipeline() -> list[dict[str, Any]]:
     return [deepcopy(step) for step in STUDY_MATERIAL_PIPELINE]
+
+
+KNOWLEDGE_STRUCTURE_TARGET = "knowledge_structure"
+KNOWLEDGE_DRAFT_TARGET = "knowledge_draft"
+KNOWLEDGE_VISUAL_TARGET = "knowledge_visuals"
+
+ATTACH_VISUALS_STEP: dict[str, Any] = {
+    "step": "attach-visuals",
+    "type": "deterministic",
+    "module": "qngen",
+    "status": "pending",
+}
+
+
+def build_knowledge_structure_pipeline() -> list[dict[str, Any]]:
+    return [deepcopy(step) for step in WIKI_KNOWLEDGE_STEPS]
+
+
+def build_knowledge_draft_pipeline(
+    *,
+    flashcards: bool,
+    questions: bool,
+    scenarios: bool,
+) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
+    if flashcards:
+        steps.append(deepcopy(OPTIONAL_PIPELINE_STEPS["flashcards"]))
+    if questions:
+        steps.append(deepcopy(OPTIONAL_PIPELINE_STEPS["quizzes"]))
+    if scenarios:
+        steps.append(deepcopy(OPTIONAL_PIPELINE_STEPS["scenarios"]))
+    steps.append(deepcopy(ATTACH_VISUALS_STEP))
+    return steps
+
+
+def build_knowledge_visual_pipeline() -> list[dict[str, Any]]:
+    return [deepcopy(ATTACH_VISUALS_STEP)]

@@ -4,7 +4,7 @@ from typing import Any
 
 from app.config import get_settings
 from app.qngen.canonical_context import ConceptCard, build_chapter_blueprint
-from app.qngen.skills.flashcards.helpers import prefer_term_definition
+from app.qngen.skills.flashcards.helpers import ensure_list_flashcards, prefer_term_definition
 from app.qngen.skills.shared.item_mapping import (
     assessment_item_to_flashcard,
     ensure_item_ids,
@@ -28,6 +28,7 @@ class FlashcardGenStage:
         concept_batches: list[list[ConceptCard]],
         learning_objectives: list[dict[str, Any]],
         chapters: list[dict[str, Any]] | None = None,
+        skip_importance_filter: bool = False,
     ) -> tuple[FlashcardGenOutput, dict[str, Any]]:
         blueprint = build_chapter_blueprint(chapters or [], concepts)
 
@@ -40,7 +41,9 @@ class FlashcardGenStage:
                 artifact_type="flashcard",
                 source_metadata=source_metadata,
                 blueprint=blueprint,
-                concept_filter=lambda concept: concept.importance in _FLASHCARD_IMPORTANCE,
+                concept_filter=None
+                if skip_importance_filter
+                else (lambda concept: concept.importance in _FLASHCARD_IMPORTANCE),
                 count_band=(
                     settings.qngen.flashcards_per_chapter_min,
                     settings.qngen.flashcards_per_chapter_max,
@@ -63,7 +66,9 @@ class FlashcardGenStage:
                 learning_objectives=learning_objectives,
             )
 
-        raw_items = prefer_term_definition(ensure_item_ids(raw_items))
+        raw_items = prefer_term_definition(
+            ensure_list_flashcards(ensure_item_ids(raw_items), concepts),
+        )
 
         wiki_ids = {concept.wiki_id for concept in concepts}
         segment_ids = {

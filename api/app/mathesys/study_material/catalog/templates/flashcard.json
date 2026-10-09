@@ -1,0 +1,28 @@
+{
+  "id": "flashcard",
+  "name": "Flashcards Cutout",
+  "description": "Eight double-sided cards (2 × 4). Print duplex, flip on the long edge. The back sheet mirrors left and right so each card's back lands on its front.",
+  "orientation": "portrait",
+  "page": { "size": "Letter", "width_in": 8.5, "height_in": 11, "margin_in": 0.25 },
+  "type": { "body_pt": 9, "title_pt": 14 },
+  "disclaimer": "per_section",
+  "cut_lines": true,
+  "sections": [
+    { "id": "card_1_front", "label": "Card 1 front", "kind": "flexible", "page": "front", "pair": "card_1", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 0, "w": 50, "h": 25 } },
+    { "id": "card_2_front", "label": "Card 2 front", "kind": "flexible", "page": "front", "pair": "card_2", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 0, "w": 50, "h": 25 } },
+    { "id": "card_3_front", "label": "Card 3 front", "kind": "flexible", "page": "front", "pair": "card_3", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 25, "w": 50, "h": 25 } },
+    { "id": "card_4_front", "label": "Card 4 front", "kind": "flexible", "page": "front", "pair": "card_4", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 25, "w": 50, "h": 25 } },
+    { "id": "card_5_front", "label": "Card 5 front", "kind": "flexible", "page": "front", "pair": "card_5", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 50, "w": 50, "h": 25 } },
+    { "id": "card_6_front", "label": "Card 6 front", "kind": "flexible", "page": "front", "pair": "card_6", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 50, "w": 50, "h": 25 } },
+    { "id": "card_7_front", "label": "Card 7 front", "kind": "flexible", "page": "front", "pair": "card_7", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 75, "w": 50, "h": 25 } },
+    { "id": "card_8_front", "label": "Card 8 front", "kind": "flexible", "page": "front", "pair": "card_8", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 75, "w": 50, "h": 25 } },
+    { "id": "card_1_back", "label": "Card 1 back", "kind": "flexible", "page": "back", "pair": "card_1", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 0, "w": 50, "h": 25 } },
+    { "id": "card_2_back", "label": "Card 2 back", "kind": "flexible", "page": "back", "pair": "card_2", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 0, "w": 50, "h": 25 } },
+    { "id": "card_3_back", "label": "Card 3 back", "kind": "flexible", "page": "back", "pair": "card_3", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 25, "w": 50, "h": 25 } },
+    { "id": "card_4_back", "label": "Card 4 back", "kind": "flexible", "page": "back", "pair": "card_4", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 25, "w": 50, "h": 25 } },
+    { "id": "card_5_back", "label": "Card 5 back", "kind": "flexible", "page": "back", "pair": "card_5", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 50, "w": 50, "h": 25 } },
+    { "id": "card_6_back", "label": "Card 6 back", "kind": "flexible", "page": "back", "pair": "card_6", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 50, "w": 50, "h": 25 } },
+    { "id": "card_7_back", "label": "Card 7 back", "kind": "flexible", "page": "back", "pair": "card_7", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 50, "y": 75, "w": 50, "h": 25 } },
+    { "id": "card_8_back", "label": "Card 8 back", "kind": "flexible", "page": "back", "pair": "card_8", "allowed_types": ["text", "diagram", "image"], "max_components": 2, "box": { "x": 0, "y": 75, "w": 50, "h": 25 } }
+  ]
+}

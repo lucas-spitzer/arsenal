@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from app.llm_actions import LLM_ACTION_BY_KEY, LLM_GLOBAL_DEFAULT
 from app.llm_defaults import (
     DEFAULT_OPENAI_MODEL,
-    GEMINI_31_FLASH_IMAGE_MODEL,
+    GEMINI_NANO_BANANA_21_MODEL,
+    GROK_IMAGINE_IMAGE_2_MODEL,
     MODEL_FAMILIES,
     OPENAI_IMAGE_SUNBURST_MODEL,
 )
@@ -144,6 +145,7 @@ class LLMSettings:
     openai_api_key: str | None
     anthropic_api_key: str | None
     google_api_key: str | None
+    xai_api_key: str | None
     anthropic_max_tokens: int
     anthropic_json_prefill: str
 
@@ -240,6 +242,7 @@ class StudyMaterialSettings:
     image_provider: str
     openai_image_model: str
     google_image_model: str
+    xai_image_model: str
     max_file_bytes: int
     max_files_per_component: int
     job_timeout: str
@@ -338,6 +341,7 @@ def _get_settings_cached() -> Settings:
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
             google_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
+            xai_api_key=os.getenv("XAI_API_KEY"),
             anthropic_max_tokens=int(os.getenv("ANTHROPIC_MAX_TOKENS", "16384")),
             anthropic_json_prefill=os.getenv("ANTHROPIC_JSON_PREFILL", "auto").strip().lower(),
         ),
@@ -426,7 +430,13 @@ def _get_settings_cached() -> Settings:
             google_image_model=resolve_model_family(
                 os.getenv(
                     "STUDY_MATERIAL_GOOGLE_IMAGE_MODEL",
-                    GEMINI_31_FLASH_IMAGE_MODEL,
+                    GEMINI_NANO_BANANA_21_MODEL,
+                ),
+            ),
+            xai_image_model=resolve_model_family(
+                os.getenv(
+                    "STUDY_MATERIAL_XAI_IMAGE_MODEL",
+                    GROK_IMAGINE_IMAGE_2_MODEL,
                 ),
             ),
             max_file_bytes=int(

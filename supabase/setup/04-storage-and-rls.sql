@@ -46,6 +46,8 @@ alter table public.discussion_messages enable row level security;
 alter table public.study_materials enable row level security;
 alter table public.study_material_components enable row level security;
 alter table public.study_material_component_versions enable row level security;
+alter table public.knowledge_projects enable row level security;
+alter table public.knowledge_item_plans enable row level security;
 
 revoke all on table public.workspaces from anon, authenticated;
 revoke all on table public.stages from anon, authenticated;
@@ -69,6 +71,8 @@ revoke all on table public.discussion_messages from anon, authenticated;
 revoke all on table public.study_materials from anon, authenticated;
 revoke all on table public.study_material_components from anon, authenticated;
 revoke all on table public.study_material_component_versions from anon, authenticated;
+revoke all on table public.knowledge_projects from anon, authenticated;
+revoke all on table public.knowledge_item_plans from anon, authenticated;
 
 -- RAG helpers are service-role only (matches table-level revokes).
 revoke execute on function public.match_ndr_segments(

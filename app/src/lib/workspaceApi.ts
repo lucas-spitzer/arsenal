@@ -1,3 +1,4 @@
+import type { AnswerPool } from './answerPool'
 import { getAccessToken } from '../features/auth/authService'
 import {
   ApiError,
@@ -29,8 +30,14 @@ export interface Source {
   file_size_bytes: number
   source_metadata: Record<string, unknown>
   status: string
+  source_kind?: 'document' | 'structured_data'
   created_at: string
   updated_at: string
+}
+
+export interface WikiListItem {
+  name: string
+  details: string
 }
 
 export interface WikiEntry {
@@ -38,6 +45,9 @@ export interface WikiEntry {
   workspace_id: string
   preferred_label: string
   definition: string
+  significance: string | null
+  category: string | null
+  items: WikiListItem[]
   entry_kind: string
   importance: string
   status: string
@@ -71,6 +81,15 @@ export interface Artifact {
   created_at: string
 }
 
+export interface AssessmentVisual {
+  kind: string
+  placement: string
+  alt: string | null
+  mime_type: string | null
+  filename: string | null
+  url: string | null
+}
+
 export interface Flashcard {
   id: string
   source_id?: string | null
@@ -81,6 +100,7 @@ export interface Flashcard {
   back: string
   difficulty: string
   tags: string[]
+  visual?: AssessmentVisual | null
   created_at: string
 }
 
@@ -94,8 +114,12 @@ export interface Quiz {
   question_type: string
   options: string[]
   correct_answer: string
+  answer_pool?: AnswerPool | null
+  bloom_level?: string | null
   explanation: string | null
   difficulty: string
+  citations?: { uri?: string; type?: string }[]
+  visual?: AssessmentVisual | null
   created_at: string
 }
 
@@ -110,6 +134,7 @@ export interface Scenario {
   context: string | null
   evaluation_criteria: string[]
   difficulty: string
+  visual?: AssessmentVisual | null
   created_at: string
 }
 
@@ -162,15 +187,7 @@ export interface StageRun {
 export const ARTIFACT_OPTIONS = [
   { value: 'electronic_book', label: 'Electronic Book' },
   { value: 'narration_audio', label: 'Audio Narration' },
-  { value: 'wiki_knowledge', label: 'Wiki Knowledge' },
   { value: 'wiki_json', label: 'Wiki Export' },
-] as const
-
-// Assessment outputs are selected individually; any combination may be generated.
-export const ASSESSMENT_ARTIFACT_OPTIONS = [
-  { value: 'flashcards', label: 'Flashcards' },
-  { value: 'quizzes', label: 'Quizzes' },
-  { value: 'scenarios', label: 'Scenarios' },
 ] as const
 
 export async function listWorkspaces(): Promise<Workspace[]> {
@@ -223,6 +240,10 @@ export async function uploadSource(workspaceId: string, file: File): Promise<Sou
   return uploadMultipart<Source>(`/workspaces/${workspaceId}/sources`, file)
 }
 
+export async function uploadStructuredData(workspaceId: string, file: File): Promise<Source> {
+  return uploadMultipart<Source>(`/workspaces/${workspaceId}/sources/structured-data`, file)
+}
+
 export async function listWikiEntries(
   workspaceId: string,
   search?: string,
@@ -271,7 +292,11 @@ export async function listProductionRuns(workspaceId: string): Promise<Productio
 
 export async function createProductionRun(
   workspaceId: string,
-  payload: { source_ids: string[]; target_artifacts: string[] },
+  payload: {
+    source_ids: string[]
+    target_artifacts: string[]
+    narration_restart_source_ids?: string[]
+  },
 ): Promise<ProductionRun> {
   return apiRequest<ProductionRun>(`/workspaces/${workspaceId}/production-runs`, {
     method: 'POST',

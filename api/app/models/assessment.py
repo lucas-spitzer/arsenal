@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.models.knowledge import AssessmentVisualResponse
 
 
 class FlashcardResponse(BaseModel):
@@ -18,6 +20,7 @@ class FlashcardResponse(BaseModel):
     tags: list[str]
     citations: list[dict[str, Any]]
     origin: dict[str, Any]
+    visual: AssessmentVisualResponse | None = None
     created_at: datetime
 
 
@@ -33,10 +36,13 @@ class QuizResponse(BaseModel):
     question_type: str
     options: list[Any]
     correct_answer: str
+    answer_pool: dict[str, Any] = Field(default_factory=dict)
+    bloom_level: str | None = None
     explanation: str | None
     difficulty: str
     citations: list[dict[str, Any]]
     origin: dict[str, Any]
+    visual: AssessmentVisualResponse | None = None
     created_at: datetime
 
 
@@ -53,7 +59,9 @@ class ScenarioResponse(BaseModel):
     context: str | None
     evaluation_criteria: list[Any]
     rubric: dict[str, Any] | None = None
+    bloom_level: str | None = None
     difficulty: str
     citations: list[dict[str, Any]]
     origin: dict[str, Any]
+    visual: AssessmentVisualResponse | None = None
     created_at: datetime

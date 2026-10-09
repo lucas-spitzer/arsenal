@@ -207,7 +207,7 @@ def test_put_design_image_stores_model_without_voice_or_reasoning() -> None:
     repo = FakeStageSettingsRepo()
     payload = StageSettingUpdate(
         provider="Google",
-        model=" gemini-3.1-flash-image ",
+        model=" gemini-nano-banana-2.1 ",
         reasoning_effort="high",
         reasoning_tokens=4096,
         voice_id="should-drop",
@@ -218,14 +218,14 @@ def test_put_design_image_stores_model_without_voice_or_reasoning() -> None:
     )
 
     assert repo.upserted[0]["provider"] == "google"
-    assert repo.upserted[0]["model"] == "gemini-3.1-flash-image"
+    assert repo.upserted[0]["model"] == "gemini-nano-banana-2.1"
     assert repo.upserted[0]["reasoning_effort"] is None
     assert repo.upserted[0]["reasoning_tokens"] is None
     assert repo.upserted[0]["voice_id"] is None
     assert result.is_overridden is True
-    assert result.model == "gemini-3.1-flash-image"
-    assert repo.upserted[0]["image_quality"] == "minimal"
-    assert result.image_quality == "minimal"
+    assert result.model == "gemini-nano-banana-2.1"
+    assert repo.upserted[0]["image_quality"] == "medium"
+    assert result.image_quality == "medium"
     assert result.voice_id is None
 
 

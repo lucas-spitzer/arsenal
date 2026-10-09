@@ -167,3 +167,23 @@ def test_wiki_knowledge_run_rejects_source_without_storage_path(
     assert "transcribe-wiki-notes" in [
         step["step"] for step in runs.rows["run-1"]["pipeline"]
     ]
+
+
+def test_run_rejects_structured_data_source() -> None:
+    runs = FakeProductionRunRepository()
+
+    with pytest.raises(ProductionRunValidationError, match="Structured data"):
+        asyncio.run(
+            create_and_enqueue_production_run(
+                workspace_id="ws-1",
+                owner_id="user-1",
+                source_ids=["src-1"],
+                target_artifacts=["wiki_knowledge"],
+                settings=object(),  # type: ignore[arg-type]
+                production_runs=runs,  # type: ignore[arg-type]
+                sources=[_source(source_kind="structured_data", filename="notes.json")],
+                batches=FakeBatchRepository(),  # type: ignore[arg-type]
+            ),
+        )
+
+    assert runs.rows == {}

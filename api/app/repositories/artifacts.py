@@ -67,3 +67,20 @@ class ArtifactRepository:
             return None
 
         return artifact
+
+    async def list_narration_for_source(
+        self,
+        source_id: str,
+        workspace_id: str,
+    ) -> list[dict[str, Any]]:
+        return await self.db.select_many(
+            "artifacts",
+            filters={
+                "source_id": f"eq.{source_id}",
+                "workspace_id": f"eq.{workspace_id}",
+                "artifact_type": "eq.narration_audio",
+            },
+        )
+
+    async def delete(self, artifact_id: str) -> None:
+        await self.db.delete("artifacts", filters={"id": f"eq.{artifact_id}"})

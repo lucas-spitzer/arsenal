@@ -2,12 +2,15 @@ import { Check, Info, RotateCcw, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { filterAndSortRecords, useOutputs } from '../../lib/academyOutputs'
+import { combineSeed, drawOptions, hasPool, pickVariants, seededRng } from '../../lib/answerPool'
 import type { Quiz } from '../../lib/workspaceApi'
 import {
   StudyHead,
   StudyPanel,
   StudySourceReference,
 } from './StudySessionChrome'
+import { AssessmentPicture } from './AssessmentPicture'
+import { showsStemImage } from '../../lib/assessmentVisual'
 import { useStudyFullscreen } from './useStudyFullscreen'
 
 // Quiz options are plain strings; correct_answer may be the option text, a
@@ -46,38 +49,82 @@ export function QuizView({
   const [selected, setSelected] = useState<number | null>(null)
   const [score, setScore] = useState(0)
   const [finished, setFinished] = useState(false)
+  const [sessionSeed, setSessionSeed] = useState(() => Date.now())
+  const [allVariants, setAllVariants] = useState(false)
   const targetAppliedRef = useRef<string | null>(null)
+
+  // One draw per question for the session, stable across the variant toggle.
+  const draws = useMemo(() => {
+    const drawn = new Map<string, ReturnType<typeof drawOptions>>()
+    for (const quiz of items) {
+      if (!hasPool(quiz.answer_pool)) continue
+      drawn.set(
+        quiz.id,
+        drawOptions(quiz.answer_pool, quiz.subtype ?? quiz.question_type, seededRng(combineSeed(sessionSeed, quiz.id))),
+      )
+    }
+    return drawn
+  }, [items, sessionSeed])
+
+  const run = useMemo(() => {
+    const chosen = allVariants
+      ? items
+      : pickVariants(items, seededRng(sessionSeed), targetId ? new Set([targetId]) : new Set())
+    return chosen.map((quiz) => {
+      const drawn = draws.get(quiz.id)
+      return {
+        quiz,
+        question: drawn?.question ?? quiz.question,
+        options: drawn?.options ?? quiz.options,
+        correct: drawn ? drawn.correct : null,
+      }
+    })
+  }, [allVariants, draws, items, sessionSeed, targetId])
 
   // Apply Library / console deep-link focus once the matching question is loaded.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!targetId || items.length === 0) return
+    if (!targetId || run.length === 0) return
     if (targetAppliedRef.current === targetId) return
-    const idx = items.findIndex((q) => q.id === targetId)
+    const idx = run.findIndex((item) => item.quiz.id === targetId)
     if (idx < 0) return
     setQIndex(idx)
     setSelected(null)
     setScore(0)
     setFinished(false)
     targetAppliedRef.current = targetId
-  }, [targetId, items])
+  }, [targetId, run])
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const resetRun = () => {
+    setSessionSeed(Date.now())
     setQIndex(0)
     setSelected(null)
     setScore(0)
     setFinished(false)
   }
-  const safeIndex = Math.min(qIndex, Math.max(items.length - 1, 0))
-  const quiz = items[safeIndex]
+  const toggleScope = () => {
+    setAllVariants((value) => !value)
+    setQIndex(0)
+    setSelected(null)
+    setScore(0)
+    setFinished(false)
+  }
+  const safeIndex = Math.min(qIndex, Math.max(run.length - 1, 0))
+  const current = run[safeIndex]
+  const quiz = current?.quiz
   const revealed = selected !== null
-  const isLast = safeIndex === items.length - 1
+  const isLast = safeIndex === run.length - 1
+  const optionCorrect = (option: string, index: number) => {
+    if (!quiz) return false
+    if (current.correct) return current.correct.includes(option)
+    return optionIsCorrect(quiz, option, index)
+  }
 
   const choose = (i: number) => {
-    if (selected !== null || !quiz) return
+    if (selected !== null || !current) return
     setSelected(i)
-    if (optionIsCorrect(quiz, quiz.options[i], i)) setScore((s) => s + 1)
+    if (optionCorrect(current.options[i], i)) setScore((s) => s + 1)
   }
 
   const next = () => {
@@ -105,8 +152,8 @@ export function QuizView({
       title="Quiz"
       description="Answer, review the rationale, and trace each item to its source."
       stats={[
-        { value: items.length, label: 'questions' },
-        { value: new Set(items.map((q) => q.source_id ?? '')).size, label: 'sources' },
+        { value: run.length, label: 'questions' },
+        { value: new Set(run.map((item) => item.quiz.source_id ?? '')).size, label: 'sources' },
       ]}
     />
   )
@@ -117,7 +164,7 @@ export function QuizView({
         {head}
         <div className="quiz quiz--result">
           <p className="quiz__score">
-            {score} of {items.length} correct
+            {score} of {run.length} correct
           </p>
           <p className="quiz__score-note">
             Review the source for any items you missed, then run the quiz again.
@@ -134,13 +181,18 @@ export function QuizView({
     <section className="study-session">
       {head}
 
-      {quiz ? (
+      {quiz && current ? (
         <>
+          <div className="quiz__scope">
+            <button type="button" className="study__btn" onClick={toggleScope}>
+              {allVariants ? 'One question per term' : 'Show every variant'}
+            </button>
+          </div>
           <StudyPanel
             fullscreen={fullscreen}
             onToggleFullscreen={toggle}
             meta={<span className={`pill pill--${quiz.difficulty}`}>{quiz.difficulty}</span>}
-            progress={{ current: safeIndex + 1, total: items.length }}
+            progress={{ current: safeIndex + 1, total: run.length }}
             pager={{
               onPrev: prev,
               onNext: next,
@@ -151,11 +203,14 @@ export function QuizView({
             }}
           >
             <div className="quiz">
-              <p className="quiz__question">{quiz.question}</p>
+              {quiz.visual?.url && showsStemImage(quiz.visual.placement) ? (
+                <AssessmentPicture visual={quiz.visual} text={current.question} />
+              ) : null}
+              <p className="quiz__question">{current.question}</p>
               <div className="quiz__options">
-                {quiz.options.map((opt, i) => {
+                {current.options.map((opt, i) => {
                   let cls = 'quiz__option'
-                  const correct = optionIsCorrect(quiz, opt, i)
+                  const correct = optionCorrect(opt, i)
                   const showCorrect = revealed && correct
                   const showWrong = revealed && i === selected && !correct
                   if (showCorrect) cls += ' is-correct'

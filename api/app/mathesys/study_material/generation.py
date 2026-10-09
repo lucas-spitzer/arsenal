@@ -102,15 +102,6 @@ def auto_aspect_ratio(template: Template, section: TemplateSection, *, sibling_c
     return min(_SUPPORTED_RATIOS, key=lambda ratio: abs(_SUPPORTED_RATIOS[ratio] - target))
 
 
-def orientation_label(aspect_ratio: str) -> str:
-    value = _SUPPORTED_RATIOS.get(aspect_ratio, 1.0)
-    if value > 1.05:
-        return "landscape"
-    if value < 0.95:
-        return "portrait"
-    return "square"
-
-
 class _TextCounter(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -206,7 +197,9 @@ def generate_image_component(
     resolution: str = "1K",
     thinking_level: str | None = None,
 ) -> GeneratedComponent:
-    prompt = image_prompt(ctx, orientation=orientation_label(aspect_ratio))
+    prompt = image_prompt(ctx.instructions)
+    if not prompt:
+        raise StudyMaterialGenerationError("The image has no instructions.")
     result = client.generate(
         ImageRequest(
             prompt=prompt,

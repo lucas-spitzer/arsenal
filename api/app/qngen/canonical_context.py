@@ -17,6 +17,9 @@ class ConceptCard(BaseModel):
     wiki_id: str
     preferred_label: str
     definition: str
+    entry_kind: str = "term"
+    significance: str | None = None
+    items: list[dict[str, Any]] = Field(default_factory=list)
     aliases: list[str] = Field(default_factory=list)
     pronunciation: str | None = None
     importance: Importance = "supporting"
@@ -96,6 +99,11 @@ def build_source_concepts(
                 wiki_id=str(entry["id"]),
                 preferred_label=str(entry.get("preferred_label") or ""),
                 definition=str(entry.get("definition") or ""),
+                entry_kind=str(entry.get("entry_kind") or "term"),
+                significance=(str(entry.get("significance")).strip() or None)
+                if entry.get("significance")
+                else None,
+                items=entry.get("items") if isinstance(entry.get("items"), list) else [],
                 aliases=[str(alias) for alias in (entry.get("aliases") or [])],
                 pronunciation=entry.get("pronunciation"),
                 importance=entry.get("importance") or "supporting",
@@ -238,7 +246,10 @@ def format_concepts_for_llm(concepts: list[ConceptCard]) -> str:
         {
             "wiki_id": concept.wiki_id,
             "preferred_label": concept.preferred_label,
+            "entry_kind": concept.entry_kind,
             "definition": concept.definition,
+            "significance": concept.significance,
+            "items": concept.items,
             "aliases": concept.aliases,
             "pronunciation": concept.pronunciation,
             "importance": concept.importance,

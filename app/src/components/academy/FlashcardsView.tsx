@@ -6,6 +6,7 @@ import {
   StudyPanel,
   StudySourceReference,
 } from './StudySessionChrome'
+import { FlashcardFace } from './AssessmentPicture'
 import { useStudyFullscreen } from './useStudyFullscreen'
 
 export function FlashcardsView({
@@ -119,7 +120,11 @@ export function FlashcardsView({
               <span className="flashcard__side">
                 {flipped ? 'Back · tap to flip' : 'Front · tap to flip'}
               </span>
-              <span className="flashcard__body">{flipped ? card.back : card.front}</span>
+              <FlashcardFace
+                side={flipped ? 'back' : 'front'}
+                text={flipped ? card.back : card.front}
+                visual={card.visual}
+              />
             </button>
           </StudyPanel>
 

@@ -135,6 +135,24 @@ def study_material_output_path(workspace_slug: str, material_slug: str, filename
     return f"{study_material_folder(workspace_slug, material_slug)}/{filename}"
 
 
+def knowledge_notes_path(workspace_slug: str, project_id: str, filename: str) -> str:
+    return f"{workspace_slug}/knowledge/{project_id}/notes/{filename}"
+
+
+def source_knowledge_notes_path(
+    workspace_slug: str,
+    source_slug: str,
+    project_id: str,
+    filename: str,
+) -> str:
+    """JSON notes for a knowledge project, kept with the book they describe."""
+    return f"{source_folder(workspace_slug, source_slug)}/knowledge/{project_id}/{filename}"
+
+
+def knowledge_visual_path(workspace_slug: str, project_id: str, plan_id: str, filename: str) -> str:
+    return f"{workspace_slug}/knowledge/{project_id}/visuals/{plan_id}/{filename}"
+
+
 def location_from_source(source: dict[str, Any]) -> tuple[str, str]:
     workspace_slug = str(source.get("workspace_slug") or "").strip()
     source_slug = str(source.get("slug") or "").strip()

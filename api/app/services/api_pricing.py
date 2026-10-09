@@ -101,11 +101,28 @@ IMAGE_MODEL_RATES: dict[str, TokenRates] = {
         input_per_million=_float_env("GOOGLE_FLASH_IMAGE_INPUT_PER_M", 0.50),
         output_per_million=_float_env("GOOGLE_FLASH_IMAGE_OUTPUT_PER_M", 60.00),
     ),
+    "gemini-nano-banana-2.1": TokenRates(
+        input_per_million=_float_env("GOOGLE_NANO_BANANA_21_INPUT_PER_M", 1.50),
+        output_per_million=_float_env("GOOGLE_NANO_BANANA_21_OUTPUT_PER_M", 30.00),
+    ),
     "gemini-3-pro-image": TokenRates(
         input_per_million=_float_env("GOOGLE_PRO_IMAGE_INPUT_PER_M", 2.00),
         output_per_million=_float_env("GOOGLE_PRO_IMAGE_OUTPUT_PER_M", 120.00),
     ),
 }
+
+# grok-imagine-image-2.0 bills per image, not per token.
+# https://docs.x.ai/developers/models/grok-imagine-image-2.0
+XAI_IMAGE_INPUT_USD = 0.01
+XAI_IMAGE_OUTPUT_USD: dict[tuple[str, str], float] = {
+    ("1K", "low"): 0.04,
+    ("1.5K", "low"): 0.05,
+    ("2K", "low"): 0.06,
+    ("1K", "medium"): 0.06,
+    ("1.5K", "medium"): 0.07,
+    ("2K", "medium"): 0.08,
+}
+XAI_IMAGE_1K_MEDIUM_PRICE = XAI_IMAGE_OUTPUT_USD[("1K", "medium")]
 
 DEFAULT_IMAGE_RATES = TokenRates(
     input_per_million=_float_env("IMAGE_DEFAULT_INPUT_PER_M", 5.00),
@@ -322,6 +339,27 @@ def cost_image_usage(
         "model": model or "unknown",
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "input_cost_usd": _round_usd(input_cost),
+        "output_cost_usd": _round_usd(output_cost),
+        "cost_usd": _round_usd(input_cost + output_cost),
+    }
+
+
+def cost_xai_image_usage(
+    *,
+    model: str | None,
+    resolution: str,
+    quality: str,
+    reference_images: int,
+) -> dict[str, Any]:
+    """Per-image list price. Text in the prompt is free. Each reference image is $0.01."""
+    output_cost = XAI_IMAGE_OUTPUT_USD.get((resolution, quality), XAI_IMAGE_1K_MEDIUM_PRICE)
+    input_cost = max(reference_images, 0) * XAI_IMAGE_INPUT_USD
+    return {
+        "provider": "xai",
+        "model": model or "unknown",
+        "input_tokens": 0,
+        "output_tokens": 0,
         "input_cost_usd": _round_usd(input_cost),
         "output_cost_usd": _round_usd(output_cost),
         "cost_usd": _round_usd(input_cost + output_cost),

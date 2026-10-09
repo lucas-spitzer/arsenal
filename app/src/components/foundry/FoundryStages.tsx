@@ -20,6 +20,7 @@ import {
   stageRunTokens,
 } from '../../lib/foundryMappers'
 import { FoundryDialog } from './FoundryDialog'
+import { FoundryLoader } from './FoundryLoader'
 import { FoundryViewToggle } from './FoundryViewToggle'
 import { ErrorBanner } from './ErrorBanner'
 import { moduleLabel } from './moduleLabel'
@@ -87,7 +88,9 @@ export function FoundryStages() {
           <span className="as-count">{filtered.length} requests</span>
         </div>
         {isLoading && filtered.length === 0 ? (
-          <div className="as-console__empty">Loading API requests…</div>
+          <div className="as-console__empty">
+            <FoundryLoader label="Loading API requests" size="sm" />
+          </div>
         ) : filtered.length === 0 ? (
           <div className="as-console__empty">No API requests yet. Start a production run from OPS.</div>
         ) : view === 'list' ? (

@@ -33,7 +33,7 @@
   },
   "logos": [],
   "default_logo_id": null,
-  "disclaimer": null,
+  "disclaimer": "Unofficial — Not endorsed by the Department of Defense or United States Marine Corps.",
   "guidance": {
     "typography": "Headings are bold condensed Arial in navy (#001E2E). Body text is Arial in black. Prefer plain sentence-case headings.",
     "illustration": "Grayscale line illustration: black strokes on white with at most two flat gray tones. No color, no gradients, no shading texture, no text inside the image. Plain white background. Must photocopy cleanly.",

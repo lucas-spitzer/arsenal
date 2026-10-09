@@ -7,21 +7,24 @@ import io
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+import httpx
 from PIL import Image
 
 from app.config import get_settings
 from app.llm_defaults import (
     GEMINI_3_PRO_IMAGE_MODEL,
-    GEMINI_31_FLASH_IMAGE_MODEL,
+    GEMINI_NANO_BANANA_21_MODEL,
+    GROK_IMAGINE_IMAGE_2_MODEL,
     OPENAI_IMAGE_FLARE_MODEL,
     OPENAI_IMAGE_SUNBURST_MODEL,
 )
 from app.mathesys.study_material.inputs import ComponentFile
 
-IMAGE_PROVIDERS = ("openai", "google")
+IMAGE_PROVIDERS = ("openai", "google", "xai")
 IMAGE_MODELS: dict[str, tuple[str, ...]] = {
     "openai": (OPENAI_IMAGE_FLARE_MODEL, OPENAI_IMAGE_SUNBURST_MODEL),
-    "google": (GEMINI_31_FLASH_IMAGE_MODEL, GEMINI_3_PRO_IMAGE_MODEL),
+    "google": (GEMINI_NANO_BANANA_21_MODEL, GEMINI_3_PRO_IMAGE_MODEL),
+    "xai": (GROK_IMAGINE_IMAGE_2_MODEL,),
 }
 ASPECT_RATIOS = ("auto", "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16")
 OPENAI_QUALITIES = ("low", "medium", "high", "xhigh", "max")
@@ -29,11 +32,18 @@ OPENAI_RESOLUTIONS = ("1K", "2K", "4K")
 GOOGLE_FLASH_SIZES = ("0.5K", "1K", "2K", "4K")
 GOOGLE_PRO_SIZES = ("1K", "2K", "4K")
 GOOGLE_IMAGE_SIZES = GOOGLE_FLASH_SIZES
-GOOGLE_THINKING_LEVELS = ("minimal", "high")
+GOOGLE_THINKING_LEVELS = ("minimal", "medium", "high")
+XAI_QUALITIES = ("low", "medium")
+XAI_RESOLUTIONS = ("1K", "1.5K", "2K")
 DEFAULT_OPENAI_QUALITY = "high"
 DEFAULT_OPENAI_RESOLUTION = "1K"
 DEFAULT_GOOGLE_IMAGE_SIZE = "2K"
-DEFAULT_GOOGLE_THINKING = "minimal"
+DEFAULT_GOOGLE_THINKING = "medium"
+DEFAULT_XAI_QUALITY = "medium"
+DEFAULT_XAI_RESOLUTION = "1K"
+XAI_IMAGE_GENERATIONS_URL = "https://api.x.ai/v1/images/generations"
+XAI_IMAGE_EDITS_URL = "https://api.x.ai/v1/images/edits"
+XAI_MAX_REFERENCE_IMAGES = 5
 
 # OpenAI takes pixel sizes. 1K keeps the sizes already used for these ratios.
 # 2K and 4K stay inside the Image API limits: edges are multiples of 16, no
@@ -78,9 +88,12 @@ def openai_pixel_size(aspect_ratio: str, resolution: str) -> str:
 
 
 def google_sizes_for_model(model: str) -> tuple[str, ...]:
-    if model == GEMINI_31_FLASH_IMAGE_MODEL:
-        return GOOGLE_FLASH_SIZES
-    return GOOGLE_PRO_SIZES
+    """Resolutions this Google image model accepts. Neither current model offers 0.5K."""
+    sizes = {
+        GEMINI_NANO_BANANA_21_MODEL: GOOGLE_PRO_SIZES,
+        GEMINI_3_PRO_IMAGE_MODEL: GOOGLE_PRO_SIZES,
+    }
+    return sizes.get(model, GOOGLE_PRO_SIZES)
 
 
 def google_api_image_size(image_size: str) -> str:
@@ -99,14 +112,18 @@ def image_control_catalog() -> dict[str, Any]:
     return {
         "openai": openai,
         "google": {
-            GEMINI_31_FLASH_IMAGE_MODEL: {
+            GEMINI_NANO_BANANA_21_MODEL: {
                 "qualities": list(GOOGLE_THINKING_LEVELS),
-                "resolutions": list(GOOGLE_FLASH_SIZES),
+                "resolutions": list(GOOGLE_PRO_SIZES),
             },
             GEMINI_3_PRO_IMAGE_MODEL: {
                 "qualities": [],
                 "resolutions": list(GOOGLE_PRO_SIZES),
             },
+        },
+        "xai": {
+            "qualities": list(XAI_QUALITIES),
+            "resolutions": list(XAI_RESOLUTIONS),
         },
     }
 
@@ -114,12 +131,16 @@ def image_control_catalog() -> dict[str, Any]:
 def stage_image_options(provider: str, model: str) -> tuple[tuple[str, ...], str]:
     """Quality choices and the default for a stage image model.
 
-    Quality is OpenAI's quality scale, or Gemini Flash thinking (minimal or high).
+    Quality is OpenAI's quality scale, Nano Banana thinking (minimal, medium, or high),
+    or Grok Imagine's low and medium.
     """
-    if (provider or "").strip().lower() == "google":
-        if model == GEMINI_31_FLASH_IMAGE_MODEL:
+    normalized = (provider or "").strip().lower()
+    if normalized == "google":
+        if model == GEMINI_NANO_BANANA_21_MODEL:
             return GOOGLE_THINKING_LEVELS, DEFAULT_GOOGLE_THINKING
         return (), ""
+    if normalized == "xai":
+        return XAI_QUALITIES, DEFAULT_XAI_QUALITY
     return OPENAI_QUALITIES, DEFAULT_OPENAI_QUALITY
 
 
@@ -266,7 +287,7 @@ class GoogleImageClient:
         if image_size not in allowed_sizes:
             image_size = DEFAULT_GOOGLE_IMAGE_SIZE
         thinking_level = request.thinking_level if request.thinking_level in GOOGLE_THINKING_LEVELS else None
-        send_thinking = self.model == GEMINI_31_FLASH_IMAGE_MODEL and thinking_level == "high"
+        send_thinking = self.model == GEMINI_NANO_BANANA_21_MODEL and thinking_level in GOOGLE_THINKING_LEVELS
         contents: list[Any] = [
             types.Part.from_bytes(data=item.content, mime_type=item.mime_type)
             for item in request.references
@@ -281,7 +302,7 @@ class GoogleImageClient:
             ),
         }
         if send_thinking:
-            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="high")
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
         response = self._client.models.generate_content(
             model=self.model,
             contents=contents,
@@ -319,8 +340,124 @@ class GoogleImageClient:
             settings={
                 "aspect_ratio": aspect,
                 "image_size": image_size,
-                "thinking_level": "high" if send_thinking else None,
+                "thinking_level": thinking_level if send_thinking else None,
                 "reference_count": len(contents) - 1,
+            },
+        )
+
+
+def xai_image_call(model: str, request: ImageRequest) -> tuple[str, dict[str, Any]]:
+    """URL and JSON body for one Grok Imagine generation or edit.
+
+    The OpenAI SDK's multipart ``images.edit`` is not accepted by xAI.
+    Reference images go in the JSON body as data URIs.
+    """
+    quality = request.quality if request.quality in XAI_QUALITIES else DEFAULT_XAI_QUALITY
+    resolution = request.resolution if request.resolution in XAI_RESOLUTIONS else DEFAULT_XAI_RESOLUTION
+    aspect = request.aspect_ratio if request.aspect_ratio in ASPECT_RATIOS else "1:1"
+    references = [item for item in request.references if item.is_image]
+    if len(references) > XAI_MAX_REFERENCE_IMAGES:
+        raise ImageGenerationError(
+            f"Grok Imagine accepts at most {XAI_MAX_REFERENCE_IMAGES} reference images.",
+        )
+    body: dict[str, Any] = {
+        "model": model,
+        "prompt": request.prompt,
+        "aspect_ratio": aspect,
+        "resolution": resolution.lower(),
+        "quality": quality,
+        "response_format": "b64_json",
+    }
+    if not references:
+        body["n"] = 1
+        return XAI_IMAGE_GENERATIONS_URL, body
+    encoded = [
+        {
+            "type": "image_url",
+            "url": f"data:{item.mime_type};base64,{base64.b64encode(item.content).decode('ascii')}",
+        }
+        for item in references
+    ]
+    if len(encoded) == 1:
+        body["image"] = encoded[0]
+    else:
+        body["images"] = encoded
+    return XAI_IMAGE_EDITS_URL, body
+
+
+def _xai_error_message(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            return str(error["message"])
+        if isinstance(error, str) and error:
+            return error
+    text = response.text.strip()
+    return text[:300] or f"HTTP {response.status_code}"
+
+
+def _xai_image_bytes(payload: dict[str, Any]) -> bytes:
+    if payload.get("respect_moderation") is False:
+        raise ImageGenerationError("xAI filtered the generated image.")
+    items = payload.get("data")
+    item = items[0] if isinstance(items, list) and items else None
+    if not isinstance(item, dict):
+        raise ImageGenerationError("xAI returned no image data.")
+    if item.get("respect_moderation") is False:
+        raise ImageGenerationError("xAI filtered the generated image.")
+    encoded = item.get("b64_json")
+    if isinstance(encoded, str) and encoded:
+        return base64.b64decode(encoded)
+    url = item.get("url")
+    if isinstance(url, str) and url.startswith("https://"):
+        downloaded = httpx.get(url, timeout=60, follow_redirects=True)
+        downloaded.raise_for_status()
+        return downloaded.content
+    raise ImageGenerationError("xAI returned no image data.")
+
+
+class XAIImageClient:
+    provider = "xai"
+
+    def __init__(self, model: str) -> None:
+        api_key = get_settings().llm.xai_api_key
+        if not api_key:
+            raise RuntimeError("Missing required environment variable: XAI_API_KEY")
+        self.model = model
+        self._api_key = api_key
+
+    def generate(self, request: ImageRequest) -> ImageResult:
+        url, body = xai_image_call(self.model, request)
+        response = httpx.post(
+            url,
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json=body,
+            timeout=180,
+        )
+        if response.status_code >= 400:
+            raise ImageGenerationError(f"xAI image request failed: {_xai_error_message(response)}")
+        data = _xai_image_bytes(response.json())
+        width, height, mime = _dimensions(data)
+        quality = str(body["quality"])
+        resolution = request.resolution if request.resolution in XAI_RESOLUTIONS else DEFAULT_XAI_RESOLUTION
+        reference_count = len([item for item in request.references if item.is_image])
+        return ImageResult(
+            data=data,
+            mime_type=mime,
+            width=width,
+            height=height,
+            model=self.model,
+            provider=self.provider,
+            token_usage={"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+            settings={
+                "aspect_ratio": body["aspect_ratio"],
+                "quality": quality,
+                "resolution": resolution,
+                "reference_count": reference_count,
             },
         )
 
@@ -329,6 +466,8 @@ def _env_image_model(provider: str) -> str:
     settings = get_settings().study_material
     if provider == "openai":
         return settings.openai_image_model
+    if provider == "xai":
+        return settings.xai_image_model
     return settings.google_image_model
 
 
@@ -388,19 +527,25 @@ def resolve_image_settings(
         provider = env_provider
         model = _env_image_model(provider)
 
+    if model == "gemini-3.1-flash-image":
+        model = GEMINI_NANO_BANANA_21_MODEL
     env_model = _env_image_model(provider)
     if model not in IMAGE_MODELS[provider] and model != env_model:
         model = env_model
     aspect = str(raw.get("aspect_ratio") or "auto")
-    quality = _chosen(raw, "quality", default_quality, OPENAI_QUALITIES, DEFAULT_OPENAI_QUALITY)
-    resolution = _chosen(raw, "resolution", None, OPENAI_RESOLUTIONS, DEFAULT_OPENAI_RESOLUTION)
+    if provider == "xai":
+        quality = _chosen(raw, "quality", default_quality, XAI_QUALITIES, DEFAULT_XAI_QUALITY)
+        resolution = _chosen(raw, "resolution", None, XAI_RESOLUTIONS, DEFAULT_XAI_RESOLUTION)
+    else:
+        quality = _chosen(raw, "quality", default_quality, OPENAI_QUALITIES, DEFAULT_OPENAI_QUALITY)
+        resolution = _chosen(raw, "resolution", None, OPENAI_RESOLUTIONS, DEFAULT_OPENAI_RESOLUTION)
     image_size = _chosen(raw, "image_size", None, GOOGLE_FLASH_SIZES, DEFAULT_GOOGLE_IMAGE_SIZE)
-    if provider == "google" and model != GEMINI_31_FLASH_IMAGE_MODEL and image_size == "0.5K":
+    if provider == "google" and image_size == "0.5K":
         image_size = "1K"
     elif image_size not in GOOGLE_FLASH_SIZES:
         image_size = DEFAULT_GOOGLE_IMAGE_SIZE
     explicit_thinking = str(raw.get("thinking_level") or "").strip().lower()
-    if provider == "google" and model == GEMINI_31_FLASH_IMAGE_MODEL:
+    if provider == "google" and model == GEMINI_NANO_BANANA_21_MODEL:
         if explicit_thinking:
             thinking_level = (
                 explicit_thinking
@@ -417,8 +562,8 @@ def resolve_image_settings(
         "provider": provider,
         "model": model,
         "aspect_ratio": aspect if aspect in ASPECT_RATIOS else "auto",
-        "quality": quality if quality in OPENAI_QUALITIES else DEFAULT_OPENAI_QUALITY,
-        "resolution": resolution if resolution in OPENAI_RESOLUTIONS else DEFAULT_OPENAI_RESOLUTION,
+        "quality": quality,
+        "resolution": resolution,
         "image_size": image_size,
         "thinking_level": thinking_level or None,
     }
@@ -427,4 +572,6 @@ def resolve_image_settings(
 def get_image_client(provider: str, model: str) -> ImageClient:
     if provider == "google":
         return GoogleImageClient(model)
+    if provider == "xai":
+        return XAIImageClient(model)
     return OpenAIImageClient(model)

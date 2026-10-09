@@ -1,8 +1,8 @@
 """Transcribe wiki note attachments into markdown for structuring.
 
-Text formats (``.md``, ``.txt``) are decoded as UTF-8. Binary formats (PDF,
-DOCX, images) go through LlamaParse. Multi-file batches are concatenated in
-upload order with ``\\n\\n---\\n\\n`` separators.
+Text formats (``.md``, ``.txt``) are decoded as UTF-8. JSON is not a note
+attachment; upload it as a structured data source instead. Binary formats (PDF, DOCX, images) go through LlamaParse. Multi-file batches
+are concatenated in upload order with ``\\n\\n---\\n\\n`` separators.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ TEXT_MIME_TYPES = {
     "text/x-markdown",
     "application/markdown",
 }
+JSON_MIME_TYPES = {"application/json", "text/json"}
 
 # Binary — LlamaParse.
 BINARY_EXTENSIONS = {
@@ -116,6 +117,14 @@ def resolve_attachment_mime_type(
     ext = _extension(filename)
     declared = (content_type or "").split(";", 1)[0].strip().lower()
 
+    if ext == ".json" or (
+        declared in JSON_MIME_TYPES and ext not in TEXT_EXTENSIONS and ext not in BINARY_EXTENSIONS
+    ):
+        raise WikiTranscriptionError(
+            "JSON is not a notes file. Upload it as a structured data source "
+            "in Sources, then pick it when you start the project.",
+        )
+
     if ext in TEXT_EXTENSIONS or declared in TEXT_MIME_TYPES:
         mime = (
             declared
@@ -190,7 +199,7 @@ def attachment_storage_path(
 
 def decode_text_attachment(content: bytes, *, filename: str) -> str:
     try:
-        text = content.decode("utf-8")
+        text = content.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise WikiTranscriptionError(
             f"Could not decode '{filename}' as UTF-8 text.",

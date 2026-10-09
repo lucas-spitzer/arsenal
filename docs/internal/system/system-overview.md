@@ -23,11 +23,11 @@ Foundry produces. Academy curates. Wiki has the in-product write path (edit, dep
 
 Do not stuff wiki into Mathesys, or flashcards into the artifact catalog.
 
-| Kind | Owner | What it is | Live targets today |
+| Kind | Owner | What it is | Where it starts |
 |------|--------|------------|--------------------|
-| **Wiki entries** | Intellex | Canonical `wiki_entries` (live knowledge). `wiki_json` is only a Mathesys snapshot of that work | `wiki_knowledge` |
-| **Artifacts** | Mathesys | Stored files | `electronic_book`, `narration_audio`, `wiki_json`, `study_material` (Design tab, not a `target_artifact`) |
-| **Assessments** | QnGen | Rows: flashcards, quizzes, scenarios | `flashcards`, `quizzes`, `scenarios` |
+| **Wiki entries** | Intellex | Canonical `wiki_entries` (live knowledge). `wiki_json` is only a Mathesys snapshot of that work | Knowledge project, Run 1 |
+| **Artifacts** | Mathesys | Stored files | OPS: `electronic_book`, `narration_audio`, `wiki_json`. Design: `study_material` |
+| **Assessments** | QnGen | Rows: flashcards, quizzes, scenarios | Knowledge project, Run 2 |
 
 `web_explainer` is catalogued as a future Mathesys type. It is not a live `target_artifact`.
 
@@ -36,26 +36,25 @@ Do not stuff wiki into Mathesys, or flashcards into the artifact catalog.
 Intellex is a knowledge base in two senses. Keep them distinct.
 
 1. **Structured source** — ingest writes `document_chapters`, `ndr_segments`, and research/enrichment. Mathesys ebook and narration read this. Study sheets read the original source file.
-2. **Canonical wiki** — Wiki Knowledge treats each selected source file as notes (`transcribe-wiki-notes` → `structure-wiki-notes`) and writes `wiki_entries`. QnGen reads canonical entries plus evidence segments. Academy edits that set.
+2. **Canonical wiki** — A knowledge project in Forge Knowledge uploads notes (or pasted text) against an already ingested book. Run 1 is `transcribe-wiki-notes` then `structure-wiki-notes`. The batch attachment is the notes file. The batch `source_id` is the book, so evidence still lands on that book's segments. Academy edits the resulting entries.
 
-Knowledge is not extracted as a leftover Intellex ingest stage. Ingest does not promote wiki entries.
+Knowledge is not extracted as a leftover Intellex ingest stage. Ingest does not promote wiki entries. OPS New Run does not offer Wiki Knowledge or assessment targets. Those stages still exist for a knowledge project's own production runs.
 
 ## Production run
 
 A **production run** is one work order: selected sources plus `target_artifacts`. One table, one OPS timeline.
 
 - Upload enqueues an **ingest-only** run (`target_artifacts` empty). Intellex base: store → parse → normalize → trim → structure → validate → chunk → source-research. Later runs reuse ingest when the source is already processed. `web-enrichment` runs only when `electronic_book` is a target, immediately before `create-ebook`.
-- `wiki_knowledge` is an **Intellex** target on the same run, not a Mathesys artifact. It runs after ingest so QnGen in the same run can use the new entries.
-- Other targets append Mathesys and/or QnGen steps.
+- OPS New Run targets are ebook, narration, and wiki export. A knowledge project uses its own runs: `knowledge_structure` (transcribe and structure), `knowledge_draft` (the assessment stages that were turned on, then `attach-visuals`), and `knowledge_visuals` (attach only, when an image changes later).
+- Study material stays a Design-tab run with its own pipeline. It is not a `target_artifact`.
 
 ## Loop (as shipped)
 
 1. Upload a source in Foundry → ingest-only production run.
-2. New Run: pick sources and targets.
-3. Intellex wiki target (optional) writes canonical entries.
-4. Mathesys (optional) packages the structured source — or the original file, for study sheets.
-5. QnGen (optional) builds assessments from curated wiki.
-6. Academy Library is where those three kinds are found, opened, and (for wiki) edited.
+2. New Run: pick sources and ebook, narration, or wiki export.
+3. Forge Knowledge, Study material: configure a sheet from the original file, then generate.
+4. Forge Knowledge, Knowledge: upload notes against an ingested book. Run 1 writes wiki entries. Compose turns flashcards on per entry and questions or scenarios on for the project, and can attach a flashcard image. Run 2 drafts only those items and attaches uploaded files. A later image change is an attach-only run.
+5. Academy Library is where artifacts, wiki entries, and assessments are found, opened, and (for wiki) edited. Flashcard, question, and scenario images render from placement. The reader and the wiki editor stay text.
 
 ## Direction
 

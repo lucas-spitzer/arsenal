@@ -5,8 +5,8 @@ where it came from (today: the manual authoring flow; formerly: extraction).
 ``promote_candidates`` turns a candidate set into insert/update payloads for
 ``wiki_entries`` while enforcing the workspace's slug-uniqueness and merge
 semantics: aliases union, evidence records dedup on ``(source_id, segment_id)``,
-importance keeps the higher tier, and a term/concept pair for the same subject
-collapses into one entry while insights diverge to a kind-suffixed slug.
+importance keeps the higher tier, and a term and a list for the same label
+stay on different slugs. Two lists union their items by name.
 """
 
 from __future__ import annotations
@@ -14,31 +14,25 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.intellex.wiki_slug import normalize_slug
 
 Importance = Literal["essential", "supporting", "contextual"]
-EntryKind = Literal["term", "concept", "insight"]
+EntryKind = Literal["term", "list"]
 
-ENTRY_KIND_PRIORITY = {"concept": 2, "term": 1, "insight": 0}
+
+def canonical_kind(entry_kind: str) -> EntryKind:
+    """Map a stored or proposed kind onto ``term`` or ``list``.
+
+    Older rows used ``concept`` and ``insight``. Both are terms.
+    """
+    return "list" if str(entry_kind or "").strip().lower() == "list" else "term"
 
 
 def merge_group(entry_kind: str) -> str:
-    """Group key for dedup: ``term`` and ``concept`` collapse together.
-
-    A subject captured as both a term and a concept describes the same
-    vocabulary item and must not become two wiki entries. Insights are headline
-    takeaways with distinct labels, so they stay in their own group.
-    """
-    return "definitional" if entry_kind in {"term", "concept"} else entry_kind
-
-
-def pick_entry_kind(existing: str, proposed: str) -> str:
-    """Return the richer of two entry kinds (concept > term > insight)."""
-    if ENTRY_KIND_PRIORITY.get(proposed, 0) > ENTRY_KIND_PRIORITY.get(existing, 0):
-        return proposed
-    return existing
+    """A term and a list with the same label are different entries."""
+    return canonical_kind(entry_kind)
 
 
 def pick_importance(existing: str, proposed: str) -> str:
@@ -49,7 +43,10 @@ def pick_importance(existing: str, proposed: str) -> str:
 class WikiCandidate(BaseModel):
     label: str
     definition: str
-    entry_kind: EntryKind = "concept"
+    entry_kind: EntryKind = "term"
+    significance: str | None = None
+    category: str | None = None
+    items: list[dict[str, Any]] = Field(default_factory=list)
     aliases: list[str] = Field(default_factory=list)
     prerequisite_labels: list[str] = Field(default_factory=list)
     pronunciation: str | None = None
@@ -59,6 +56,16 @@ class WikiCandidate(BaseModel):
     evidence: list[dict[str, Any]] = Field(default_factory=list)
     origin: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("entry_kind", mode="before")
+    @classmethod
+    def _coerce_kind(cls, value: object) -> EntryKind:
+        return canonical_kind(str(value or "term"))
+
+    @field_validator("items", mode="before")
+    @classmethod
+    def _coerce_items(cls, value: object) -> list[dict[str, Any]]:
+        return normalize_items(value)
+
 
 def candidate_slug(
     candidate: WikiCandidate,
@@ -67,9 +74,8 @@ def candidate_slug(
     base = normalize_slug(candidate.label)
     existing = entries_by_slug.get(base)
 
-    # Only diverge to a kind-suffixed slug when the existing entry is in a
-    # different merge group (e.g. an insight vs a term/concept).
-    if existing and merge_group(str(existing.get("entry_kind") or "concept")) != merge_group(
+    # A term and a list do not share a slug. The new row takes a kind suffix.
+    if existing and merge_group(str(existing.get("entry_kind") or "term")) != merge_group(
         candidate.entry_kind
     ):
         return f"{base}--{candidate.entry_kind}"
@@ -87,6 +93,63 @@ def definitions_conflict(existing: str, proposed: str) -> bool:
 
     shorter, longer = sorted([existing, proposed], key=len)
     return shorter not in longer
+
+
+def normalize_items(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for raw in value:
+        if isinstance(raw, str):
+            name = raw.strip()
+            details = ""
+        elif isinstance(raw, dict):
+            name = str(raw.get("name") or raw.get("label") or "").strip()
+            details = str(raw.get("details") or raw.get("definition") or "").strip()
+        else:
+            continue
+        if name:
+            items.append({"name": name, "details": details})
+    return items
+
+
+def merge_items(
+    existing: list[dict[str, Any]] | None,
+    proposed: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Keep existing order, then append names that are not already present."""
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in normalize_items(existing) + normalize_items(proposed):
+        key = item["name"].casefold()
+        if key in seen:
+            continue
+        merged.append(item)
+        seen.add(key)
+    return merged
+
+
+def _optional_text(existing: object, proposed: object, *, replace: bool) -> str | None:
+    existing_text = str(existing or "").strip() or None
+    proposed_text = str(proposed or "").strip() or None
+    if replace and proposed_text:
+        return proposed_text
+    return existing_text or proposed_text
+
+
+def entry_embedding_text(
+    label: str,
+    definition: str,
+    *,
+    significance: object = None,
+    items: object = None,
+) -> str:
+    parts = [label.strip(), definition.strip(), str(significance or "").strip()]
+    for item in normalize_items(items):
+        parts.append(item["name"])
+        if item["details"]:
+            parts.append(item["details"])
+    return ". ".join(part for part in parts if part)
 
 
 def merge_evidence(
@@ -143,6 +206,9 @@ def promote_candidates(
                 "preferred_label": candidate.label,
                 "canonical_slug": slug,
                 "definition": candidate.definition,
+                "significance": candidate.significance,
+                "category": candidate.category,
+                "items": candidate.items,
                 "pronunciation": candidate.pronunciation,
                 "aliases": candidate.aliases,
                 "prerequisites": [],
@@ -173,6 +239,7 @@ def promote_candidates(
             }
             - {str(existing.get("preferred_label") or "")},
         )
+        replace_text = conflict and override_conflicts
         updates.append(
             {
                 "id": existing["id"],
@@ -181,16 +248,24 @@ def promote_candidates(
                     if conflict
                     else existing.get("definition") or candidate.definition
                 ),
+                "significance": _optional_text(
+                    existing.get("significance"),
+                    candidate.significance,
+                    replace=replace_text,
+                ),
+                "category": _optional_text(
+                    existing.get("category"),
+                    candidate.category,
+                    replace=replace_text,
+                ),
+                "items": merge_items(existing.get("items"), candidate.items),
                 "pronunciation": existing.get("pronunciation") or candidate.pronunciation,
                 "aliases": merged_aliases,
                 "importance": pick_importance(
                     str(existing.get("importance") or "supporting"),
                     candidate.importance,
                 ),
-                "entry_kind": pick_entry_kind(
-                    str(existing.get("entry_kind") or "concept"),
-                    candidate.entry_kind,
-                ),
+                "entry_kind": canonical_kind(str(existing.get("entry_kind") or candidate.entry_kind)),
                 "status": "canonical",
                 "evidence": merge_evidence(existing.get("evidence") or [], candidate.evidence),
                 "origin": candidate.origin,

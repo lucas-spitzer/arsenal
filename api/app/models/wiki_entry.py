@@ -1,19 +1,36 @@
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+class WikiListItem(BaseModel):
+    name: str = Field(min_length=1)
+    details: str = ""
 
 
 class WikiEntryCreate(BaseModel):
     """Single manual entry, no LLM (quick add)."""
 
     preferred_label: str = Field(min_length=1)
-    definition: str = Field(min_length=1)
-    entry_kind: Literal["term", "concept", "insight"] = "concept"
+    definition: str = ""
+    entry_kind: Literal["term", "list"] = "term"
     importance: Literal["essential", "supporting", "contextual"] = "supporting"
     aliases: list[str] = Field(default_factory=list)
     pronunciation: str | None = None
+    significance: str | None = None
+    category: str | None = None
+    items: list[WikiListItem] = Field(default_factory=list)
     origin: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def require_body(self) -> Self:
+        if self.entry_kind == "list":
+            if not self.definition.strip() and not self.items:
+                raise ValueError("A list needs an overview or at least one item.")
+        elif not self.definition.strip():
+            raise ValueError("A term needs a definition.")
+        return self
 
 
 class WikiReviseRequest(BaseModel):
@@ -29,10 +46,13 @@ class WikiReviseProposal(BaseModel):
 class WikiEntryUpdate(BaseModel):
     preferred_label: str | None = None
     definition: str | None = None
-    entry_kind: Literal["term", "concept", "insight"] | None = None
+    entry_kind: Literal["term", "list"] | None = None
     importance: Literal["essential", "supporting", "contextual"] | None = None
     aliases: list[str] | None = None
     pronunciation: str | None = None
+    significance: str | None = None
+    category: str | None = None
+    items: list[WikiListItem] | None = None
 
 
 class WikiEntryResponse(BaseModel):
@@ -41,6 +61,9 @@ class WikiEntryResponse(BaseModel):
     preferred_label: str
     canonical_slug: str
     definition: str
+    significance: str | None = None
+    category: str | None = None
+    items: list[WikiListItem] = Field(default_factory=list)
     pronunciation: str | None
     aliases: list[str]
     prerequisites: list[str]

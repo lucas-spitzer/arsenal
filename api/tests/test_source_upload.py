@@ -1,9 +1,12 @@
+from pathlib import Path
+
 import pytest
 
 from app.services.source_upload import (
     SourceUploadValidationError,
     sanitize_upload_filename,
     validate_source_upload,
+    validate_structured_data_upload,
 )
 
 PDF_BYTES = b"%PDF-1.4 minimal"
@@ -60,3 +63,32 @@ def test_validate_source_upload_rejects_oversized_file() -> None:
             content=PDF_BYTES,
             max_bytes=4,
         )
+
+
+FIXTURE = Path(__file__).parent / "fixtures" / "warfighting-chapter-1.json"
+
+
+def test_validate_structured_data_upload_accepts_notes_fixture() -> None:
+    filename, mime_type = validate_structured_data_upload(
+        filename="warfighting-chapter-1.json",
+        content=FIXTURE.read_bytes(),
+        max_bytes=1024 * 1024,
+    )
+
+    assert filename == "warfighting-chapter-1.json"
+    assert mime_type == "application/json"
+
+
+def test_validate_structured_data_upload_rejects_non_json_file() -> None:
+    with pytest.raises(SourceUploadValidationError, match=r"\.json"):
+        validate_structured_data_upload(filename="notes.md", content=b"# Notes", max_bytes=1024)
+
+
+def test_validate_structured_data_upload_rejects_bad_json() -> None:
+    with pytest.raises(SourceUploadValidationError, match="JSON"):
+        validate_structured_data_upload(filename="notes.json", content=b"{nope", max_bytes=1024)
+
+
+def test_validate_structured_data_upload_rejects_unusable_shape() -> None:
+    with pytest.raises(SourceUploadValidationError):
+        validate_structured_data_upload(filename="notes.json", content=b'{"hello":"world"}', max_bytes=1024)

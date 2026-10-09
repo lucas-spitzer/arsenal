@@ -13,6 +13,7 @@ import {
 import { FoundryDetail } from './FoundryDetail'
 import { FoundryDialog } from './FoundryDialog'
 import { ErrorBanner } from './ErrorBanner'
+import { FoundryLoader } from './FoundryLoader'
 import { NewRunPanel } from './NewRunPanel'
 
 interface FoundryOpsProps {
@@ -181,7 +182,9 @@ export function FoundryOps({ onGoToSources }: FoundryOpsProps) {
         </div>
 
         {isLoading && sortedRuns.length === 0 ? (
-          <div className="as-console__empty">Loading production runs…</div>
+          <div className="as-console__empty">
+            <FoundryLoader label="Loading production runs" size="sm" />
+          </div>
         ) : sortedRuns.length === 0 ? (
           <div className="as-console__empty">
             No production runs yet.{' '}

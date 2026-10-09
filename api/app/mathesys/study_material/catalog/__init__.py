@@ -21,6 +21,8 @@ ASSETS_DIR = CATALOG_DIR / "assets"
 COMPONENT_TYPES: tuple[str, ...] = ("text", "diagram", "image")
 STRICT_CONTENT = frozenset({"title", "logo", "footer"})
 DISCLAIMER_PLACEMENTS = frozenset({"footer", "per_section"})
+SECTION_ALIGNS = frozenset({"center"})
+SECTION_PAGES = frozenset({"front", "back"})
 
 
 class CatalogError(ValueError):
@@ -47,6 +49,9 @@ class TemplateSection:
     allowed_types: tuple[str, ...] = ()
     max_components: int = 0
     max_words: int | None = None
+    align: str | None = None
+    page: str = "front"
+    pair: str | None = None
 
     @property
     def is_flexible(self) -> bool:
@@ -74,6 +79,24 @@ class Template:
             if section.id == section_id:
                 return section
         raise CatalogError(f"Template {self.id} has no section '{section_id}'.")
+
+    @property
+    def pages(self) -> tuple[str, ...]:
+        ordered: list[str] = []
+        for section in self.sections:
+            if section.page not in ordered:
+                ordered.append(section.page)
+        if "front" in ordered:
+            ordered.remove("front")
+            ordered.insert(0, "front")
+        return tuple(ordered) or ("front",)
+
+    @property
+    def page_count(self) -> int:
+        return len(self.pages)
+
+    def sections_on(self, page: str) -> tuple[TemplateSection, ...]:
+        return tuple(section for section in self.sections if section.page == page)
 
     @property
     def flexible_sections(self) -> tuple[TemplateSection, ...]:
@@ -136,6 +159,56 @@ class Theme:
         return tuple(logo for logo in self.logos if logo.variant == "light")
 
 
+def _page_and_pair(section_id: str, item: dict[str, Any]) -> tuple[str, str | None]:
+    page = str(item.get("page") or "front")
+    if page not in SECTION_PAGES:
+        raise CatalogError(f"Section {section_id} has unknown page '{page}'.")
+    pair = str(item.get("pair") or "").strip() or None
+    return page, pair
+
+
+def _align(section_id: str, item: dict[str, Any]) -> str | None:
+    raw = item.get("align")
+    if not raw:
+        return None
+    align = str(raw)
+    if align not in SECTION_ALIGNS:
+        raise CatalogError(f"Section {section_id} has unknown align '{align}'.")
+    return align
+
+
+def _validate_pairs(template_id: str, sections: list[TemplateSection], *, cut_lines: bool) -> None:
+    """A duplex cut-out sheet mirrors each front face onto the back, left to right."""
+    grouped: dict[str, list[TemplateSection]] = {}
+    for section in sections:
+        if section.pair:
+            grouped.setdefault(section.pair, []).append(section)
+
+    pages = {section.page for section in sections}
+    if cut_lines and len(pages) > 1:
+        missing = [section.id for section in sections if section.is_flexible and not section.pair]
+        if missing:
+            names = ", ".join(missing)
+            raise CatalogError(f"Template {template_id} pairs every cut-out face with its back; missing {names}.")
+
+    for pair_id, members in grouped.items():
+        front = next((section for section in members if section.page == "front"), None)
+        back = next((section for section in members if section.page == "back"), None)
+        if len(members) != 2 or front is None or back is None:
+            raise CatalogError(f"Template {template_id} pair '{pair_id}' needs one front and one back.")
+        mirrored_x = 100 - front.box.x - front.box.w
+        box = back.box
+        if (
+            abs(box.x - mirrored_x) > 0.01
+            or abs(box.y - front.box.y) > 0.01
+            or abs(box.w - front.box.w) > 0.01
+            or abs(box.h - front.box.h) > 0.01
+        ):
+            raise CatalogError(
+                f"Template {template_id} pair '{pair_id}' back is not the left-right mirror of its front.",
+            )
+
+
 def _parse_template(raw: dict[str, Any]) -> Template:
     page = raw["page"]
     type_scale = raw.get("type") or {}
@@ -152,6 +225,7 @@ def _parse_template(raw: dict[str, Any]) -> Template:
         if box.x < 0 or box.y < 0 or box.x + box.w > 100.001 or box.y + box.h > 100.001:
             raise CatalogError(f"Section {section_id} falls outside the page safe area.")
 
+        face, pair = _page_and_pair(section_id, item)
         kind = str(item["kind"])
         if kind == "flexible":
             allowed = tuple(str(value) for value in item.get("allowed_types") or ())
@@ -165,6 +239,8 @@ def _parse_template(raw: dict[str, Any]) -> Template:
                     box=box,
                     allowed_types=allowed,
                     max_components=int(item.get("max_components") or 1),
+                    page=face,
+                    pair=pair,
                 ),
             )
         elif kind == "strict":
@@ -180,6 +256,9 @@ def _parse_template(raw: dict[str, Any]) -> Template:
                     box=box,
                     content=content,
                     max_words=int(max_words) if max_words is not None else None,
+                    align=_align(section_id, item),
+                    page=face,
+                    pair=pair,
                 ),
             )
         else:
@@ -190,6 +269,7 @@ def _parse_template(raw: dict[str, Any]) -> Template:
         raise CatalogError(f"Template {raw['id']} has unknown disclaimer placement.")
     if disclaimer == "footer" and not any(section.content == "footer" for section in sections):
         raise CatalogError(f"Template {raw['id']} places the disclaimer in a footer it lacks.")
+    _validate_pairs(str(raw["id"]), sections, cut_lines=bool(raw.get("cut_lines")))
 
     return Template(
         id=str(raw["id"]),
@@ -354,6 +434,7 @@ def template_public_payload(template: Template) -> dict[str, Any]:
         "disclaimer": template.disclaimer,
         "cut_lines": template.cut_lines,
         "has_logo_section": template.has_logo_section,
+        "page_count": template.page_count,
         "sections": [
             {
                 "id": section.id,
@@ -363,6 +444,9 @@ def template_public_payload(template: Template) -> dict[str, Any]:
                 "allowed_types": list(section.allowed_types),
                 "max_components": section.max_components,
                 "max_words": section.max_words,
+                "align": section.align,
+                "page": section.page,
+                "pair": section.pair,
                 "box": {"x": section.box.x, "y": section.box.y, "w": section.box.w, "h": section.box.h},
                 "size_in": list(template.section_size_in(section)),
             }

@@ -352,6 +352,7 @@ class StudyMaterialRunner:
                         provider=generated.provider,
                         model=generated.model,
                         token_usage=generated.token_usage,
+                        settings=generated.settings,
                     )
                 else:
                     billing = stage_run_completion_fields(

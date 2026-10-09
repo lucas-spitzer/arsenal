@@ -10,6 +10,8 @@ import {
   StudyPanel,
   StudySourceReference,
 } from './StudySessionChrome'
+import { AssessmentPicture } from './AssessmentPicture'
+import { showsSituationImage } from '../../lib/assessmentVisual'
 import { useStudyFullscreen } from './useStudyFullscreen'
 
 type ChatMessage = { role: 'ai' | 'user'; text: string }
@@ -202,6 +204,9 @@ export function ScenarioView({
             }}
           >
             <div className="chat">
+              {scenario.visual?.url && showsSituationImage(scenario.visual.placement) ? (
+                <AssessmentPicture visual={scenario.visual} text={scenario.title} />
+              ) : null}
               <div className="chat__log" ref={logRef}>
                 {messages.map((m, i) => (
                   <div key={i} className={`chat__msg chat__msg--${m.role}`}>

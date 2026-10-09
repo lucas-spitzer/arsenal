@@ -70,7 +70,7 @@ create table public.workspace_stage_settings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint workspace_stage_settings_provider_check
-    check (provider in ('openai', 'anthropic', 'google', 'speechify', 'elevenlabs', 'cartesia')),
+    check (provider in ('openai', 'anthropic', 'google', 'speechify', 'elevenlabs', 'cartesia', 'xai')),
   constraint workspace_stage_settings_reasoning_tokens_check
     check (reasoning_tokens is null or reasoning_tokens > 0),
   constraint workspace_stage_settings_workspace_action_key
@@ -101,10 +101,14 @@ create table public.sources (
   file_size_bytes bigint not null,
   source_metadata jsonb not null default '{}',
   status text not null default 'stored',
+  -- 'document' runs the ingest pipeline; 'structured_data' is stored as-is.
+  source_kind text not null default 'document',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint sources_status_check
     check (status in ('stored', 'processing', 'ready', 'failed')),
+  constraint sources_source_kind_check
+    check (source_kind in ('document', 'structured_data')),
   constraint sources_workspace_file_hash_key
     unique (workspace_id, file_hash),
   constraint sources_workspace_slug_key
@@ -249,12 +253,15 @@ create table public.wiki_entries (
   preferred_label text not null,
   canonical_slug text not null,
   definition text not null,
+  significance text,
+  category text,
+  items jsonb not null default '[]',
   pronunciation text,
   aliases text[] not null default '{}',
   prerequisites uuid[] not null default '{}',
   importance text not null default 'supporting',
   status text not null default 'canonical',
-  entry_kind text not null default 'concept',
+  entry_kind text not null default 'term',
   evidence jsonb not null default '[]',
   origin jsonb not null default '{}',
   confidence double precision,
@@ -268,7 +275,9 @@ create table public.wiki_entries (
   constraint wiki_entries_status_check
     check (status in ('candidate', 'canonical', 'disputed', 'deprecated', 'rejected')),
   constraint wiki_entries_entry_kind_check
-    check (entry_kind in ('term', 'concept', 'insight')),
+    check (entry_kind in ('term', 'list')),
+  constraint wiki_entries_items_check
+    check (jsonb_typeof(items) = 'array'),
   constraint wiki_entries_workspace_slug_key
     unique (workspace_id, canonical_slug)
 );
@@ -584,11 +593,17 @@ create table public.quizzes (
   question_type text not null default 'multiple_choice',
   options jsonb not null default '[]',
   correct_answer text not null,
+  -- Randomizable answers: {"correct": [..], "distractors": [{"text", "misconception"}], "show_count": 4}.
+  -- options/correct_answer hold one default draw so older readers keep working.
+  answer_pool jsonb not null default '{}',
+  bloom_level text,
   explanation text,
   difficulty text not null default 'medium',
   citations jsonb not null default '[]',
   origin jsonb not null default '{}',
   created_at timestamptz not null default now(),
+  constraint quizzes_bloom_level_check
+    check (bloom_level is null or bloom_level in ('remember', 'understand', 'apply', 'analyze')),
   constraint quizzes_question_type_check
     check (
       question_type in (
@@ -625,10 +640,13 @@ create table public.scenarios (
   context text,
   evaluation_criteria jsonb not null default '[]',
   rubric jsonb,
+  bloom_level text,
   difficulty text not null default 'medium',
   citations jsonb not null default '[]',
   origin jsonb not null default '{}',
   created_at timestamptz not null default now(),
+  constraint scenarios_bloom_level_check
+    check (bloom_level is null or bloom_level in ('remember', 'understand', 'apply', 'analyze')),
   constraint scenarios_difficulty_check
     check (difficulty in ('easy', 'medium', 'hard'))
 );
@@ -636,6 +654,95 @@ create table public.scenarios (
 create index scenarios_workspace_id_idx on public.scenarios (workspace_id);
 create index scenarios_source_id_idx on public.scenarios (source_id);
 create index scenarios_assessment_set_id_idx on public.scenarios (assessment_set_id);
+
+-- ---------------------------------------------------------------------------
+-- Knowledge projects (Forge Knowledge): notes, then drafted assessments
+-- ---------------------------------------------------------------------------
+
+create table public.knowledge_projects (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  owner_id uuid not null references auth.users (id) on delete cascade,
+  source_id uuid not null references public.sources (id) on delete restrict,
+  title text not null,
+  status text not null default 'structuring',
+  raw_notes text not null default '',
+  notes_filename text,
+  notes_mime_type text,
+  notes_storage_path text,
+  notes_byte_size bigint,
+  draft_questions boolean not null default false,
+  draft_scenarios boolean not null default false,
+  -- Composer instructions shared by every entry in a category: {"<category>": "text"}.
+  batch_instructions jsonb not null default '{}',
+  structure_run_id uuid references public.production_runs (id) on delete set null,
+  draft_run_id uuid references public.production_runs (id) on delete set null,
+  visual_run_id uuid references public.production_runs (id) on delete set null,
+  error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint knowledge_projects_status_check
+    check (status in ('structuring', 'composing', 'drafting', 'ready', 'failed'))
+);
+
+create index knowledge_projects_workspace_id_idx on public.knowledge_projects (workspace_id);
+create index knowledge_projects_structure_run_id_idx on public.knowledge_projects (structure_run_id);
+create index knowledge_projects_draft_run_id_idx on public.knowledge_projects (draft_run_id);
+create index knowledge_projects_visual_run_id_idx on public.knowledge_projects (visual_run_id);
+
+create trigger knowledge_projects_set_updated_at
+before update on public.knowledge_projects
+for each row
+execute function public.set_updated_at();
+
+create table public.knowledge_item_plans (
+  id uuid primary key default gen_random_uuid(),
+  knowledge_project_id uuid not null references public.knowledge_projects (id) on delete cascade,
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  wiki_entry_id uuid references public.wiki_entries (id) on delete set null,
+  item_type text not null,
+  enabled boolean not null default true,
+  assessment_id uuid,
+  -- How a flashcard shows the wiki entry: label/description, image/label, or both.
+  layout text not null default 'label_description',
+  visual jsonb,
+  -- Per-entry author instructions and unsaved composer edits.
+  instructions text not null default '',
+  draft jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint knowledge_item_plans_type_check
+    check (item_type in ('flashcard', 'question', 'scenario')),
+  constraint knowledge_item_plans_layout_check
+    check (layout in ('label_description', 'image_label', 'image_label_description'))
+);
+
+create index knowledge_item_plans_project_idx
+on public.knowledge_item_plans (knowledge_project_id);
+create unique index knowledge_item_plans_flashcard_entry_key
+on public.knowledge_item_plans (knowledge_project_id, wiki_entry_id)
+where item_type = 'flashcard' and wiki_entry_id is not null;
+
+create trigger knowledge_item_plans_set_updated_at
+before update on public.knowledge_item_plans
+for each row
+execute function public.set_updated_at();
+
+alter table public.flashcards
+  add column knowledge_project_id uuid references public.knowledge_projects (id) on delete set null,
+  add column visual jsonb;
+
+alter table public.quizzes
+  add column knowledge_project_id uuid references public.knowledge_projects (id) on delete set null,
+  add column visual jsonb;
+
+alter table public.scenarios
+  add column knowledge_project_id uuid references public.knowledge_projects (id) on delete set null,
+  add column visual jsonb;
+
+create index flashcards_knowledge_project_id_idx on public.flashcards (knowledge_project_id);
+create index quizzes_knowledge_project_id_idx on public.quizzes (knowledge_project_id);
+create index scenarios_knowledge_project_id_idx on public.scenarios (knowledge_project_id);
 
 -- ---------------------------------------------------------------------------
 -- Discussion threads (persisted assistant conversations)

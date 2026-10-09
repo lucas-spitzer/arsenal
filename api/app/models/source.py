@@ -16,5 +16,6 @@ class SourceResponse(BaseModel):
     file_size_bytes: int
     source_metadata: dict[str, Any]
     status: str
+    source_kind: str = "document"
     created_at: datetime
     updated_at: datetime

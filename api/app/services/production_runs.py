@@ -5,8 +5,15 @@ from typing import Any
 
 from app.config import Settings
 from app.pipeline import build_pipeline
+from app.repositories.artifacts import ArtifactRepository
+from app.repositories.narration_segments import NarrationSegmentRepository
 from app.repositories.production_runs import ProductionRunRepository
+from app.repositories.stage_settings import StageSettingsRepository
 from app.repositories.wiki_ingest_batches import WikiIngestBatchRepository
+from app.services.narration_checkpoint import (
+    clear_narration_checkpoints,
+    configured_narration_voice,
+)
 from app.services.queue import cancel_queued_jobs_for_run, enqueue_production_run
 from app.services.supabase_storage import SupabaseStorageClient
 
@@ -80,7 +87,47 @@ async def create_and_enqueue_production_run(
     production_runs: ProductionRunRepository,
     sources: list[dict[str, Any]] | None = None,
     batches: WikiIngestBatchRepository | None = None,
+    narration_restart_source_ids: list[str] | None = None,
+    stage_settings: StageSettingsRepository | None = None,
+    narration_segments: NarrationSegmentRepository | None = None,
+    artifacts: ArtifactRepository | None = None,
+    storage: SupabaseStorageClient | None = None,
 ) -> dict[str, Any]:
+    if any(source.get("source_kind") == "structured_data" for source in sources or []):
+        raise ProductionRunValidationError(
+            "Structured data sources can't run through the document pipeline.",
+        )
+
+    selected_sources = set(source_ids)
+    restart_ids = [
+        source_id
+        for source_id in dict.fromkeys(narration_restart_source_ids or [])
+        if source_id in selected_sources
+    ]
+    if restart_ids and "narration_audio" in target_artifacts:
+        if (
+            stage_settings is None
+            or narration_segments is None
+            or artifacts is None
+            or storage is None
+        ):
+            raise ProductionRunValidationError(
+                "Restarting narration requires stage settings, narration storage, and artifacts.",
+            )
+        stage_rows = await stage_settings.list_for_workspace(workspace_id)
+        model_id, voice_id = configured_narration_voice(settings, stage_rows)
+        await clear_narration_checkpoints(
+            workspace_id=workspace_id,
+            owner_id=owner_id,
+            source_ids=restart_ids,
+            model_id=model_id,
+            voice_id=voice_id,
+            narration_segments=narration_segments,
+            artifacts=artifacts,
+            storage=storage,
+            bucket=settings.sources_bucket,
+        )
+
     pipeline = build_pipeline(target_artifacts)
 
     row = await production_runs.create(

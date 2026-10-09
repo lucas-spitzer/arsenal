@@ -9,6 +9,8 @@ from typing import Any
 from app.config import get_settings
 from app.intellex.wiki_candidates import (
     WikiCandidate,
+    entry_embedding_text,
+    normalize_items,
     promote_candidates,
     resolve_prerequisites,
 )
@@ -18,6 +20,7 @@ from app.services.embeddings import to_pgvector_literal
 from app.services.llm import get_llm_client
 from app.services.retrieval import build_reader_link
 from app.services.stage_run_billing import stage_run_completion_fields
+from app.knowledge.structured_notes import StructuredNotesError, parse_structured_notes
 from app.services.wiki_authoring import STRUCTURING_ACTION, STRUCTURING_SYSTEM_PROMPT
 from app.services.wiki_transcription import transcribe_attachments_in_order
 from app.worker.db import WorkerDatabase
@@ -28,10 +31,6 @@ logger = logging.getLogger(__name__)
 
 def utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _embedding_text(label: str, definition: str) -> str:
-    return f"{label}. {definition}"
 
 
 class TranscribeWikiNotesStageExecutor:
@@ -183,33 +182,47 @@ class StructureWikiNotesStageExecutor:
             if not notes:
                 raise RuntimeError("Wiki notes are empty after transcription.")
 
-            max_chars = get_settings().wiki_authoring.max_notes_chars
-            if len(notes) > max_chars:
-                raise RuntimeError(f"Notes exceed {max_chars} characters.")
+            try:
+                structured = parse_structured_notes(notes)
+            except StructuredNotesError as exc:
+                raise RuntimeError(str(exc)) from exc
 
             self.db.update_wiki_ingest_batch(
                 str(batch["id"]),
                 {"status": "structuring", "transcription_error": None},
             )
-
             chapter = batch.get("chapter") if isinstance(batch.get("chapter"), dict) else {}
-            chapter_title = str(chapter.get("title") or "") if chapter else ""
-            context = f"These notes are from the chapter: {chapter_title}\n\n" if chapter_title else ""
-            client = get_llm_client(STRUCTURING_ACTION)
-            result = client.complete_json(
-                system_prompt=STRUCTURING_SYSTEM_PROMPT,
-                user_prompt=f"{context}READER NOTES:\n{notes}",
-            )
-            raw_entries = result.content.get("entries")
-            if not isinstance(raw_entries, list) or not raw_entries:
-                raise RuntimeError("Structuring failed: the model returned no entries.")
 
-            fragments = result.content.get("unparsed_fragments")
-            unparsed = [
-                str(fragment)
-                for fragment in (fragments if isinstance(fragments, list) else [])
-                if str(fragment).strip()
-            ]
+            if structured is None:
+                max_chars = get_settings().wiki_authoring.max_notes_chars
+                if len(notes) > max_chars:
+                    raise RuntimeError(f"Notes exceed {max_chars} characters.")
+                chapter_title = str(chapter.get("title") or "") if chapter else ""
+                context = f"These notes are from the chapter: {chapter_title}\n\n" if chapter_title else ""
+                client = get_llm_client(STRUCTURING_ACTION)
+                result = client.complete_json(
+                    system_prompt=STRUCTURING_SYSTEM_PROMPT,
+                    user_prompt=f"{context}READER NOTES:\n{notes}",
+                )
+                raw_entries = result.content.get("entries")
+                if not isinstance(raw_entries, list) or not raw_entries:
+                    raise RuntimeError("Structuring failed: the model returned no entries.")
+                fragments = result.content.get("unparsed_fragments")
+                unparsed = [
+                    str(fragment)
+                    for fragment in (fragments if isinstance(fragments, list) else [])
+                    if str(fragment).strip()
+                ]
+                model_name = result.model
+                provider = getattr(result, "provider", "openai") or "openai"
+                usage = result.token_usage or {}
+            else:
+                raw_entries = structured.entries
+                unparsed = structured.unparsed_fragments
+                model_name = "structured-json"
+                provider = "deterministic"
+                usage = {}
+
             entries = _parse_entries(raw_entries)
             if not entries:
                 raise RuntimeError("Structuring failed: no usable entries.")
@@ -258,21 +271,24 @@ class StructureWikiNotesStageExecutor:
             inserted_ids = [str(row["id"]) for row in inserted_rows]
             self._embed_entries(inserted_ids + updated_ids)
 
-            usage = result.token_usage or {}
-            cost = cost_llm_usage(
-                provider=getattr(result, "provider", "openai") or "openai",
-                model=result.model,
-                input_tokens=int(usage.get("input_tokens") or 0),
-                output_tokens=int(usage.get("output_tokens") or 0),
-            )
+            if structured is None:
+                cost = cost_llm_usage(
+                    provider=provider,
+                    model=model_name,
+                    input_tokens=int(usage.get("input_tokens") or 0),
+                    output_tokens=int(usage.get("output_tokens") or 0),
+                )
+                cost_usd = cost.get("cost_usd")
+            else:
+                cost_usd = 0
             self.db.update_wiki_ingest_batch(
                 str(batch["id"]),
                 {
                     "status": "committed",
                     "entries": [entry.model_dump() for entry in entries],
                     "unparsed_fragments": unparsed,
-                    "model": result.model,
-                    "cost_usd": cost.get("cost_usd"),
+                    "model": model_name,
+                    "cost_usd": cost_usd,
                     "committed_entry_ids": inserted_ids + updated_ids,
                     "committed_at": utc_now_iso(),
                 },
@@ -286,11 +302,12 @@ class StructureWikiNotesStageExecutor:
                         "inserted_ids": inserted_ids,
                         "updated_ids": updated_ids,
                         "unparsed_fragments": unparsed,
+                        "structured_json": structured is not None,
                     },
                     **stage_run_completion_fields(
                         {
-                            "model": result.model,
-                            "provider": getattr(result, "provider", "openai") or "openai",
+                            "model": model_name,
+                            "provider": provider,
                             "token_usage": usage,
                         },
                     ),
@@ -324,9 +341,11 @@ class StructureWikiNotesStageExecutor:
         if not rows:
             return
         texts = [
-            _embedding_text(
+            entry_embedding_text(
                 str(row.get("preferred_label") or ""),
                 str(row.get("definition") or ""),
+                significance=row.get("significance"),
+                items=row.get("items") or [],
             )
             for row in rows
         ]
@@ -345,23 +364,28 @@ class StructureWikiNotesStageExecutor:
 
 def _parse_entries(raw_entries: list[Any]) -> list[WikiIngestEntry]:
     entries: list[WikiIngestEntry] = []
-    allowed_kinds = {"term", "concept", "insight"}
     allowed_importance = {"essential", "supporting", "contextual"}
     for raw in raw_entries:
         if not isinstance(raw, dict):
             continue
         label = str(raw.get("label") or "").strip()
         definition = str(raw.get("definition") or "").strip()
-        if not label or not definition:
+        items = normalize_items(raw.get("items"))
+        kind = "list" if str(raw.get("entry_kind") or "").strip().lower() == "list" else "term"
+        if not label or (kind == "term" and not definition) or (kind == "list" and not definition and not items):
             continue
-        kind = str(raw.get("entry_kind") or "").strip().lower()
         importance = str(raw.get("importance") or "").strip().lower()
+        significance = str(raw.get("significance") or "").strip() or None
+        category = str(raw.get("category") or "").strip() or None
         entries.append(
             WikiIngestEntry(
                 index=len(entries),
                 label=label[:120],
-                entry_kind=kind if kind in allowed_kinds else "concept",
+                entry_kind=kind,
                 definition=definition,
+                significance=significance,
+                category=category,
+                items=items,
                 aliases=[str(alias) for alias in raw.get("aliases") or [] if str(alias).strip()],
                 pronunciation=(str(raw["pronunciation"]) if raw.get("pronunciation") else None),
                 importance=importance if importance in allowed_importance else "supporting",
@@ -385,7 +409,15 @@ def _attach_evidence(
     if not source_id or not entries:
         return
     settings = get_settings().wiki_authoring
-    texts = [_embedding_text(entry.label, entry.definition) for entry in entries]
+    texts = [
+        entry_embedding_text(
+            entry.label,
+            entry.definition,
+            significance=entry.significance,
+            items=entry.items,
+        )
+        for entry in entries
+    ]
     try:
         vectors = db.embedding_client.embed(texts)
     except Exception:  # noqa: BLE001 - evidence is best-effort
@@ -468,6 +500,9 @@ def _entry_to_candidate(
         label=entry.label,
         definition=entry.definition,
         entry_kind=entry.entry_kind,
+        significance=entry.significance,
+        category=entry.category,
+        items=entry.items,
         aliases=entry.aliases,
         prerequisite_labels=entry.prerequisite_labels,
         pronunciation=entry.pronunciation,

@@ -15,7 +15,10 @@ function wikiEntry(overrides: Partial<WikiEntry> = {}): WikiEntry {
     workspace_id: 'ws-1',
     preferred_label: 'Enemy System',
     definition: 'Interdependent parts.',
-    entry_kind: 'concept',
+    significance: null,
+    category: null,
+    items: [],
+    entry_kind: 'term',
     importance: 'essential',
     status: 'canonical',
     canonical_slug: 'enemy-system',
@@ -31,11 +34,12 @@ function wikiEntry(overrides: Partial<WikiEntry> = {}): WikiEntry {
 }
 
 describe('wiki knowledge on New Run and Library', () => {
-  it('lists Wiki Knowledge as a New Run artifact', () => {
-    expect(ARTIFACT_OPTIONS.map((option) => option.value)).toContain('wiki_knowledge')
-    expect(ARTIFACT_OPTIONS.find((option) => option.value === 'wiki_knowledge')?.label).toBe(
-      'Wiki Knowledge',
-    )
+  it('keeps document artifacts on New Run and leaves knowledge to Forge', () => {
+    const values = ARTIFACT_OPTIONS.map((option) => option.value)
+    expect(values).toContain('electronic_book')
+    expect(values).toContain('wiki_json')
+    expect(values).not.toContain('wiki_knowledge')
+    expect(values).not.toContain('flashcards')
   })
 
   it('omits wiki from Foundry and Academy rails', () => {

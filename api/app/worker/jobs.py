@@ -20,3 +20,24 @@ def generate_study_material(production_run_id: str) -> dict[str, Any]:
 def finalize_study_material(study_material_id: str) -> dict[str, Any]:
     """Validate the draft and print the final PDF into the Library."""
     return StudyMaterialRunner().finalize(study_material_id)
+
+
+def structure_knowledge(production_run_id: str) -> dict[str, Any]:
+    """Transcribe notes and write wiki entries for a knowledge project."""
+    from app.worker.knowledge_runner import KnowledgeRunner
+
+    return KnowledgeRunner().structure(production_run_id)
+
+
+def draft_knowledge(production_run_id: str) -> dict[str, Any]:
+    """Draft the study items selected on a knowledge project and attach images."""
+    from app.worker.knowledge_runner import KnowledgeRunner
+
+    return KnowledgeRunner().draft(production_run_id)
+
+
+def attach_knowledge_visuals(production_run_id: str) -> dict[str, Any]:
+    """Copy uploaded images onto the study items for a knowledge project."""
+    from app.worker.knowledge_runner import KnowledgeRunner
+
+    return KnowledgeRunner().attach(production_run_id)

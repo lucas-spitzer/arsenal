@@ -69,18 +69,15 @@ export function FoundryDetail({ run }: FoundryDetailProps) {
 
         {run.pipeline.map((step) => {
           const displayStatus = pipelineStepDisplayStatus(step, run.pipeline, stageRuns, run.status)
-          const activeStageRun =
-            step.stage_id
-              ? stageRuns.find(
-                  (stageRun) =>
-                    stageRun.stage_id === step.stage_id &&
-                    (stageRun.status === 'running' || stageRun.status === 'queued'),
-                )
+          const narrationStageRun =
+            step.step === 'generate-narration'
+              ? [...stageRuns]
+                  .reverse()
+                  .find((stageRun) => stageRun.stage_id === 'generate-narration')
               : undefined
-          const narrationProgress =
-            step.step === 'generate-narration' && activeStageRun
-              ? narrationSegmentProgress(activeStageRun)
-              : null
+          const narrationProgress = narrationStageRun
+            ? narrationSegmentProgress(narrationStageRun)
+            : null
           const narrationPct = narrationProgress
             ? Math.min(100, Math.round((narrationProgress.done / narrationProgress.total) * 100))
             : 0

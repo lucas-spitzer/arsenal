@@ -13,11 +13,13 @@ import {
   type StudyMaterial,
 } from '../../../lib/studyMaterialApi'
 import { ErrorBanner } from '../ErrorBanner'
+import { FoundryDialog } from '../FoundryDialog'
+import { FoundryLoader } from '../FoundryLoader'
 import { ConfigureStep } from './ConfigureStep'
 import { DraftView } from './DraftView'
-import { ForgeLoader } from './ForgeLoader'
 import { GeneratingView } from './GeneratingView'
 import { SetupStep } from './SetupStep'
+import { KnowledgeWorkshop } from './KnowledgeWorkshop'
 import { StudyMaterialList } from './StudyMaterialList'
 
 type DesignView = { kind: 'list' } | { kind: 'setup' } | { kind: 'material'; id: string }
@@ -36,6 +38,7 @@ export function FoundryDesign() {
   const [reloadKey, setReloadKey] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<DesignView>({ kind: 'list' })
+  const [product, setProduct] = useState<'study' | 'knowledge'>('study')
 
   useEffect(() => {
     getStudyCatalog()
@@ -63,17 +66,21 @@ export function FoundryDesign() {
     setReloadKey((key) => key + 1)
   }
 
+  if (product === 'knowledge' && view.kind === 'list') {
+    return <KnowledgeWorkshop onShowStudy={() => setProduct('study')} />
+  }
+
   if (!catalog) {
     return (
       <>
         <header className="as-console__header">
           <div>
-            <div className="as-console__eyebrow">Study Material</div>
-            <h2>Forge Knowledge</h2>
+            <div className="as-console__eyebrow">Study material</div>
+            <h2>Design Forge</h2>
           </div>
         </header>
         <div className="as-console__scroll">
-          {error ? <ErrorBanner message={error} /> : <ForgeLoader label="Loading themes and templates" size="sm" />}
+          {error ? <ErrorBanner message={error} /> : <FoundryLoader label="Loading themes and templates" size="sm" />}
         </div>
       </>
     )
@@ -100,8 +107,16 @@ export function FoundryDesign() {
     <>
       <header className="as-console__header">
         <div>
-          <div className="as-console__eyebrow">Study Material</div>
-          <h2>Forge Knowledge</h2>
+          <div className="as-console__eyebrow">Study material</div>
+          <h2>Design Forge</h2>
+        </div>
+        <div className="kproj-switch" role="tablist" aria-label="Forge Knowledge">
+          <button type="button" role="tab" aria-selected className="is-active">
+            Study material
+          </button>
+          <button type="button" role="tab" aria-selected={false} onClick={() => setProduct('knowledge')}>
+            Knowledge
+          </button>
         </div>
         <div className="dsn-header-actions">
           <button type="button" className="as-console__cta" onClick={() => setView({ kind: 'setup' })}>
@@ -136,6 +151,8 @@ function MaterialWorkspace({
   const [material, setMaterial] = useState<StudyMaterial | null>(null)
   const [editing, setEditing] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const status = material?.status
 
@@ -173,7 +190,7 @@ function MaterialWorkspace({
   if (!material) {
     return (
       <div className="as-console__scroll">
-        {error ? <ErrorBanner message={error} /> : <ForgeLoader label="Loading" size="sm" />}
+        {error ? <ErrorBanner message={error} /> : <FoundryLoader label="Loading" size="sm" />}
       </div>
     )
   }
@@ -188,11 +205,17 @@ function MaterialWorkspace({
     )
   }
 
-  const handleDelete = () => {
-    if (!window.confirm(`Delete “${material.title}”? Finalized PDFs stay in the Library.`)) return
+  const confirmDelete = () => {
+    if (isDeleting) return
+    setIsDeleting(true)
+    setError(null)
     void deleteStudyMaterial(material.id)
       .then(onBack)
-      .catch((caught: unknown) => setError(errorMessage(caught, 'Could not delete.')))
+      .catch((caught: unknown) => {
+        setError(errorMessage(caught, 'Could not delete.'))
+        setIsDeleting(false)
+        setDeleteOpen(false)
+      })
   }
 
   const errorBanner = error ? (
@@ -225,12 +248,37 @@ function MaterialWorkspace({
           isStarting={isBusy}
           onMaterialChange={setMaterial}
           onBack={onBack}
-          onDelete={handleDelete}
+          onDelete={() => setDeleteOpen(true)}
           onGenerate={() => {
             setEditing(false)
             void act(() => generateStudyMaterial(material.id), 'Could not start generation.')
           }}
         />
+        <FoundryDialog
+          title="Delete study material"
+          open={deleteOpen}
+          onClose={() => {
+            if (!isDeleting) setDeleteOpen(false)
+          }}
+        >
+          <p className="as-console__confirm-copy">
+            Delete "{material.title}"? Finalized PDFs stay in the Library.
+          </p>
+          <div className="as-console__dialog-actions">
+            <button
+              type="button"
+              className="as-console__cta as-console__cta--ghost"
+              onClick={() => setDeleteOpen(false)}
+              disabled={isDeleting}
+              autoFocus
+            >
+              Cancel
+            </button>
+            <button type="button" className="as-console__cta" onClick={confirmDelete} disabled={isDeleting}>
+              {isDeleting ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </FoundryDialog>
       </>
     )
   }

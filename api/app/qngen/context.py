@@ -9,7 +9,10 @@ def build_wiki_context(wiki_entries: list[dict[str, Any]]) -> list[dict[str, Any
         {
             "wiki_id": entry.get("id"),
             "preferred_label": entry.get("preferred_label"),
+            "entry_kind": entry.get("entry_kind") or "term",
             "definition": entry.get("definition"),
+            "significance": entry.get("significance"),
+            "items": entry.get("items") or [],
             "pronunciation": entry.get("pronunciation"),
             "aliases": entry.get("aliases") or [],
         }

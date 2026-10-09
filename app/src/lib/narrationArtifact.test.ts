@@ -8,8 +8,11 @@ import { artifactLibraryCard, isIncompleteNarrationArtifact } from './academyOut
 import {
   collapseDuplicateNarrationArtifacts,
   narrationArtifactStatusLabel,
+  narrationSegmentProgress,
+  pipelineStepDetail,
+  stageRunSummary,
 } from './foundryMappers'
-import type { Artifact } from './workspaceApi'
+import type { Artifact, PipelineStep, StageRun } from './workspaceApi'
 
 function artifact(overrides: Partial<Artifact> = {}): Artifact {
   return {
@@ -37,6 +40,46 @@ describe('narration artifact progress', () => {
         }),
       ),
     ).toBe('In progress · 10/82 clips')
+  })
+
+  it('counts reused clips plus new clips, not skipped attempts', () => {
+    const stageRun: StageRun = {
+      id: 'sr-1',
+      production_run_id: 'run-2',
+      workspace_id: 'ws-1',
+      stage_id: 'generate-narration',
+      stage_version: '1.0',
+      module: 'mathesys',
+      status: 'failed',
+      inputs: {},
+      output: {
+        summary: '52/81 clips',
+        segments_done: 52,
+        segments_total: 81,
+        segments_reused: 18,
+        segments_narrated: 18,
+        segments_skipped: 16,
+      },
+      promoted: null,
+      model: null,
+      token_usage: null,
+      api_usage: null,
+      cost_usd: 0,
+      error: '429 RESOURCE_EXHAUSTED',
+      started_at: '2026-10-07T13:32:00Z',
+      completed_at: '2026-10-07T14:39:00Z',
+    }
+
+    expect(narrationSegmentProgress(stageRun)).toEqual({ done: 36, total: 81 })
+    expect(stageRunSummary(stageRun)).toBe('36/81 clips')
+
+    const step: PipelineStep = {
+      step: 'generate-narration',
+      type: 'stage',
+      status: 'pending',
+      stage_id: 'generate-narration',
+    }
+    expect(pipelineStepDetail(step, [step], [stageRun], 'failed')).toBe('36/81 clips')
   })
 
   it('hides the label once narration is complete', () => {

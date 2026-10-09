@@ -1,5 +1,5 @@
 import type { StudyMaterial } from '../../../lib/studyMaterialApi'
-import { ForgeLoader } from './ForgeLoader'
+import { FoundryLoader } from '../FoundryLoader'
 import { RunSteps } from './RunSteps'
 
 interface GeneratingViewProps {
@@ -12,8 +12,8 @@ export function GeneratingView({ material, onBack }: GeneratingViewProps) {
     <>
       <header className="as-console__header">
         <div>
-          <div className="as-console__eyebrow">Study Material · Step 3 of 4</div>
-          <h2>{material.title}</h2>
+          <div className="as-console__eyebrow">Study material</div>
+          <h2>Design Forge</h2>
         </div>
         <div className="dsn-header-actions">
           <button type="button" className="as-console__cta as-console__cta--ghost" onClick={onBack}>
@@ -24,7 +24,7 @@ export function GeneratingView({ material, onBack }: GeneratingViewProps) {
       <div className="as-console__scroll">
         <div className="dsn-generating">
           <section className="as-console__panel dsn-generating__stage">
-            <ForgeLoader label="Generating components and laying out the page" />
+            <FoundryLoader label="Generating components and laying out the page" />
             <p className="dsn-hint">
               Diagrams and images generate first so text can be written around them. You can leave
               this tab; progress also shows in Production Operations.

@@ -49,6 +49,54 @@ class NarrationSegmentRepository:
             offset=offset,
         )
 
+    async def list_all_for_voice(
+        self,
+        source_id: str,
+        workspace_id: str,
+        owner_id: str,
+        *,
+        model_id: str,
+        voice_id: str,
+    ) -> list[dict[str, Any]]:
+        await self._assert_source_access(source_id, workspace_id, owner_id)
+        rows: list[dict[str, Any]] = []
+        offset = 0
+        page_size = 1000
+        while True:
+            page = await self.list_for_source(
+                source_id,
+                workspace_id,
+                owner_id,
+                model_id=model_id,
+                voice_id=voice_id,
+                limit=page_size,
+                offset=offset,
+            )
+            rows.extend(page)
+            if len(page) < page_size:
+                return rows
+            offset += page_size
+
+    async def delete_for_voice(
+        self,
+        source_id: str,
+        workspace_id: str,
+        owner_id: str,
+        *,
+        model_id: str,
+        voice_id: str,
+    ) -> None:
+        await self._assert_source_access(source_id, workspace_id, owner_id)
+        await self.db.delete(
+            "narration_segments",
+            filters={
+                "source_id": f"eq.{source_id}",
+                "workspace_id": f"eq.{workspace_id}",
+                "model_id": f"eq.{model_id}",
+                "voice_id": f"eq.{voice_id}",
+            },
+        )
+
     async def get_by_id(
         self,
         source_id: str,

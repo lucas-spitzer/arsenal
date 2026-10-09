@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class ProductionRunCreate(BaseModel):
     source_ids: list[str] = Field(min_length=1)
     target_artifacts: list[str] = Field(default_factory=list)
+    narration_restart_source_ids: list[str] = Field(default_factory=list)
 
 
 class ProductionRunResponse(BaseModel):

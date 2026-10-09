@@ -4,6 +4,7 @@ import pytest
 
 from app.mathesys.study_material.catalog import (
     CatalogError,
+    _parse_template,
     asset_path,
     get_template,
     get_theme,
@@ -16,10 +17,19 @@ from app.mathesys.study_material.render import RenderComponent, RenderInput, ren
 from app.mathesys.study_material.sanitize import sanitize_fragment
 
 USMC_DISCLAIMER = "Unofficial knowledge for educational use; not endorsed by the USMC or DoD."
+FIELD_MANUAL_DISCLAIMER = (
+    "Unofficial — Not endorsed by the Department of Defense or United States Marine Corps."
+)
 
 
-def test_catalog_ships_three_templates_and_two_themes() -> None:
-    assert set(load_templates()) == {"branded-sheet", "branded-sheet-split", "index-card-cutout"}
+def test_catalog_ships_templates_and_themes() -> None:
+    assert set(load_templates()) == {
+        "basic-sheet",
+        "branded-sheet",
+        "branded-sheet-split",
+        "flashcard",
+        "index-card-cutout",
+    }
     assert set(load_themes()) == {"usmc", "field-manual"}
 
 
@@ -46,6 +56,64 @@ def test_template_geometry_matches_sketches() -> None:
     assert len(cards.flexible_sections) == 8
     assert all((s.box.w, s.box.h) == (50, 25) for s in cards.flexible_sections)
     assert cards.disclaimer == "per_section"
+    assert cards.page_count == 1
+
+    basic = get_template("basic-sheet")
+    assert basic.has_logo_section is False
+    assert [(s.id, s.box.y, s.box.h, s.align) for s in basic.sections] == [
+        ("title", 0, 5, "center"),
+        ("body", 5, 93, None),
+        ("footer", 98, 2, "center"),
+    ]
+
+    flashcard = get_template("flashcard")
+    assert flashcard.page_count == 2
+    assert flashcard.pages == ("front", "back")
+    assert flashcard.margin_in == 0.25
+    fronts = flashcard.sections_on("front")
+    assert len(fronts) == 8
+    assert all((s.box.w, s.box.h) == (50, 25) for s in fronts)
+    for front in fronts:
+        back = next(section for section in flashcard.sections if section.pair == front.pair and section.page == "back")
+        assert back.box.x == pytest.approx(100 - front.box.x - front.box.w)
+        assert back.box.y == pytest.approx(front.box.y)
+        assert (back.box.w, back.box.h) == (front.box.w, front.box.h)
+
+
+def test_field_manual_disclaimer() -> None:
+    assert get_theme("field-manual").disclaimer == FIELD_MANUAL_DISCLAIMER
+
+
+def test_duplex_back_must_mirror_its_front() -> None:
+    raw = {
+        "id": "bad-cards",
+        "name": "Bad cards",
+        "page": {"width_in": 8.5, "height_in": 11, "margin_in": 0.25},
+        "disclaimer": "per_section",
+        "cut_lines": True,
+        "sections": [
+            {
+                "id": "a_front",
+                "label": "A front",
+                "kind": "flexible",
+                "page": "front",
+                "pair": "a",
+                "allowed_types": ["text"],
+                "box": {"x": 0, "y": 0, "w": 50, "h": 25},
+            },
+            {
+                "id": "a_back",
+                "label": "A back",
+                "kind": "flexible",
+                "page": "back",
+                "pair": "a",
+                "allowed_types": ["text"],
+                "box": {"x": 0, "y": 0, "w": 50, "h": 25},
+            },
+        ],
+    }
+    with pytest.raises(CatalogError, match="left-right mirror"):
+        _parse_template(raw)
 
 
 def test_usmc_theme_has_official_palette_logos_and_disclaimer() -> None:
@@ -70,6 +138,7 @@ def test_logo_lock_is_the_users_choice() -> None:
 
 def test_logo_lock_ignored_without_logo_section_or_logos() -> None:
     assert resolve_options(get_theme("usmc"), get_template("index-card-cutout"), {"logo_locked": True})["logo_locked"] is False
+    assert resolve_options(get_theme("usmc"), get_template("basic-sheet"), {"logo_locked": True})["logo_locked"] is False
     assert resolve_options(get_theme("field-manual"), get_template("branded-sheet"), {"logo_locked": True})["logo_locked"] is False
 
 
@@ -112,9 +181,31 @@ def test_index_cards_repeat_disclaimer_and_draw_cut_lines() -> None:
     assert 'class="sm-cutlines"' in html
 
 
-def test_theme_without_disclaimer_renders_none() -> None:
+def test_basic_sheet_centers_header_and_footer_without_a_logo() -> None:
+    html = _render("basic-sheet", {"footer_text": "Week 3"}, [], theme_id="field-manual")
+    assert 'sm-section--logo"' not in html
+    assert "sm-section--title is-centered" in html
+    assert "sm-section--footer is-centered" in html
+    assert "Week 3" in html
+    assert FIELD_MANUAL_DISCLAIMER in html
+
+
+def test_flashcard_prints_mirrored_backs_on_a_second_page() -> None:
+    html = _render("flashcard", {}, [], theme_id="field-manual")
+    assert html.count('class="sm-page"') == 2
+    assert html.index('data-page="front"') < html.index('data-page="back"')
+    assert 'data-section="card_1_front" style="left:0.0%;top:0.0%;' in html
+    assert 'data-section="card_1_back" style="left:50.0%;top:0.0%;' in html
+    assert 'data-section="card_2_back" style="left:0.0%;top:0.0%;' in html
+    assert html.count('class="sm-card-disclaimer"') == 16
+    assert FIELD_MANUAL_DISCLAIMER in html
+    assert "text-overflow: ellipsis" not in html
+
+
+def test_field_manual_disclaimer_prints_in_the_footer() -> None:
     html = _render("branded-sheet", {}, [], theme_id="field-manual")
-    assert 'class="sm-disclaimer"' not in html
+    assert FIELD_MANUAL_DISCLAIMER in html
+    assert 'class="sm-disclaimer"' in html
 
 
 def test_ordered_lists_reserve_room_for_two_digit_markers() -> None:

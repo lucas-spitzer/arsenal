@@ -1,4 +1,6 @@
-from app.qngen.skills.flashcards.helpers import prefer_term_definition
+from types import SimpleNamespace
+
+from app.qngen.skills.flashcards.helpers import ensure_list_flashcards, prefer_term_definition
 
 
 def _card(*, wiki_id: str, front: str, subtype: str = "term_definition", **extra) -> dict:
@@ -50,6 +52,35 @@ def test_dedup_still_collapses_by_wiki_id() -> None:
 
     assert len(result) == 1
     assert result[0]["subtype"] == "term_definition"
+
+
+def test_list_item_cards_stay_beside_the_membership_card() -> None:
+    items = [
+        _card(wiki_id="wiki-list", front="Forms of Friction", subtype="list"),
+        _card(wiki_id="wiki-list", front="Mental Friction", subtype="list_item"),
+    ]
+
+    result = prefer_term_definition(items)
+
+    assert {card["front"] for card in result} == {"Forms of Friction", "Mental Friction"}
+
+
+def test_ensure_list_flashcards_adds_missing_components() -> None:
+    concept = SimpleNamespace(
+        wiki_id="wiki-list",
+        preferred_label="Forms of Friction",
+        definition="Sources of resistance.",
+        entry_kind="list",
+        significance=None,
+        items=[{"name": "Mental Friction", "details": "Indecision."}],
+        evidence_segment_ids=["seg-1"],
+    )
+
+    result = ensure_list_flashcards([], [concept])
+
+    assert {card["front"] for card in result} == {"Forms of Friction", "Mental Friction"}
+    assert result[1]["subtype"] == "list_item"
+    assert result[1]["back"] == "Indecision."
 
 
 def test_dedup_keeps_distinct_terms() -> None:

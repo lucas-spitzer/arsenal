@@ -215,7 +215,6 @@ def assign_words_to_paragraphs(
 
 def _progress_output(
     *,
-    done: int,
     total: int,
     narrated: int,
     reused: int,
@@ -224,10 +223,16 @@ def _progress_output(
     voice_id: str,
     model_id: str,
 ) -> dict[str, Any]:
-    """Stage-run output shape used both mid-run (live UI) and at completion."""
+    """Stage-run output shape used both mid-run (live UI) and at completion.
+
+    ``segments_done`` is clips that have audio for this source: ones reused
+    from an earlier run plus ones synthesized now. Skipped attempts are not
+    counted, and reused clips are not synthesized again.
+    """
+    covered = narrated + reused
     return {
-        "summary": f"{done}/{total} clips",
-        "segments_done": done,
+        "summary": f"{covered}/{total} clips",
+        "segments_done": covered,
         "segments_total": total,
         "segments_narrated": narrated,
         "segments_reused": reused,
@@ -407,7 +412,6 @@ class NarrationStageExecutor:
         self,
         stage_run_id: str,
         *,
-        done: int,
         total: int,
         narrated: int,
         reused: int,
@@ -415,7 +419,6 @@ class NarrationStageExecutor:
         character_count: int,
     ) -> dict[str, Any]:
         output = _progress_output(
-            done=done,
             total=total,
             narrated=narrated,
             reused=reused,
@@ -496,14 +499,12 @@ class NarrationStageExecutor:
         clips_total = len(packed)
         narrated = 0
         reused = 0
-        done = 0
         character_count = 0
         previous_request_ids: list[str] = []
 
         def publish() -> dict[str, Any]:
             return self._publish_progress(
                 stage_run_id,
-                done=done,
                 total=clips_total,
                 narrated=narrated,
                 reused=reused,
@@ -541,7 +542,6 @@ class NarrationStageExecutor:
             ):
                 reused += 1
                 previous_request_ids = []
-                done += 1
                 output = publish()
                 continue
 
@@ -567,7 +567,6 @@ class NarrationStageExecutor:
                 )
                 skipped += 1
                 previous_request_ids = []
-                done += 1
                 output = publish()
                 continue
             quality = result.alignment_quality or timing_quality(
@@ -675,7 +674,6 @@ class NarrationStageExecutor:
             if result.request_id:
                 previous_request_ids = (previous_request_ids + [result.request_id])[-3:]
 
-            done += 1
             output = publish()
 
         publish_context = {

@@ -654,3 +654,106 @@ class WorkerDatabase:
             created.extend(self._request("POST", "scenarios", json_body=batch) or [])
 
         return created
+
+    def get_knowledge_project_for_run(self, production_run_id: str, column: str) -> dict[str, Any] | None:
+        if column not in {"structure_run_id", "draft_run_id", "visual_run_id"}:
+            raise ValueError(f"Unknown knowledge run column {column}.")
+        rows = self._request(
+            "GET",
+            "knowledge_projects",
+            params={"select": "*", column: f"eq.{production_run_id}", "limit": "1"},
+        )
+        return rows[0] if rows else None
+
+    def update_knowledge_project(self, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = self._request(
+            "PATCH",
+            "knowledge_projects",
+            params={"id": f"eq.{project_id}"},
+            json_body=payload,
+        )
+        return rows[0]
+
+    def list_knowledge_item_plans(self, project_id: str) -> list[dict[str, Any]]:
+        rows = self._request(
+            "GET",
+            "knowledge_item_plans",
+            params={
+                "select": "*",
+                "knowledge_project_id": f"eq.{project_id}",
+                "order": "created_at.asc",
+            },
+        )
+        return rows or []
+
+    def insert_knowledge_item_plans(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        created = self._request("POST", "knowledge_item_plans", json_body=rows)
+        return created or []
+
+    def update_knowledge_item_plan(self, plan_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = self._request(
+            "PATCH",
+            "knowledge_item_plans",
+            params={"id": f"eq.{plan_id}"},
+            json_body=payload,
+        )
+        return rows[0]
+
+    def delete_knowledge_item_plans(self, project_id: str, item_types: list[str]) -> None:
+        if not item_types:
+            return
+        joined = ",".join(item_types)
+        self._request(
+            "DELETE",
+            "knowledge_item_plans",
+            params={
+                "knowledge_project_id": f"eq.{project_id}",
+                "item_type": f"in.({joined})",
+            },
+        )
+
+    def clear_plan_assessments(self, project_id: str, item_type: str) -> None:
+        self._request(
+            "PATCH",
+            "knowledge_item_plans",
+            params={
+                "knowledge_project_id": f"eq.{project_id}",
+                "item_type": f"eq.{item_type}",
+            },
+            json_body={"assessment_id": None},
+        )
+
+    def delete_assessments_for_project(self, project_id: str) -> None:
+        for table in ("flashcards", "quizzes", "scenarios"):
+            self._request(
+                "DELETE",
+                table,
+                params={"knowledge_project_id": f"eq.{project_id}"},
+            )
+
+    def list_assessments_for_project(self, table: str, project_id: str) -> list[dict[str, Any]]:
+        if table not in {"flashcards", "quizzes", "scenarios"}:
+            raise ValueError(f"Unknown assessment table {table}.")
+        rows = self._request(
+            "GET",
+            table,
+            params={
+                "select": "*",
+                "knowledge_project_id": f"eq.{project_id}",
+                "order": "created_at.asc",
+            },
+        )
+        return rows or []
+
+    def update_assessment(self, table: str, assessment_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if table not in {"flashcards", "quizzes", "scenarios"}:
+            raise ValueError(f"Unknown assessment table {table}.")
+        rows = self._request(
+            "PATCH",
+            table,
+            params={"id": f"eq.{assessment_id}"},
+            json_body=payload,
+        )
+        return rows[0]

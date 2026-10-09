@@ -526,6 +526,9 @@ class FlashcardGenStageExecutor:
         production_run_id: str,
         workspace_id: str,
         source: dict[str, Any],
+        wiki_ids: set[str] | None = None,
+        knowledge_project_id: str | None = None,
+        skip_importance_filter: bool = False,
     ) -> str:
         return _run_qngen_stage(
             db=self.db,
@@ -544,10 +547,14 @@ class FlashcardGenStageExecutor:
                 stage_run_id=kwargs["stage_run_id"],
                 stage_id=kwargs["stage_id"],
                 stage_version=kwargs["stage_version"],
+                knowledge_project_id=kwargs.get("knowledge_project_id"),
             ),
             insert_rows=self.db.insert_flashcards,
             output_key="flashcards",
             promoted_key="flashcard_ids",
+            wiki_ids=wiki_ids,
+            knowledge_project_id=knowledge_project_id,
+            skip_importance_filter=skip_importance_filter,
         )
 
 
@@ -570,6 +577,9 @@ class QuizGenStageExecutor:
         production_run_id: str,
         workspace_id: str,
         source: dict[str, Any],
+        wiki_ids: set[str] | None = None,
+        knowledge_project_id: str | None = None,
+        skip_importance_filter: bool = False,
     ) -> str:
         return _run_qngen_stage(
             db=self.db,
@@ -588,10 +598,14 @@ class QuizGenStageExecutor:
                 stage_run_id=kwargs["stage_run_id"],
                 stage_id=kwargs["stage_id"],
                 stage_version=kwargs["stage_version"],
+                knowledge_project_id=kwargs.get("knowledge_project_id"),
             ),
             insert_rows=self.db.insert_quizzes,
             output_key="questions",
             promoted_key="quiz_ids",
+            wiki_ids=wiki_ids,
+            knowledge_project_id=knowledge_project_id,
+            skip_importance_filter=skip_importance_filter,
         )
 
 
@@ -614,6 +628,9 @@ class ScenarioGenStageExecutor:
         production_run_id: str,
         workspace_id: str,
         source: dict[str, Any],
+        wiki_ids: set[str] | None = None,
+        knowledge_project_id: str | None = None,
+        skip_importance_filter: bool = False,
     ) -> str:
         return _run_qngen_stage(
             db=self.db,
@@ -632,10 +649,14 @@ class ScenarioGenStageExecutor:
                 stage_run_id=kwargs["stage_run_id"],
                 stage_id=kwargs["stage_id"],
                 stage_version=kwargs["stage_version"],
+                knowledge_project_id=kwargs.get("knowledge_project_id"),
             ),
             insert_rows=self.db.insert_scenarios,
             output_key="scenarios",
             promoted_key="scenario_ids",
+            wiki_ids=wiki_ids,
+            knowledge_project_id=knowledge_project_id,
+            skip_importance_filter=skip_importance_filter,
         )
 
 
@@ -653,6 +674,9 @@ def _run_qngen_stage(
     insert_rows: Any,
     output_key: str,
     promoted_key: str,
+    wiki_ids: set[str] | None = None,
+    knowledge_project_id: str | None = None,
+    skip_importance_filter: bool = False,
 ) -> str:
     source_id = source["id"]
     segments = db.list_ndr_segments_for_source(source_id)
@@ -672,12 +696,14 @@ def _run_qngen_stage(
         source_id=source_id,
         segments=segments,
     )
+    if wiki_ids is not None:
+        allowed = {str(wiki_id) for wiki_id in wiki_ids}
+        concepts = [concept for concept in concepts if concept.wiki_id in allowed]
 
     if not concepts:
         raise RuntimeError(
             f"No canonical wiki entries with evidence found for source {source_id}. "
-            "Run Wiki Knowledge from OPS, then review entries in Academy Library "
-            "before generating assessments.",
+            "Structure notes in Forge Knowledge, then draft from those entries.",
         )
 
     settings = get_settings()
@@ -726,6 +752,7 @@ def _run_qngen_stage(
             concept_batches=concept_batches,
             learning_objectives=[],
             chapters=chapters,
+            skip_importance_filter=skip_importance_filter,
         )
         output_data = output.model_dump()
         items = output_data[output_key]
@@ -741,6 +768,7 @@ def _run_qngen_stage(
             stage_run_id=stage_run_id,
             stage_id=stage_id,
             stage_version=stage_version,
+            knowledge_project_id=knowledge_project_id,
         )
         created_rows = insert_rows(rows)
         promoted_ids = [str(row["id"]) for row in created_rows]

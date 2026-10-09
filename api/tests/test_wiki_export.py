@@ -8,7 +8,7 @@ def _entry(
     label: str,
     *,
     status: str = "canonical",
-    entry_kind: str = "concept",
+    entry_kind: str = "term",
     evidence: list[dict] | None = None,
     origin: dict | None = None,
     prerequisites: list[str] | None = None,
@@ -120,7 +120,7 @@ def test_export_counts_entry_kinds() -> None:
     entries = [
         _entry("w1", "Alpha", entry_kind="term", origin={"kind": "manual", "source_id": "s"}),
         _entry("w2", "Beta", entry_kind="term", origin={"kind": "manual", "source_id": "s"}),
-        _entry("w3", "Gamma", entry_kind="insight", origin={"kind": "manual", "source_id": "s"}),
+        _entry("w3", "Gamma", entry_kind="list", origin={"kind": "manual", "source_id": "s"}),
     ]
 
     export = build_wiki_export(
@@ -130,4 +130,4 @@ def test_export_counts_entry_kinds() -> None:
         source_filename=None,
     )
 
-    assert export["entry_kind_counts"] == {"term": 2, "insight": 1}
+    assert export["entry_kind_counts"] == {"term": 2, "list": 1}

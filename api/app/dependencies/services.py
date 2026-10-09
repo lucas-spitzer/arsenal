@@ -16,10 +16,12 @@ from app.repositories.stage_runs import StageRunRepository
 from app.repositories.stage_settings import StageSettingsRepository
 from app.repositories.stages import StageRepository
 from app.repositories.study_materials import StudyMaterialRepository
+from app.repositories.knowledge_projects import KnowledgeProjectRepository
 from app.repositories.wiki_entries import WikiEntryRepository
 from app.repositories.wiki_ingest_batches import WikiIngestBatchRepository
 from app.repositories.workspaces import WorkspaceRepository
 from app.services.assistant import AssistantService
+from app.services.knowledge_projects import KnowledgeProjectService
 from app.services.retrieval import RetrievalService
 from app.services.supabase_rest import SupabaseRestClient
 from app.services.supabase_storage import SupabaseStorageClient
@@ -104,6 +106,12 @@ def get_artifact_repository(
     return ArtifactRepository(db)
 
 
+def get_knowledge_project_repository(
+    db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
+) -> KnowledgeProjectRepository:
+    return KnowledgeProjectRepository(db)
+
+
 def get_study_material_repository(
     db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
 ) -> StudyMaterialRepository:
@@ -138,6 +146,22 @@ def get_wiki_ingest_batch_repository(
     db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
 ) -> WikiIngestBatchRepository:
     return WikiIngestBatchRepository(db)
+
+
+def get_knowledge_project_service(
+    projects: Annotated[KnowledgeProjectRepository, Depends(get_knowledge_project_repository)],
+    production_runs: Annotated[ProductionRunRepository, Depends(get_production_run_repository)],
+    batches: Annotated[WikiIngestBatchRepository, Depends(get_wiki_ingest_batch_repository)],
+    wiki_entries: Annotated[WikiEntryRepository, Depends(get_wiki_entry_repository)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> KnowledgeProjectService:
+    return KnowledgeProjectService(
+        projects=projects,
+        production_runs=production_runs,
+        batches=batches,
+        wiki_entries=wiki_entries,
+        settings=settings,
+    )
 
 
 def get_wiki_authoring_service(

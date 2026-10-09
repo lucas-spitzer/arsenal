@@ -12,6 +12,7 @@ import {
   listSources,
   listWikiEntries,
   uploadSource as uploadSourceRequest,
+  uploadStructuredData as uploadStructuredDataRequest,
   uploadArtifact as uploadArtifactRequest,
   type Artifact,
   type Flashcard,
@@ -38,6 +39,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
   const workspaceId = activeWorkspace?.id ?? null
 
   const [sources, setSources] = useState<Source[]>([])
+  const [structuredSources, setStructuredSources] = useState<Source[]>([])
   const [productionRuns, setProductionRuns] = useState<ProductionRun[]>([])
   const [stageRunsByRunId, setStageRunsByRunId] = useState<Record<string, StageRun[]>>({})
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
@@ -90,7 +92,8 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
         return
       }
 
-      setSources(nextSources)
+      setSources(nextSources.filter((source) => source.source_kind !== 'structured_data'))
+      setStructuredSources(nextSources.filter((source) => source.source_kind === 'structured_data'))
       setProductionRuns(nextRuns)
       setStageRunsByRunId(Object.fromEntries(stageRunEntries))
       setArtifacts(collapseDuplicateNarrationArtifacts(nextArtifacts))
@@ -114,6 +117,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
   useEffect(() => {
     if (!workspaceId) {
       setSources([])
+      setStructuredSources([])
       setProductionRuns([])
       setStageRunsByRunId({})
       setArtifacts([])
@@ -160,6 +164,19 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
     [workspaceId, refresh],
   )
 
+  const uploadStructuredData = useCallback(
+    async (file: File) => {
+      if (!workspaceId) {
+        throw new Error('No active workspace.')
+      }
+
+      const source = await uploadStructuredDataRequest(workspaceId, file)
+      await refresh()
+      return source
+    },
+    [workspaceId, refresh],
+  )
+
   const uploadArtifact = useCallback(
     async (file: File) => {
       if (!workspaceId) {
@@ -174,7 +191,11 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
   )
 
   const createProductionRun = useCallback(
-    async (payload: { source_ids: string[]; target_artifacts: string[] }) => {
+    async (payload: {
+      source_ids: string[]
+      target_artifacts: string[]
+      narration_restart_source_ids?: string[]
+    }) => {
       if (!workspaceId) {
         throw new Error('No active workspace.')
       }
@@ -215,6 +236,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
   const value = useMemo(
     () => ({
       sources,
+      structuredSources,
       productionRuns,
       stageRunsByRunId,
       artifacts,
@@ -226,6 +248,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       error,
       activeRunCount,
       uploadSource,
+      uploadStructuredData,
       uploadArtifact,
       createProductionRun,
       deleteProductionRun,
@@ -235,6 +258,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
     }),
     [
       sources,
+      structuredSources,
       productionRuns,
       stageRunsByRunId,
       artifacts,
@@ -246,6 +270,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       error,
       activeRunCount,
       uploadSource,
+      uploadStructuredData,
       uploadArtifact,
       createProductionRun,
       deleteProductionRun,

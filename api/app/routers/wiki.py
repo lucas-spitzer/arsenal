@@ -75,6 +75,9 @@ async def create_wiki_entry(
             importance=payload.importance,
             aliases=payload.aliases,
             pronunciation=payload.pronunciation,
+            significance=payload.significance,
+            category=payload.category,
+            items=[item.model_dump() for item in payload.items],
             origin=payload.origin,
         )
     except WikiAuthoringError as exc:
@@ -109,7 +112,7 @@ async def update_wiki_entry(
     _: Annotated[CurrentUser, Depends(require_approved_user)],
     authoring: Annotated[WikiAuthoringService, Depends(get_wiki_authoring_service)],
 ) -> WikiEntryResponse:
-    updates = payload.model_dump(exclude_none=True)
+    updates = payload.model_dump(exclude_unset=True)
 
     if not updates:
         raise HTTPException(

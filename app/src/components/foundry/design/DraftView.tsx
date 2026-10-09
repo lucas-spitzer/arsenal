@@ -9,7 +9,7 @@ import {
   type StudyTheme,
 } from '../../../lib/studyMaterialApi'
 import { ErrorBanner } from '../ErrorBanner'
-import { ForgeLoader } from './ForgeLoader'
+import { FoundryLoader } from '../FoundryLoader'
 import { RunSteps } from './RunSteps'
 
 const CSS_PX_PER_IN = 96
@@ -55,7 +55,9 @@ export function DraftView({
   const [html, setHtml] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const pageWidthPx = template.page.width_in * CSS_PX_PER_IN
+  const pageCount = Math.max(1, template.page_count)
   const pageHeightPx = template.page.height_in * CSS_PX_PER_IN
+  const frameHeightPx = pageHeightPx * pageCount
   const { ref, scale } = usePageScale(pageWidthPx)
   const finalized = material.status === 'finalized'
   const finalizing = material.status === 'finalizing'
@@ -80,10 +82,8 @@ export function DraftView({
     <>
       <header className="as-console__header">
         <div>
-          <div className="as-console__eyebrow">
-            Study Material · {finalized ? 'Final' : 'Step 4 of 4'}
-          </div>
-          <h2>{material.title}</h2>
+          <div className="as-console__eyebrow">Study material</div>
+          <h2>Design Forge</h2>
         </div>
         <div className="dsn-header-actions">
           <button type="button" className="as-console__cta as-console__cta--ghost" onClick={onBack}>
@@ -126,7 +126,10 @@ export function DraftView({
         {material.error ? <ErrorBanner message={material.error} /> : null}
         <div className="dsn-workbench dsn-workbench--draft">
           <section className="dsn-canvas-panel" aria-label="Draft preview">
-            <div ref={ref} className="dsn-preview" style={{ height: pageHeightPx * scale }}>
+            {pageCount > 1 ? (
+              <p className="dsn-hint">Front, then the mirrored back. Print duplex, flip on the long edge.</p>
+            ) : null}
+            <div ref={ref} className="dsn-preview" style={{ height: frameHeightPx * scale }}>
               {html ? (
                 <iframe
                   title={`${material.title} preview`}
@@ -135,12 +138,12 @@ export function DraftView({
                   srcDoc={html}
                   style={{
                     width: pageWidthPx,
-                    height: pageHeightPx,
+                    height: frameHeightPx,
                     transform: `scale(${scale})`,
                   }}
                 />
               ) : (
-                <ForgeLoader label="Loading the draft" size="sm" />
+                <FoundryLoader label="Loading the draft" size="sm" />
               )}
             </div>
           </section>
@@ -148,7 +151,7 @@ export function DraftView({
           <aside className="dsn-side">
             {finalizing ? (
               <section className="as-console__panel dsn-side__panel">
-                <ForgeLoader label="Validating the page and printing the PDF" size="sm" />
+                <FoundryLoader label="Validating the page and printing the PDF" size="sm" />
                 <RunSteps runId={material.production_run_id} />
               </section>
             ) : null}

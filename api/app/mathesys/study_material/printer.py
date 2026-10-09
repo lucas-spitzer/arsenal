@@ -19,6 +19,7 @@ async (tolerance) => {
     new Promise((resolve) => { img.onload = resolve; img.onerror = resolve; })));
   const over = (el) => el.scrollHeight - el.clientHeight > tolerance
     || el.scrollWidth - el.clientWidth > tolerance;
+  // Sheet size comes from the first page. Sections on later pages are measured too.
   const page = document.querySelector('.sm-page').getBoundingClientRect();
   const sections = [...document.querySelectorAll('[data-section]')].map((el) => {
     const title = el.querySelector('.sm-title');

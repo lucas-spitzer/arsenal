@@ -54,11 +54,12 @@ def _default_provider_model(stage_action: str) -> tuple[str, str]:
         return narration.provider, narration.model_id
     if stage_action == STUDY_MATERIAL_IMAGE_ACTION:
         study = get_settings().study_material
-        model = (
-            study.google_image_model
-            if study.image_provider == "google"
-            else study.openai_image_model
-        )
+        if study.image_provider == "google":
+            model = study.google_image_model
+        elif study.image_provider == "xai":
+            model = study.xai_image_model
+        else:
+            model = study.openai_image_model
         return study.image_provider, model
     resolved = get_settings().llm.resolve_action(stage_action)
     return resolved.provider, resolved.model

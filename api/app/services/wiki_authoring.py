@@ -19,7 +19,7 @@ from typing import Any
 
 from app.artifact_paths import storage_slug
 from app.config import Settings, get_settings
-from app.intellex.wiki_candidates import WikiCandidate, candidate_slug
+from app.intellex.wiki_candidates import WikiCandidate, candidate_slug, entry_embedding_text
 from app.models.wiki_ingest import WikiIngestCreate
 from app.pipeline import build_pipeline
 from app.repositories.production_runs import ProductionRunRepository
@@ -45,28 +45,32 @@ REVISE_ACTION = "wiki_revise"
 
 STRUCTURING_SYSTEM_PROMPT = """You convert a reader's unstructured book notes into structured wiki entries.
 
-The notes are terminology, concepts, and insights the reader wrote down while reading. Your only job is to FORMAT them — never to add knowledge.
+The notes are terms and lists the reader wrote down while reading. Your only job is to FORMAT them — never to add knowledge.
 
 Rules:
-1. Split, don't summarize. Each atomic term/concept/insight becomes its own entry; compound notes are split.
-2. Merge within the batch. Obvious restatements of the same item collapse into one entry (merge their aliases).
+1. Split, don't summarize. Each atomic term becomes its own entry. An enumeration ("the three filters are…", bullets, "X, Y, and Z") becomes one list. Compound notes are split.
+2. Merge within the batch. Obvious restatements of the same item collapse into one entry (merge their aliases, or union list items).
 3. No invention. Definitions may only rephrase the reader's words — fix grammar and expand shorthand, never add facts the notes don't contain. If a term is named but not defined, use the best available fragment as the definition.
-4. Insights keep the reader's voice. Light grammar cleanup only.
-5. Classification: vocabulary with a compact definition → "term"; an idea/model/framework → "concept"; a judgment/takeaway/lesson → "insight".
-6. importance defaults to "supporting". Use "essential" or "contextual" only when the notes signal it ("key idea", "(minor)", emphasis). Do not inflate importance.
-7. aliases: alternate names present in the notes ("aka …", parentheticals, abbreviations).
-8. prerequisite_labels: only when the notes explicitly relate entries ("related to X", "builds on Y") — use the other entry's label.
-9. pronunciation: only when the notes give one.
-10. note_excerpt: a verbatim fragment (max 240 chars) of the notes this entry came from.
-11. Anything you cannot confidently structure goes into unparsed_fragments verbatim — never guess it into an entry, never silently drop it.
+4. Classification: vocabulary with a compact definition → "term". An enumeration → "list". A list's definition is the one-line overview of the set, or "" when the notes only name the members. Each item is {"name", "details"} and details is "" unless the notes gloss that member.
+5. importance defaults to "supporting". Use "essential" or "contextual" only when the notes signal it ("key idea", "(minor)", emphasis). Do not inflate importance.
+6. significance: a separate "why it matters" sentence only when the notes give one. Do not fold it into the definition.
+7. category: a grouping label only when the notes name one. Do not invent a category from the list title.
+8. aliases: alternate names present in the notes ("aka …", parentheticals, abbreviations).
+9. prerequisite_labels: only when the notes explicitly relate entries ("related to X", "builds on Y") — use the other entry's label.
+10. pronunciation: only when the notes give one.
+11. note_excerpt: a verbatim fragment (max 240 chars) of the notes this entry came from.
+12. Anything you cannot confidently structure goes into unparsed_fragments verbatim — never guess it into an entry, never silently drop it.
 
 Respond with a JSON object:
 {
   "entries": [
     {
       "label": string,
-      "entry_kind": "term" | "concept" | "insight",
+      "entry_kind": "term" | "list",
       "definition": string,
+      "significance": string | null,
+      "category": string | null,
+      "items": [{"name": string, "details": string}],
       "aliases": [string],
       "pronunciation": string | null,
       "importance": "essential" | "supporting" | "contextual",
@@ -102,10 +106,6 @@ class WikiIngestNotFoundError(Exception):
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _embedding_text(label: str, definition: str) -> str:
-    return f"{label}. {definition}"
 
 
 class WikiAuthoringService:
@@ -294,6 +294,9 @@ class WikiAuthoringService:
         importance: str,
         aliases: list[str],
         pronunciation: str | None,
+        significance: str | None = None,
+        category: str | None = None,
+        items: list[dict[str, Any]] | None = None,
         origin: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         existing_entries = await self._list_all_entries(workspace_id)
@@ -305,6 +308,9 @@ class WikiAuthoringService:
             importance=importance,
             aliases=aliases,
             pronunciation=pronunciation,
+            significance=significance,
+            category=category,
+            items=items or [],
             origin=entry_origin,
         )
         slug = candidate_slug(candidate, {
@@ -323,6 +329,9 @@ class WikiAuthoringService:
                     "preferred_label": candidate.label,
                     "canonical_slug": slug,
                     "definition": candidate.definition,
+                    "significance": candidate.significance,
+                    "category": candidate.category,
+                    "items": candidate.items,
                     "pronunciation": candidate.pronunciation,
                     "aliases": candidate.aliases,
                     "prerequisites": [],
@@ -350,7 +359,7 @@ class WikiAuthoringService:
 
         updated = await self.wiki_entries.update(wiki_entry_id, payload)
 
-        if "definition" in payload or "preferred_label" in payload:
+        if any(key in payload for key in ("definition", "preferred_label", "significance", "items")):
             await self._embed_entries([wiki_entry_id])
             updated = await self.wiki_entries.get_for_workspace(wiki_entry_id, workspace_id) or updated
 
@@ -534,9 +543,11 @@ class WikiAuthoringService:
             return
 
         texts = [
-            _embedding_text(
+            entry_embedding_text(
                 str(row.get("preferred_label") or ""),
                 str(row.get("definition") or ""),
+                significance=row.get("significance"),
+                items=row.get("items") or [],
             )
             for row in rows
         ]

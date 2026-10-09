@@ -16,7 +16,7 @@ from app.mathesys.study_material.layout import SectionLayout, default_section_la
 VISUAL_TYPES = frozenset({"diagram", "image"})
 GAP_IN = {"tight": 0.06, "normal": 0.12, "loose": 0.2}
 CARD_PADDING_IN = 0.16
-CARD_DISCLAIMER_IN = 0.14
+CARD_DISCLAIMER_IN = 0.22
 
 
 @dataclass(frozen=True)
@@ -83,6 +83,7 @@ body {{
   position: relative; width: {template.width_in:g}in; height: {template.height_in:g}in;
   overflow: hidden; background: var(--sm-paper);
 }}
+.sm-page + .sm-page {{ break-before: page; page-break-before: always; }}
 .sm-safe {{ position: absolute; inset: {margin:g}in; }}
 .sm-section {{ position: absolute; overflow: hidden; }}
 .sm-section--title {{
@@ -107,16 +108,18 @@ body {{
   border-top: 0.75pt solid var(--sm-rule); padding-top: 0.04in;
   font-size: 7.5pt; line-height: 1.25; color: var(--sm-muted);
 }}
+.sm-section--footer.is-centered {{ justify-content: center; text-align: center; }}
 .sm-footer-text {{ min-width: 0; }}
 .sm-disclaimer {{ margin-left: auto; text-align: right; font-size: 7pt; color: var(--sm-muted); }}
+.sm-section--footer.is-centered .sm-footer-text,
+.sm-section--footer.is-centered .sm-disclaimer {{ margin-left: 0; text-align: center; }}
 .sm-section--flexible {{ padding: 0.12in 0.06in 0.06in; }}
 .sm-section--divided {{ border-left: 0.75pt solid var(--sm-rule); padding-left: 0.14in; }}
 .sm-section--leading {{ padding-right: 0.14in; }}
 .sm-section--card {{ padding: {CARD_PADDING_IN}in {CARD_PADDING_IN}in {CARD_PADDING_IN + CARD_DISCLAIMER_IN}in; }}
 .sm-card-disclaimer {{
-  position: absolute; left: {CARD_PADDING_IN}in; right: {CARD_PADDING_IN}in; bottom: 0.07in;
-  font-size: 5.5pt; line-height: 1.1; color: var(--sm-muted); text-align: center;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  position: absolute; left: {CARD_PADDING_IN}in; right: {CARD_PADDING_IN}in; bottom: 0.05in;
+  font-size: 5.5pt; line-height: 1.15; color: var(--sm-muted); text-align: center;
 }}
 .sm-cutlines {{ position: absolute; inset: 0; pointer-events: none; }}
 .sm-flow {{ display: flex; width: 100%; height: 100%; min-height: 0; }}
@@ -251,12 +254,19 @@ def _flexible_section_html(
     )
 
 
+def _section_class(section: TemplateSection) -> str:
+    classes = ["sm-section", f"sm-section--{section.content or 'strict'}"]
+    if section.align == "center":
+        classes.append("is-centered")
+    return " ".join(classes)
+
+
 def _strict_section_html(data: RenderInput, section: TemplateSection) -> str:
     style = _box_style(data.template, section)
     attrs = f'data-section="{section.id}" style="{style}"'
     if section.content == "title":
         return (
-            f'<header class="sm-section sm-section--title" {attrs}>'
+            f'<header class="{_section_class(section)}" {attrs}>'
             f'<h1 class="sm-title">{escape(data.title)}</h1></header>'
         )
     if section.content == "logo":
@@ -268,7 +278,7 @@ def _strict_section_html(data: RenderInput, section: TemplateSection) -> str:
                 f'<div class="sm-logo-panel"><img src="{asset_data_uri(logo.file)}" '
                 f'alt="{escape(logo.label, quote=True)}" /></div>'
             )
-        return f'<div class="sm-section sm-section--logo" {attrs}>{panel}</div>'
+        return f'<div class="{_section_class(section)}" {attrs}>{panel}</div>'
     footer_text = str(data.options.get("footer_text") or "")
     disclaimer = (
         f'<span class="sm-disclaimer">{escape(data.theme.disclaimer)}</span>'
@@ -276,14 +286,14 @@ def _strict_section_html(data: RenderInput, section: TemplateSection) -> str:
         else ""
     )
     return (
-        f'<footer class="sm-section sm-section--footer" {attrs}>'
+        f'<footer class="{_section_class(section)}" {attrs}>'
         f'<span class="sm-footer-text">{escape(footer_text)}</span>{disclaimer}</footer>'
     )
 
 
-def _cut_lines_svg(template: Template) -> str:
-    xs = sorted({s.box.x for s in template.sections} | {s.box.x + s.box.w for s in template.sections})
-    ys = sorted({s.box.y for s in template.sections} | {s.box.y + s.box.h for s in template.sections})
+def _cut_lines_svg(sections: tuple[TemplateSection, ...] | list[TemplateSection]) -> str:
+    xs = sorted({s.box.x for s in sections} | {s.box.x + s.box.w for s in sections})
+    ys = sorted({s.box.y for s in sections} | {s.box.y + s.box.h for s in sections})
     lines = [
         f'<line x1="{x}%" y1="0" x2="{x}%" y2="100%" />' for x in xs
     ] + [
@@ -296,25 +306,32 @@ def _cut_lines_svg(template: Template) -> str:
     )
 
 
+def _page_html(data: RenderInput, page_id: str, by_section: dict[str, list[RenderComponent]]) -> str:
+    template = data.template
+    page_sections = template.sections_on(page_id)
+    sections_html: list[str] = []
+    for section in page_sections:
+        if section.is_flexible:
+            sections_html.append(_flexible_section_html(data, section, by_section.get(section.id, [])))
+        else:
+            sections_html.append(_strict_section_html(data, section))
+    cut_lines = _cut_lines_svg(page_sections) if template.cut_lines else ""
+    return (
+        f'<main class="sm-page" data-template="{template.id}" data-theme="{data.theme.id}" '
+        f'data-page="{escape(page_id, quote=True)}">'
+        f'<div class="sm-safe">{cut_lines}{"".join(sections_html)}</div></main>'
+    )
+
+
 def render_document(data: RenderInput) -> str:
     template = data.template
     by_section: dict[str, list[RenderComponent]] = {}
     for component in data.components:
         by_section.setdefault(component.section_id, []).append(component)
 
-    sections_html: list[str] = []
-    for section in template.sections:
-        if section.is_flexible:
-            sections_html.append(_flexible_section_html(data, section, by_section.get(section.id, [])))
-        else:
-            sections_html.append(_strict_section_html(data, section))
-
-    cut_lines = _cut_lines_svg(template) if template.cut_lines else ""
+    pages = "".join(_page_html(data, page_id, by_section) for page_id in template.pages)
     return (
         '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" />'
         f"<title>{escape(data.title)}</title>"
-        f"<style>{_css(template, data.theme)}</style></head><body>"
-        f'<main class="sm-page" data-template="{template.id}" data-theme="{data.theme.id}">'
-        f'<div class="sm-safe">{cut_lines}{"".join(sections_html)}</div>'
-        "</main></body></html>"
+        f"<style>{_css(template, data.theme)}</style></head><body>{pages}</body></html>"
     )
