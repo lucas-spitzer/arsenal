@@ -55,9 +55,11 @@ ANTHROPIC_MODEL_RATES: dict[str, TokenRates] = {
         input_per_million=_float_env("ANTHROPIC_SONNET_INPUT_PER_M", 2.00),
         output_per_million=_float_env("ANTHROPIC_SONNET_OUTPUT_PER_M", 10.00),
     ),
-    "claude-haiku-4-5": TokenRates(
-        input_per_million=_float_env("ANTHROPIC_HAIKU_INPUT_PER_M", 1.00),
-        output_per_million=_float_env("ANTHROPIC_HAIKU_OUTPUT_PER_M", 5.00),
+    # Haiku 5.5 list price is tiered by prompt length; the table holds the
+    # sub-100k-token tier ($0.10/$0.50), matching the catalog.
+    "claude-haiku-5-5": TokenRates(
+        input_per_million=_float_env("ANTHROPIC_HAIKU_INPUT_PER_M", 0.10),
+        output_per_million=_float_env("ANTHROPIC_HAIKU_OUTPUT_PER_M", 0.50),
     ),
 }
 
