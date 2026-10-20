@@ -611,6 +611,19 @@ class KnowledgeProjectService:
         copy = {key: value for key, value in source.items() if key not in {"id", "created_at"}}
         await self._insert_items(project, table=table, item_type=kind, rows=[copy])
 
+    async def delete_project(self, project: dict[str, Any]) -> None:
+        """Remove a knowledge draft that has not started a production run."""
+        status = str(project.get("status") or "")
+        if status in {"structuring", "drafting"}:
+            raise KnowledgeProjectError("Wait for the current run to finish.")
+        if status == "ready":
+            raise KnowledgeProjectError("This project already finished a production run.")
+        project_id = str(project["id"])
+        for table in ("flashcards", "quizzes", "scenarios"):
+            rows = await self.projects.list_assessments(table, project_id)
+            await self.projects.delete_rows(table, [str(row["id"]) for row in rows])
+        await self.projects.delete(project_id)
+
     async def delete_item(self, project: dict[str, Any], plan: dict[str, Any]) -> None:
         self._require_status(project, "composing")
         kind = str(plan.get("item_type") or "")

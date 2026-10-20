@@ -3,6 +3,93 @@ import type { DocumentChapter, NdrSegment } from './sourcesApi'
 // The Reader's display model: one block per ndr_segment, with the H1/H2
 // hierarchy recovered from document_chapters.
 
+const CHAPTER_NUMBER =
+  'twenty[- ](?:one|two|three|four|five|six|seven|eight|nine)|twenty|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|eleven|twelve|one|two|three|four|five|six|seven|eight|nine|ten|[0-9]+|xxix|xxviii|xxvii|xxvi|xxv|xxiv|xxiii|xxii|xxi|xx|xix|xviii|xvii|xvi|xv|xiv|xiii|xii|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i'
+
+const CHAPTER_TITLE_RE = new RegExp(
+  `^(chapter)\\s+(${CHAPTER_NUMBER})(?:\\s*[:.\\u2013\\u2014-]\\s+|\\s+)?(.*)$`,
+  'i',
+)
+
+const WORD_NUMBERS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+}
+
+const ROMAN_NUMERALS: Record<string, number> = {
+  i: 1,
+  ii: 2,
+  iii: 3,
+  iv: 4,
+  v: 5,
+  vi: 6,
+  vii: 7,
+  viii: 8,
+  ix: 9,
+  x: 10,
+  xi: 11,
+  xii: 12,
+  xiii: 13,
+  xiv: 14,
+  xv: 15,
+  xvi: 16,
+  xvii: 17,
+  xviii: 18,
+  xix: 19,
+  xx: 20,
+  xxi: 21,
+  xxii: 22,
+  xxiii: 23,
+  xxiv: 24,
+  xxv: 25,
+  xxvi: 26,
+  xxvii: 27,
+  xxviii: 28,
+  xxix: 29,
+}
+
+function arabicChapterNumber(token: string): number | null {
+  const normalized = token.toLowerCase().replace(' ', '-')
+  if (/^[0-9]+$/.test(normalized)) return Number(normalized)
+  const word = WORD_NUMBERS[normalized]
+  if (word !== undefined) return word
+  if (normalized.startsWith('twenty-')) {
+    const rest = WORD_NUMBERS[normalized.slice('twenty-'.length)]
+    if (rest !== undefined && rest < 10) return 20 + rest
+  }
+  return ROMAN_NUMERALS[normalized] ?? null
+}
+
+/** Assembled headings such as "CHAPTER ONE The Commission and the Oath". */
+export function displayChapterTitle(title: string): string {
+  const match = title.trim().match(CHAPTER_TITLE_RE)
+  if (!match) return title
+  const number = arabicChapterNumber(match[2] ?? '')
+  if (number === null) return title
+  const rest = (match[3] ?? '').trim()
+  if (rest && rest[0] !== rest[0]?.toUpperCase()) return title
+  if (!rest) return `Chapter ${number}`
+  return `Chapter ${number}: ${rest}`
+}
+
 export type Block = {
   seq: number // ndr_segments.sequence_index — the stable deep-link anchor
   id: string // ndr_segments.id (segment UUID); synthetic for the demo passage
@@ -42,7 +129,7 @@ export function buildBlocks(segments: NdrSegment[], chapters: DocumentChapter[])
 
   for (const chapter of [...chapters].sort((a, b) => a.sequence_index - b.sequence_index)) {
     for (const segmentId of chapter.segment_ids) {
-      chapterTitleBySegment.set(segmentId, chapter.title)
+      chapterTitleBySegment.set(segmentId, displayChapterTitle(chapter.title))
     }
     if (chapter.segment_ids.length > 0) chapterStartIds.add(chapter.segment_ids[0])
     for (const section of chapter.sections ?? []) {
@@ -76,7 +163,7 @@ export function buildBlocks(segments: NdrSegment[], chapters: DocumentChapter[])
         // Heading not registered in any chapter map — render as a section.
         level = 2
       }
-      if (level === 1) runningChapter = segment.text
+      if (level === 1) runningChapter = displayChapterTitle(segment.text)
     }
 
     blocks.push({
@@ -88,7 +175,7 @@ export function buildBlocks(segments: NdrSegment[], chapters: DocumentChapter[])
         segment.kind === 'list_item' || segment.kind === 'table' || segment.kind === 'caption'
           ? segment.kind
           : undefined,
-      text: segment.text,
+      text: level === 1 ? displayChapterTitle(segment.text) : segment.text,
       md: segment.md ?? null,
       chapterTitle: runningChapter || segment.text,
       isChapterStart,

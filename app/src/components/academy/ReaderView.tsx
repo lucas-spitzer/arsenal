@@ -25,6 +25,8 @@ import {
   type CSSProperties,
 } from 'react'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
+import { isAdminAccess } from '../../features/auth/access'
+import { useAuth } from '../../features/auth/authContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import {
   MOCK_BLOCKS,
@@ -107,6 +109,8 @@ export function ReaderView({
 }) {
   const { activeWorkspace } = useWorkspace()
   const { sources, wikiEntries, addWikiEntry } = useWorkspaceData()
+  const { approvedUser } = useAuth()
+  const canEditWiki = isAdminAccess(approvedUser?.role)
   const workspaceId = activeWorkspace?.id ?? null
   const activeSource = sources.find((source) => source.id === sourceId)
   const ebookTitle = activeSource ? sourceDisplayName(activeSource) : 'Ebook'
@@ -1533,6 +1537,7 @@ export function ReaderView({
                     className="reader__term-edit reader__term-edit--reveal"
                     value={definePop.definition}
                     rows={1}
+                    readOnly={!canEditWiki}
                     onChange={(event) =>
                       setDefinePop({
                         ...definePop,
@@ -1547,19 +1552,21 @@ export function ReaderView({
                   </p>
                 )}
                 <div className="reader__term-actions">
-                  <button
-                    type="button"
-                    className="reader__term-action reader__term-action--primary"
-                    onClick={() => void saveGeneratedToWiki()}
-                    disabled={
-                      definePop.loading ||
-                      definePop.saving ||
-                      !definePop.definition.trim() ||
-                      !workspaceId
-                    }
-                  >
-                    {definePop.saving ? 'Saving…' : 'Add to wiki'}
-                  </button>
+                  {canEditWiki ? (
+                    <button
+                      type="button"
+                      className="reader__term-action reader__term-action--primary"
+                      onClick={() => void saveGeneratedToWiki()}
+                      disabled={
+                        definePop.loading ||
+                        definePop.saving ||
+                        !definePop.definition.trim() ||
+                        !workspaceId
+                      }
+                    >
+                      {definePop.saving ? 'Saving…' : 'Add to wiki'}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="reader__term-action"

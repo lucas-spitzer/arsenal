@@ -1,7 +1,8 @@
-import { useState, type CSSProperties } from 'react'
+import { useState, type CSSProperties, type FormEvent } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { ArsenalMark } from '../components/brand/ArsenalMark'
-import { signInWithGoogle, signOut } from '../features/auth/authService'
+import { ApiError } from '../lib/apiClient'
+import { requestEmailCode, signInWithGoogle, signOut, verifyEmailCode } from '../features/auth/authService'
 import { useAuth } from '../features/auth/authContext'
 import '../gate.css'
 
@@ -36,7 +37,10 @@ export function LoginPage() {
   const location = useLocation()
   const { approvalError, approvalStatus, isAuthenticated, isLoading } = useAuth()
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [pending, setPending] = useState<'google' | 'code' | null>(null)
+  const [email, setEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [codeSentTo, setCodeSentTo] = useState<string | null>(null)
 
   const fromPath = (location.state as LocationState | null)?.from?.pathname ?? '/app'
 
@@ -46,7 +50,7 @@ export function LoginPage() {
 
   async function handleGoogleLogin() {
     try {
-      setIsSubmitting(true)
+      setPending('google')
       setErrorMessage(null)
       await signInWithGoogle()
     } catch (error) {
@@ -55,12 +59,73 @@ export function LoginPage() {
         error instanceof Error ? error.message : error,
       )
       setErrorMessage('Unable to start Google login. Try again.')
-      setIsSubmitting(false)
+      setPending(null)
     }
   }
 
   async function handleSignOut() {
     await signOut()
+  }
+
+  async function handleRequestCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const address = email.trim()
+    if (!address) return
+
+    try {
+      setPending('code')
+      setErrorMessage(null)
+      await requestEmailCode(address)
+      setEmail(address)
+      setCode('')
+      setCodeSentTo(address)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof ApiError
+          ? error.message
+          : 'Unable to send a sign-in code. Try again.',
+      )
+    } finally {
+      setPending(null)
+    }
+  }
+
+  async function handleVerifyCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!codeSentTo || code.length !== 6) return
+
+    try {
+      setPending('code')
+      setErrorMessage(null)
+      await verifyEmailCode(codeSentTo, code)
+    } catch (error) {
+      console.error(
+        'Unable to verify sign-in code:',
+        error instanceof Error ? error.message : error,
+      )
+      setErrorMessage('That code is not valid. Request another and try again.')
+    } finally {
+      setPending(null)
+    }
+  }
+
+  async function handleResendCode() {
+    if (!codeSentTo) return
+
+    try {
+      setPending('code')
+      setErrorMessage(null)
+      await requestEmailCode(codeSentTo)
+      setCode('')
+    } catch (error) {
+      setErrorMessage(
+        error instanceof ApiError
+          ? error.message
+          : 'Unable to send a sign-in code. Try again.',
+      )
+    } finally {
+      setPending(null)
+    }
   }
 
   return (
@@ -71,7 +136,7 @@ export function LoginPage() {
             <ArsenalMark className="as-gate__mark" />
             <div>
               <div className="as-gate__wordmark">Arsenal</div>
-              <div className="as-gate__tagline">Private Educational Production Studio</div>
+              <div className="as-gate__tagline">Arsenal Education Platform</div>
             </div>
           </div>
 
@@ -111,17 +176,89 @@ export function LoginPage() {
           <button
             type="button"
             onClick={handleGoogleLogin}
-            disabled={isSubmitting || isLoading}
+            disabled={pending !== null || isLoading}
             className="as-gate__cta"
           >
-            {isSubmitting ? 'Redirecting…' : 'Continue with Google'}
+            {pending === 'google' ? 'Redirecting…' : 'Continue with Google'}
           </button>
 
-          <p className="as-gate__helper">Only approved Google accounts may access Arsenal.</p>
+          <p className="as-gate__or">or</p>
+
+          {codeSentTo ? (
+            <form className="as-gate__email" onSubmit={(event) => void handleVerifyCode(event)}>
+              <label className="as-gate__label" htmlFor="sign-in-code">
+                Sign-in code
+              </label>
+              <input
+                id="sign-in-code"
+                className="as-gate__input as-gate__input--code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                required
+              />
+              <p className="as-gate__helper">
+                Enter the code sent to {codeSentTo}. It expires shortly and works once.
+              </p>
+              <button
+                type="submit"
+                className="as-gate__cta"
+                disabled={pending !== null || isLoading || code.length !== 6}
+              >
+                {pending === 'code' ? 'Checking…' : 'Sign in'}
+              </button>
+              <button
+                type="button"
+                className="as-gate__text-action"
+                disabled={pending !== null || isLoading}
+                onClick={() => void handleResendCode()}
+              >
+                Email another code
+              </button>
+              <button
+                type="button"
+                className="as-gate__text-action"
+                disabled={pending !== null || isLoading}
+                onClick={() => {
+                  setCodeSentTo(null)
+                  setCode('')
+                  setErrorMessage(null)
+                }}
+              >
+                Use a different email
+              </button>
+            </form>
+          ) : (
+            <form className="as-gate__email" onSubmit={(event) => void handleRequestCode(event)}>
+              <label className="as-gate__label" htmlFor="sign-in-email">
+                Email
+              </label>
+              <input
+                id="sign-in-email"
+                className="as-gate__input"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+              <button
+                type="submit"
+                className="as-gate__cta"
+                disabled={pending !== null || isLoading || !email.trim()}
+              >
+                {pending === 'code' ? 'Sending…' : 'Email me a code'}
+              </button>
+            </form>
+          )}
+
+          <p className="as-gate__helper">Approved accounts may sign in with Google or an email code.</p>
 
           {approvalStatus === 'rejected' ? (
             <div className="as-gate__error" role="alert">
-              <p>{approvalError ?? 'This Google account is not approved for Arsenal access.'}</p>
+              <p>{approvalError ?? 'This account is not approved for Arsenal access.'}</p>
               <button type="button" className="as-gate__inline-action" onClick={handleSignOut}>
                 Sign out
               </button>

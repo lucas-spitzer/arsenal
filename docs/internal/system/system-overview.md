@@ -1,8 +1,10 @@
 # Arsenal system map
 
+Arsenal is an unofficial study tool for one student platoon at The Basic School. The second lieutenant holding Academics builds the platoon's material. Peers study that material. Arsenal is not a United States Marine Corps website or product.
+
 This file is the source of truth for how Arsenal is organized: names, surfaces, Foundry systems, output kinds, and who reads what. Stage inventories live next to the code ([`api/app/pipeline.py`](../../../api/app/pipeline.py), [`api/README.md`](../../../api/README.md)). Mathesys file contracts live in [`artifacts-catalog.md`](./artifacts-catalog.md).
 
-Current behavior wins. The one-line direction: Arsenal stays a private educational environment, not a public SaaS.
+Current behavior wins where it conflicts with the direction below. An approved account is admin or student, stored on `approved_users.role`. The admin opens Foundry and Academy and owns the workspace. Students open Academy and read that workspace. Wiki writes stay with the admin. A discussion thread belongs to the person who started it.
 
 ## Names
 
@@ -58,4 +60,6 @@ A **production run** is one work order: selected sources plus `target_artifacts`
 
 ## Direction
 
-Stay private and operator-driven. Foundry remains a browser production studio, not a pile of scripts. Academy remains where the package is used and the wiki is kept honest.
+One platoon, one library. The Academics officer is the admin and produces in Foundry. Everyone else in the platoon is a student and uses Academy. Books, wiki entries, artifacts, and assessments are shared by the platoon.
+
+Foundry stays a browser studio. Academy stays where the platoon studies.

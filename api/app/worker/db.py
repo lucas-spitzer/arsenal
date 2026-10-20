@@ -714,24 +714,44 @@ class WorkerDatabase:
             },
         )
 
-    def clear_plan_assessments(self, project_id: str, item_type: str) -> None:
+    def clear_plan_assessments(
+        self,
+        project_id: str,
+        item_type: str,
+        *,
+        keep_assessment_ids: set[str] | None = None,
+    ) -> None:
+        params = {
+            "knowledge_project_id": f"eq.{project_id}",
+            "item_type": f"eq.{item_type}",
+        }
+        kept = keep_assessment_ids or set()
+        if kept:
+            params["assessment_id"] = f"not.in.({','.join(sorted(kept))})"
         self._request(
             "PATCH",
             "knowledge_item_plans",
-            params={
-                "knowledge_project_id": f"eq.{project_id}",
-                "item_type": f"eq.{item_type}",
-            },
+            params=params,
             json_body={"assessment_id": None},
         )
 
-    def delete_assessments_for_project(self, project_id: str) -> None:
-        for table in ("flashcards", "quizzes", "scenarios"):
+    def delete_assessments_for_project(
+        self,
+        project_id: str,
+        *,
+        keep_flashcard_ids: set[str] | None = None,
+    ) -> None:
+        for table in ("quizzes", "scenarios"):
             self._request(
                 "DELETE",
                 table,
                 params={"knowledge_project_id": f"eq.{project_id}"},
             )
+        params: dict[str, str] = {"knowledge_project_id": f"eq.{project_id}"}
+        kept = keep_flashcard_ids or set()
+        if kept:
+            params["id"] = f"not.in.({','.join(sorted(kept))})"
+        self._request("DELETE", "flashcards", params=params)
 
     def list_assessments_for_project(self, table: str, project_id: str) -> list[dict[str, Any]]:
         if table not in {"flashcards", "quizzes", "scenarios"}:

@@ -748,7 +748,8 @@ def test_epub_render_emits_three_types_and_preserves_emphasis() -> None:
     chapters = book_to_epub_chapters(book)
 
     body = chapters[0]["xhtml_body"]
-    assert body.startswith("<h1>Chapter 1 The Nature of War</h1>")
+    assert body.startswith("<h1>Chapter 1: The Nature of War</h1>")
+    assert chapters[0]["title"] == "Chapter 1: The Nature of War"
     assert "<h2>WAR DEFINED</h2>" in body
     assert "<p>War is a clash of wills.</p>" in body
     assert "<em>" in body  # epigraph italics preserved

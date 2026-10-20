@@ -4,6 +4,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+class KnowledgeRunTitle(BaseModel):
+    id: str
+    source_id: str
+    title: str
+
+
 class KnowledgeProjectSummary(BaseModel):
     id: str
     workspace_id: str

@@ -91,6 +91,24 @@ class AssessmentRepository:
             },
         )
 
+    async def get_flashcard_by_id(self, flashcard_id: str) -> dict[str, Any] | None:
+        return await self.db.select_one(
+            "flashcards",
+            filters={"id": f"eq.{flashcard_id}"},
+        )
+
+    async def get_quiz_by_id(self, quiz_id: str) -> dict[str, Any] | None:
+        return await self.db.select_one(
+            "quizzes",
+            filters={"id": f"eq.{quiz_id}"},
+        )
+
+    async def get_scenario_by_id(self, scenario_id: str) -> dict[str, Any] | None:
+        return await self.db.select_one(
+            "scenarios",
+            filters={"id": f"eq.{scenario_id}"},
+        )
+
     async def get_flashcard_for_owner(
         self,
         flashcard_id: str,

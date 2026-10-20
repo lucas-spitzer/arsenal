@@ -41,6 +41,12 @@ class ArtifactRepository:
             },
         )
 
+    async def get(self, artifact_id: str) -> dict[str, Any] | None:
+        return await self.db.select_one(
+            "artifacts",
+            filters={"id": f"eq.{artifact_id}"},
+        )
+
     async def get_for_owner(
         self,
         artifact_id: str,

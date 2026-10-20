@@ -2,13 +2,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.dependencies.auth import require_approved_user
+from app.dependencies.auth import require_admin, require_approved_user
 from app.models.auth import CurrentUser
 from app.mathesys.study_material.images import stage_image_options
 from app.models.image import ImageCatalogModelResponse, ImageCatalogResponse
 from app.services.images.catalog import IMAGE_MODEL_CATALOG
 
-router = APIRouter(prefix="/image", tags=["image"])
+router = APIRouter(prefix="/image", tags=["image"], dependencies=[Depends(require_admin)])
 
 
 @router.get("/catalog", response_model=ImageCatalogResponse)

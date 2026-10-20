@@ -1,5 +1,5 @@
 import { getAccessToken } from '../features/auth/authService'
-import { ApiError, apiRequest, hasApiBaseUrl, parseApiErrorMessage } from './apiClient'
+import { ApiError, apiRequest, apiRequestVoid, apiUrl, hasApiBaseUrl, parseApiErrorMessage } from './apiClient'
 import type { AnswerPool } from './answerPool'
 import type { AssessmentVisual } from './workspaceApi'
 
@@ -147,7 +147,7 @@ async function postForm<TResponse>(path: string, form: FormData): Promise<TRespo
   if (!hasApiBaseUrl()) throw new ApiError('Missing VITE_API_BASE_URL.', 0)
   const token = await getAccessToken()
   if (!token) throw new ApiError('Missing access token.', 401)
-  const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}${path}`, {
+  const response = await fetch(apiUrl(path), {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: form,
@@ -166,6 +166,10 @@ export function listKnowledgeProjects(workspaceId: string): Promise<KnowledgePro
 
 export function getKnowledgeProject(projectId: string): Promise<KnowledgeProjectDetail> {
   return apiRequest(`/knowledge-projects/${projectId}`)
+}
+
+export function deleteKnowledgeProject(projectId: string): Promise<void> {
+  return apiRequestVoid(`/knowledge-projects/${projectId}`, { method: 'DELETE' })
 }
 
 export function createKnowledgeProject(

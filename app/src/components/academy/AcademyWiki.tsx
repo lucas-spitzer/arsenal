@@ -1,6 +1,8 @@
 import { Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
+import { isAdminAccess } from '../../features/auth/access'
+import { useAuth } from '../../features/auth/authContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import {
   deprecateWikiEntry,
@@ -23,17 +25,19 @@ function KindPill({ value }: { value: string }) {
 
 function EntryRow({
   entry,
+  canEdit,
   onChanged,
   onEditingChange,
   startEditing = false,
 }: {
   entry: WikiEntry
+  canEdit: boolean
   onChanged: () => Promise<void>
   onEditingChange: (editing: boolean) => void
   startEditing?: boolean
 }) {
   const { activeWorkspace } = useWorkspace()
-  const [isEditing, setIsEditing] = useState(startEditing)
+  const [isEditing, setIsEditing] = useState(canEdit && startEditing)
   const [label, setLabel] = useState(entry.preferred_label)
   const [definition, setDefinition] = useState(entry.definition)
   const [significance, setSignificance] = useState(entry.significance ?? '')
@@ -114,7 +118,7 @@ function EntryRow({
     }
   }
 
-  if (isEditing) {
+  if (canEdit && isEditing) {
     return (
       <tr className="academy-wiki__row academy-wiki__row--edit">
         <td colSpan={6}>
@@ -327,6 +331,7 @@ function EntryRow({
         <KindPill value={entry.entry_kind} />
       </td>
       <td className="academy-wiki__importance">{entry.importance}</td>
+      {canEdit ? (
       <td>
         <div className="academy-wiki__actions">
           <button
@@ -356,6 +361,7 @@ function EntryRow({
         </div>
         {error ? <p className="academy-wiki__error">{error}</p> : null}
       </td>
+      ) : null}
     </tr>
   )
 }
@@ -368,8 +374,10 @@ export function AcademyWiki({
   targetId?: string | null
 }) {
   const { wikiEntries, isLoading, error, refresh } = useWorkspaceData()
+  const { approvedUser } = useAuth()
+  const canEdit = isAdminAccess(approvedUser?.role)
   const [query, setQuery] = useState('')
-  const [isEditing, setIsEditing] = useState(() => Boolean(targetId))
+  const [isEditing, setIsEditing] = useState(() => canEdit && Boolean(targetId))
 
   const visibleEntries = useMemo(() => {
     const q = query.toLowerCase()
@@ -399,7 +407,11 @@ export function AcademyWiki({
       <StudyHead
         eyebrow="Academy"
         title="Wiki"
-        description="Edit, deprecate, or rewrite canonical entries. Produce new ones with Wiki Knowledge on a New Run."
+        description={
+          canEdit
+            ? 'Edit, deprecate, or rewrite canonical entries. Produce new ones with Wiki Knowledge on a New Run.'
+            : 'Canonical entries for the platoon.'
+        }
         stats={[{ value: visibleEntries.length, label: 'entries' }]}
       />
 
@@ -447,7 +459,7 @@ export function AcademyWiki({
                   <th colSpan={2}>Definition</th>
                   <th>Kind</th>
                   <th>Importance</th>
-                  <th>Actions</th>
+                  {canEdit ? <th>Actions</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -455,9 +467,10 @@ export function AcademyWiki({
                   <EntryRow
                     key={entry.id}
                     entry={entry}
+                    canEdit={canEdit}
                     onChanged={refresh}
                     onEditingChange={setIsEditing}
-                    startEditing={entry.id === targetId}
+                    startEditing={canEdit && entry.id === targetId}
                   />
                 ))}
               </tbody>

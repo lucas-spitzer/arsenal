@@ -1,3 +1,4 @@
+import { apiRequestVoid } from '../../lib/apiClient'
 import { supabase } from '../../lib/supabaseClient'
 
 export async function signInWithGoogle(): Promise<void> {
@@ -8,6 +9,26 @@ export async function signInWithGoogle(): Promise<void> {
     options: {
       redirectTo,
     },
+  })
+
+  if (error) {
+    throw error
+  }
+}
+
+export async function requestEmailCode(email: string): Promise<void> {
+  await apiRequestVoid('/auth/email-code', {
+    method: 'POST',
+    requiresAuth: false,
+    body: JSON.stringify({ email }),
+  })
+}
+
+export async function verifyEmailCode(email: string, token: string): Promise<void> {
+  const { error } = await supabase.auth.verifyOtp({
+    email,
+    token,
+    type: 'email',
   })
 
   if (error) {

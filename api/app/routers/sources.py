@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 
 from app.artifact_paths import next_available_slug, original_path, slug_from_filename
 from app.config import Settings, get_settings
-from app.dependencies.auth import require_approved_user
+from app.dependencies.auth import require_admin
 from app.dependencies.services import (
     get_document_chapter_repository,
     get_narration_segment_repository,
@@ -47,17 +47,16 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/sources", tags=["sources"]
 @router.get("", response_model=list[SourceResponse])
 async def list_sources(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
     sources: Annotated[SourceRepository, Depends(get_source_repository)],
 ) -> list[SourceResponse]:
-    rows = await sources.list_for_workspace(workspace.id, user.id)
+    rows = await sources.list_for_workspace(workspace.id, workspace.owner_id)
     return [SourceResponse.model_validate(row) for row in rows]
 
 
 @router.post("", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
 async def upload_source(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_admin)],
     settings: Annotated[Settings, Depends(get_settings)],
     sources: Annotated[SourceRepository, Depends(get_source_repository)],
     production_runs: Annotated[ProductionRunRepository, Depends(get_production_run_repository)],
@@ -119,7 +118,7 @@ async def upload_source(
 )
 async def upload_structured_data_source(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_admin)],
     settings: Annotated[Settings, Depends(get_settings)],
     sources: Annotated[SourceRepository, Depends(get_source_repository)],
     storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
@@ -223,10 +222,9 @@ async def _store_source(
 async def get_source(
     source_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
     sources: Annotated[SourceRepository, Depends(get_source_repository)],
 ) -> SourceResponse:
-    row = await sources.get_for_workspace(source_id, workspace.id, user.id)
+    row = await sources.get_for_workspace(source_id, workspace.id, workspace.owner_id)
 
     if not row:
         raise HTTPException(
@@ -241,7 +239,6 @@ async def get_source(
 async def list_source_segments(
     source_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
     segments: Annotated[NdrSegmentRepository, Depends(get_ndr_segment_repository)],
     limit: Annotated[int, Query(ge=1, le=1000)] = 500,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -250,7 +247,7 @@ async def list_source_segments(
         rows = await segments.list_for_source(
             source_id,
             workspace.id,
-            user.id,
+            workspace.owner_id,
             limit=limit,
             offset=offset,
         )
@@ -267,7 +264,6 @@ async def list_source_segments(
 async def list_source_chapters(
     source_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
     chapters: Annotated[DocumentChapterRepository, Depends(get_document_chapter_repository)],
     limit: Annotated[int, Query(ge=1, le=1000)] = 500,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -276,7 +272,7 @@ async def list_source_chapters(
         rows = await chapters.list_for_source(
             source_id,
             workspace.id,
-            user.id,
+            workspace.owner_id,
             limit=limit,
             offset=offset,
         )
@@ -293,7 +289,6 @@ async def list_source_chapters(
 async def list_source_narration(
     source_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
     narration: Annotated[NarrationSegmentRepository, Depends(get_narration_segment_repository)],
     model_id: Annotated[str | None, Query()] = None,
     voice_id: Annotated[str | None, Query()] = None,
@@ -304,7 +299,7 @@ async def list_source_narration(
         rows = await narration.list_for_source(
             source_id,
             workspace.id,
-            user.id,
+            workspace.owner_id,
             model_id=model_id,
             voice_id=voice_id,
             limit=limit,
@@ -327,13 +322,12 @@ async def get_source_narration_audio(
     source_id: str,
     narration_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
     narration: Annotated[NarrationSegmentRepository, Depends(get_narration_segment_repository)],
     storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> NarrationAudioResponse:
     try:
-        row = await narration.get_by_id(source_id, narration_id, workspace.id, user.id)
+        row = await narration.get_by_id(source_id, narration_id, workspace.id, workspace.owner_id)
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -364,7 +358,7 @@ async def get_source_narration_audio(
 async def delete_source(
     source_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_admin)],
     settings: Annotated[Settings, Depends(get_settings)],
     sources: Annotated[SourceRepository, Depends(get_source_repository)],
     storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],

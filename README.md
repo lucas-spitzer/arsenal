@@ -1,9 +1,11 @@
 # Arsenal
 
-Arsenal is a private educational system with two surfaces in one SPA:
+Arsenal is an unofficial study tool for one student platoon at The Basic School. The second lieutenant holding Academics builds the platoon's material here. The rest of the platoon uses it to study. Arsenal is not a United States Marine Corps website or product.
 
-- **Foundry** — browser-based **educational production studio**. Upload sources, run Intellex ingest and Wiki Knowledge, and generate Mathesys artifacts plus QnGen assessments over a queued worker pipeline.
-- **Academy** — learning surface. **Library** is the catalog of artifacts, wiki entries, and assessments. Foundry produces; Academy curates.
+Two surfaces share one app:
+
+- **Foundry** is the production studio. Upload sources, run Intellex ingest and Wiki Knowledge, and generate Mathesys artifacts plus QnGen assessments over a queued worker pipeline.
+- **Academy** is the study surface. **Library** is the catalog of artifacts, wiki entries, and assessments.
 
 | Foundry system | Role | Module |
 |--------|------|--------|
@@ -321,5 +323,25 @@ Setup, environment variables, and the full endpoint reference live in [`api/READ
 2. **Queue + Worker** — start Redis (`docker compose up -d redis`), then run `python run_worker.py`.
 3. **Database** — for a new Supabase project, run `01`–`04` in order (see [`supabase/setup/README.md`](supabase/setup/README.md)). Existing databases use the `alter-*.sql` patches in that same folder — see [`supabase/README.md`](supabase/README.md).
 4. **Frontend** — point `VITE_API_BASE_URL` at the API and run the Vite dev server (see [`app/README.md`](app/README.md)).
+
+## Host on Vercel
+
+The site and the API deploy as one Vercel project. [Vercel Services](https://vercel.com/docs/services) is in beta. Students open the Vercel URL. The Vite app calls `/api/...` on that same host. Redis and `python run_worker.py` stay on your machine, and you start them only when Foundry is producing new material.
+
+From the repo root, after `vercel login` and `vercel link`:
+
+1. Set these for Production and Preview. `VITE_*` values are baked in at build time.
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`
+   - `VITE_API_BASE_URL` = `/api` (`app/.env.production` already sets this)
+   - `SUPABASE_URL`
+   - `SUPABASE_PUBLISHABLE_KEY` (or `SUPABASE_ANON_KEY`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `OPENAI_API_KEY` for discussions and define-a-term
+   - `FRONTEND_ORIGINS` = `https://<project>.vercel.app`
+2. In Supabase Auth, allow `https://<project>.vercel.app/auth/callback`. If students use Google, add that origin on the Google provider too.
+3. Deploy with `vercel deploy --prod`.
+
+Foundry PDF uploads and production runs stay on the laptop. Vercel rejects request bodies over 4.5 MB, and this deploy has no worker. The first request after the API has been idle waits while the function starts.
 
 Canonical organization (names, systems, output kinds): [`docs/internal/system/system-overview.md`](docs/internal/system/system-overview.md).

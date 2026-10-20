@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.config import Settings, get_settings
-from app.dependencies.auth import require_approved_user
+from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import (
     get_artifact_repository,
     get_narration_segment_repository,
@@ -38,7 +38,7 @@ from app.services.production_runs import (
 from app.services.supabase_storage import SupabaseStorageClient
 from app.services.stage_run_backfill import enrich_stage_run_row
 
-router = APIRouter(tags=["production-runs"])
+router = APIRouter(tags=["production-runs"], dependencies=[Depends(require_admin)])
 
 
 def _validate_target_artifacts(target_artifacts: list[str]) -> None:

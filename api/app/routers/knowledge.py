@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
-from app.dependencies.auth import require_approved_user
+from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import (
     get_knowledge_project_service,
     get_source_repository,
@@ -30,7 +30,7 @@ from app.services.knowledge_projects import KnowledgeProjectError, KnowledgeProj
 from app.services.supabase_storage import SupabaseStorageClient
 from app.services.wiki_transcription import WikiTranscriptionError
 
-router = APIRouter(tags=["knowledge"])
+router = APIRouter(tags=["knowledge"], dependencies=[Depends(require_admin)])
 User = Annotated[CurrentUser, Depends(require_approved_user)]
 Service = Annotated[KnowledgeProjectService, Depends(get_knowledge_project_service)]
 Storage = Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)]
@@ -110,6 +110,19 @@ async def create_knowledge_project(
         code = status.HTTP_503_SERVICE_UNAVAILABLE if "queued" in str(exc).lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=str(exc)) from exc
     return await _detail(service, project, storage)
+
+
+@router.delete("/knowledge-projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_knowledge_project(
+    project_id: str,
+    user: User,
+    service: Service,
+) -> None:
+    project = await _project_or_404(service, project_id, user)
+    try:
+        await service.delete_project(project)
+    except KnowledgeProjectError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.get("/knowledge-projects/{project_id}", response_model=KnowledgeProjectDetail)

@@ -8,6 +8,7 @@ import {
   type AcademyPage,
   type AcademyScope,
 } from '../academy/types'
+import { isAdminAccess } from '../../features/auth/access'
 import { signOut } from '../../features/auth/authService'
 import { useAuth } from '../../features/auth/authContext'
 import { FoundryDesign } from './design/FoundryDesign'
@@ -72,6 +73,7 @@ export function FoundryShell() {
   const [shell, setShell] = useState<ShellState>(readShellState)
   const { mode, foundryPage, academyPage, academyScope } = shell
   const { approvedUser, user } = useAuth()
+  const isAdmin = isAdminAccess(approvedUser?.role)
   const displayEmail = approvedUser?.email ?? user?.email ?? 'Signed in'
 
   useEffect(() => {
@@ -105,7 +107,7 @@ export function FoundryShell() {
   const parsedSeg = segParam != null && segParam !== '' ? Number.parseInt(segParam, 10) : NaN
   const seg = Number.isFinite(parsedSeg) ? parsedSeg : null
 
-  const isAcademy = routedSourceId ? true : mode === 'academy'
+  const isAcademy = !isAdmin || Boolean(routedSourceId) || mode === 'academy'
   const activeAcademyPage: AcademyPage = routedSourceId ? 'reader' : academyPage
   const navItems = isAcademy ? academyRailItems : railItems
   const activePage = isAcademy ? activeAcademyPage : foundryPage
@@ -146,15 +148,21 @@ export function FoundryShell() {
         className="as-console__rail"
         aria-label={isAcademy ? 'Academy navigation' : 'Foundry navigation'}
       >
-        <button
-          type="button"
-          className={`as-console__rail-mark${isAcademy ? ' is-academy' : ''}`}
-          onClick={toggleMode}
-          title={isAcademy ? 'Switch to Foundry' : 'Switch to Academy'}
-          aria-label={isAcademy ? 'Academy — switch to Foundry' : 'Foundry — switch to Academy'}
-        >
-          {isAcademy ? 'A' : 'F'}
-        </button>
+        {isAdmin ? (
+          <button
+            type="button"
+            className={`as-console__rail-mark${isAcademy ? ' is-academy' : ''}`}
+            onClick={toggleMode}
+            title={isAcademy ? 'Switch to Foundry' : 'Switch to Academy'}
+            aria-label={isAcademy ? 'Academy, switch to Foundry' : 'Foundry, switch to Academy'}
+          >
+            {isAcademy ? 'A' : 'F'}
+          </button>
+        ) : (
+          <div className="as-console__rail-mark is-academy" aria-label="Academy">
+            A
+          </div>
+        )}
         {navItems.map((item) => {
           const Icon = item.icon
           return (

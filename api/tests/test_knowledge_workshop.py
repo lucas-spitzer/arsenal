@@ -9,7 +9,7 @@ import pytest
 from app.config import get_settings
 from app.knowledge.plans import flashcard_enabled_by_default, study_wiki_ids, visual_updates_for_rows
 from app.pipeline import build_knowledge_draft_pipeline
-from app.services.knowledge_projects import KnowledgeProjectService
+from app.services.knowledge_projects import KnowledgeProjectError, KnowledgeProjectService
 from app.worker.knowledge_runner import KnowledgeRunner
 
 
@@ -17,7 +17,8 @@ def test_flashcard_defaults_follow_kind_and_importance() -> None:
     assert flashcard_enabled_by_default({"entry_kind": "term", "importance": "essential"})
     assert flashcard_enabled_by_default({"entry_kind": "list", "importance": "supporting"})
     assert not flashcard_enabled_by_default({"entry_kind": "insight", "importance": "essential"})
-    assert not flashcard_enabled_by_default({"entry_kind": "term", "importance": "contextual"})
+    assert flashcard_enabled_by_default({"entry_kind": "term", "importance": "contextual"})
+    assert flashcard_enabled_by_default({"entry_kind": "list", "importance": "contextual"})
 
 
 def test_checked_list_pulls_component_terms_into_the_draft() -> None:
@@ -108,10 +109,21 @@ class _MemoryDb:
     def list_knowledge_item_plans(self, project_id: str) -> list[dict[str, Any]]:
         return [plan for plan in self.plans if plan["knowledge_project_id"] == project_id]
 
-    def delete_assessments_for_project(self, project_id: str) -> None:
+    def delete_assessments_for_project(
+        self,
+        project_id: str,
+        *,
+        keep_flashcard_ids: set[str] | None = None,
+    ) -> None:
         self.deleted_projects.append(project_id)
-        for table in self.assessments:
-            self.assessments[table] = []
+        keep = keep_flashcard_ids or set()
+        self.assessments["flashcards"] = [
+            row
+            for row in self.assessments["flashcards"]
+            if row.get("knowledge_project_id") == project_id and row["id"] in keep
+        ]
+        self.assessments["quizzes"] = []
+        self.assessments["scenarios"] = []
 
     def delete_knowledge_item_plans(self, project_id: str, item_types: list[str]) -> None:
         self.deleted_plan_types.append(item_types)
@@ -121,11 +133,21 @@ class _MemoryDb:
             if plan["knowledge_project_id"] != project_id or plan["item_type"] not in item_types
         ]
 
-    def clear_plan_assessments(self, project_id: str, item_type: str) -> None:
+    def clear_plan_assessments(
+        self,
+        project_id: str,
+        item_type: str,
+        *,
+        keep_assessment_ids: set[str] | None = None,
+    ) -> None:
         self.cleared.append(item_type)
+        keep = keep_assessment_ids or set()
         for plan in self.plans:
-            if plan["knowledge_project_id"] == project_id and plan["item_type"] == item_type:
-                plan["assessment_id"] = None
+            if plan["knowledge_project_id"] != project_id or plan["item_type"] != item_type:
+                continue
+            if str(plan.get("assessment_id") or "") in keep:
+                continue
+            plan["assessment_id"] = None
 
     def list_assessments_for_project(self, table: str, project_id: str) -> list[dict[str, Any]]:
         return [row for row in self.assessments[table] if row.get("knowledge_project_id") == project_id]
@@ -140,8 +162,14 @@ class _MemoryDb:
             if row["id"] == assessment_id:
                 row.update(changes)
 
-    def insert_knowledge_item_plans(self, rows: list[dict[str, Any]]) -> None:
+    def insert_knowledge_item_plans(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         self.plans.extend(rows)
+        return rows
+
+    def insert_flashcards(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        saved = [{**row, "id": f"card-{len(self.assessments['flashcards']) + index}"} for index, row in enumerate(rows, start=1)]
+        self.assessments["flashcards"].extend(saved)
+        return saved
 
 
 class _Stage:
@@ -228,6 +256,140 @@ def test_draft_replaces_project_items_and_scopes_enabled_entries() -> None:
     assert attached["visual"]["storage_path"].endswith("icon.png")
     assert db.projects["project-1"]["status"] == "ready"
     assert not any(plan["item_type"] == "question" for plan in db.plans)
+
+
+def test_draft_keeps_definition_cards() -> None:
+    db = _MemoryDb()
+    db.runs["run-1"] = {
+        "id": "run-1",
+        "pipeline": build_knowledge_draft_pipeline(flashcards=True, questions=True, scenarios=False),
+    }
+    db.projects["project-1"] = {
+        "id": "project-1",
+        "workspace_id": "ws-1",
+        "source_id": "source-1",
+        "draft_run_id": "run-1",
+        "draft_questions": True,
+        "draft_scenarios": False,
+    }
+    db.plans = [
+        {
+            "id": "plan-term",
+            "knowledge_project_id": "project-1",
+            "wiki_entry_id": "wiki-term",
+            "item_type": "flashcard",
+            "enabled": True,
+            "assessment_id": "kept-card",
+            "visual": None,
+        },
+    ]
+    db.assessments["flashcards"] = [
+        {
+            "id": "kept-card",
+            "knowledge_project_id": "project-1",
+            "citations": [{"uri": "wiki://wiki-term"}],
+            "origin": {"source": "wiki_definition"},
+            "front": "Friction",
+            "back": "Resistance in war.",
+        },
+    ]
+    flashcards = _Stage(db)
+    questions = _Stage(db, table="quizzes", row={"id": "quiz-1", "knowledge_project_id": "project-1"})
+    runner = KnowledgeRunner(db=db, flashcards=flashcards, questions=questions, scenarios=_Stage(db))
+
+    runner.draft("run-1")
+
+    assert flashcards.calls == []
+    assert questions.calls[0]["wiki_ids"] == {"wiki-term"}
+    kept = db.assessments["flashcards"][0]
+    assert kept["id"] == "kept-card"
+    assert kept["back"] == "Resistance in war."
+    linked = next(plan for plan in db.plans if plan["id"] == "plan-term")
+    assert linked["assessment_id"] == "kept-card"
+
+
+def test_definition_cards_are_written_for_terms_and_lists() -> None:
+    from app.knowledge.cards import definition_card_back, flashcard_sides
+
+    assert definition_card_back(
+        {"entry_kind": "term", "definition": "Resistance in war.", "significance": "Leave this off."},
+    ) == "Resistance in war."
+    assert definition_card_back(
+        {
+            "entry_kind": "list",
+            "definition": "The forms.",
+            "items": [
+                {"name": "Friction", "details": "Resistance."},
+                {"name": "Chance"},
+            ],
+        },
+    ) == "1. Friction\n2. Chance"
+    listed = {
+        "entry_kind": "list",
+        "preferred_label": "Forms",
+        "definition": "The forms.",
+        "items": [{"name": "Friction", "details": "Resistance."}, {"name": "Chance"}],
+    }
+    assert flashcard_sides(listed, "label_description") == ("Forms", "1. Friction\n2. Chance")
+
+    db = _MemoryDb()
+    project = {"id": "project-1", "workspace_id": "ws-1", "source_id": "source-1"}
+    db.plans = [
+        {"id": "plan-term", "item_type": "flashcard", "wiki_entry_id": "wiki-term"},
+        {"id": "plan-list", "item_type": "flashcard", "wiki_entry_id": "wiki-list"},
+        {"id": "plan-insight", "item_type": "flashcard", "wiki_entry_id": "wiki-insight"},
+    ]
+    entries = [
+        {"id": "wiki-term", "entry_kind": "term", "preferred_label": "Friction", "definition": "Resistance.", "importance": "contextual"},
+        {
+            "id": "wiki-list",
+            "entry_kind": "list",
+            "preferred_label": "Forms",
+            "definition": "The forms.",
+            "items": [{"name": "Friction", "details": "Resistance."}],
+        },
+        {"id": "wiki-insight", "entry_kind": "insight", "preferred_label": "Aside", "definition": "Not a card."},
+    ]
+    KnowledgeRunner(db=db)._write_definition_flashcards(project, db.plans, entries)
+
+    assert [row["front"] for row in db.assessments["flashcards"]] == ["Friction", "Forms"]
+    assert db.assessments["flashcards"][1]["back"] == "1. Friction"
+    assert all(row["origin"]["source"] == "wiki_definition" for row in db.assessments["flashcards"])
+    linked = {plan["id"]: plan.get("assessment_id") for plan in db.plans}
+    assert linked["plan-term"]
+    assert linked["plan-list"]
+    assert linked["plan-insight"] is None
+
+
+def test_delete_composing_project_removes_its_cards() -> None:
+    service = KnowledgeProjectService.__new__(KnowledgeProjectService)
+    removed: list[tuple[str, object]] = []
+
+    class Projects:
+        async def list_assessments(self, table: str, project_id: str) -> list[dict[str, Any]]:
+            assert project_id == "project-1"
+            if table == "flashcards":
+                return [{"id": "card-1"}]
+            return []
+
+        async def delete_rows(self, table: str, row_ids: list[str]) -> None:
+            removed.append((table, row_ids))
+
+        async def delete(self, project_id: str) -> None:
+            removed.append(("project", project_id))
+
+    service.projects = Projects()
+    asyncio.run(service.delete_project({"id": "project-1", "status": "composing"}))
+
+    assert ("flashcards", ["card-1"]) in removed
+    assert ("project", "project-1") in removed
+
+
+def test_delete_refuses_a_project_that_is_already_drafting() -> None:
+    service = KnowledgeProjectService.__new__(KnowledgeProjectService)
+
+    with pytest.raises(KnowledgeProjectError, match="current run"):
+        asyncio.run(service.delete_project({"id": "project-1", "status": "drafting"}))
 
 
 def test_attach_skips_a_plan_without_a_file_and_clears_a_removed_image() -> None:

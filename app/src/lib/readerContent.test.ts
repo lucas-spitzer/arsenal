@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   READER_DEFINE_MAX_WORDS,
+  displayChapterTitle,
   buildNarration,
   buildNarrationClips,
   endsSentence,
@@ -171,6 +172,14 @@ describe('buildNarration', () => {
       para(1, 'b', 'Next paragraph starts fresh'),
     ])
     expect(wordBlocks[0].words[0].sentence).not.toBe(wordBlocks[1].words[0].sentence)
+  })
+})
+
+describe('displayChapterTitle', () => {
+  it('turns a spelled-out chapter kicker into a numbered title', () => {
+    expect(displayChapterTitle('CHAPTER ONE The Commission and the Oath')).toBe(
+      'Chapter 1: The Commission and the Oath',
+    )
   })
 })
 

@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
-from app.dependencies.auth import require_approved_user
+from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import (
     get_source_repository,
     get_wiki_authoring_service,
@@ -59,6 +59,7 @@ async def list_wiki_entries(
     "/entries",
     response_model=WikiEntryResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
 )
 async def create_wiki_entry(
     payload: WikiEntryCreate,
@@ -104,7 +105,11 @@ async def get_wiki_entry(
     return WikiEntryResponse.model_validate(row)
 
 
-@router.patch("/entries/{wiki_entry_id}", response_model=WikiEntryResponse)
+@router.patch(
+    "/entries/{wiki_entry_id}",
+    response_model=WikiEntryResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def update_wiki_entry(
     wiki_entry_id: str,
     payload: WikiEntryUpdate,
@@ -128,7 +133,11 @@ async def update_wiki_entry(
     return WikiEntryResponse.model_validate(row)
 
 
-@router.post("/entries/{wiki_entry_id}/revise", response_model=WikiReviseProposal)
+@router.post(
+    "/entries/{wiki_entry_id}/revise",
+    response_model=WikiReviseProposal,
+    dependencies=[Depends(require_admin)],
+)
 async def revise_wiki_entry(
     wiki_entry_id: str,
     payload: WikiReviseRequest,
@@ -150,7 +159,11 @@ async def revise_wiki_entry(
     return WikiReviseProposal.model_validate(proposal)
 
 
-@router.delete("/entries/{wiki_entry_id}", response_model=WikiEntryResponse)
+@router.delete(
+    "/entries/{wiki_entry_id}",
+    response_model=WikiEntryResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def deprecate_wiki_entry(
     wiki_entry_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
@@ -166,7 +179,11 @@ async def deprecate_wiki_entry(
     return WikiEntryResponse.model_validate(row)
 
 
-@router.get("/disputes", response_model=list[WikiDisputeResponse])
+@router.get(
+    "/disputes",
+    response_model=list[WikiDisputeResponse],
+    dependencies=[Depends(require_admin)],
+)
 async def list_wiki_disputes(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
     _: Annotated[CurrentUser, Depends(require_approved_user)],
@@ -192,6 +209,7 @@ async def list_wiki_disputes(
     "/ingest-batches",
     response_model=WikiIngestBatchResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
 )
 async def create_ingest_batch(
     payload: WikiIngestCreate,
@@ -224,6 +242,7 @@ async def create_ingest_batch(
     "/ingest-batches/from-files",
     response_model=WikiIngestBatchResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
 )
 async def create_ingest_batch_from_files(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
@@ -283,7 +302,11 @@ async def create_ingest_batch_from_files(
     return batch_row_to_response(row)
 
 
-@router.get("/ingest-batches", response_model=list[WikiIngestBatchResponse])
+@router.get(
+    "/ingest-batches",
+    response_model=list[WikiIngestBatchResponse],
+    dependencies=[Depends(require_admin)],
+)
 async def list_ingest_batches(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
     _: Annotated[CurrentUser, Depends(require_approved_user)],
@@ -299,7 +322,11 @@ async def list_ingest_batches(
     return [batch_row_to_response(row) for row in rows]
 
 
-@router.get("/ingest-batches/{batch_id}", response_model=WikiIngestBatchResponse)
+@router.get(
+    "/ingest-batches/{batch_id}",
+    response_model=WikiIngestBatchResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def get_ingest_batch(
     batch_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],

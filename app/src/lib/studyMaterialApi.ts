@@ -154,7 +154,7 @@ export interface StudyComponent {
   component_type: ComponentType
   position: number
   instructions: string
-  settings: Partial<ImageSettings>
+  settings: Partial<ImageSettings> & { verbatim?: boolean }
   files: ComponentFile[]
   active_version_id: string | null
   active_version: ComponentVersion | null
@@ -239,7 +239,12 @@ export async function deleteStudyMaterial(materialId: string): Promise<void> {
 
 export async function createComponent(
   materialId: string,
-  payload: { section_id: string; component_type: ComponentType; instructions?: string },
+  payload: {
+    section_id: string
+    component_type: ComponentType
+    instructions?: string
+    settings?: { verbatim?: boolean }
+  },
 ): Promise<StudyComponent> {
   return apiRequest<StudyComponent>(`/study-materials/${materialId}/components`, {
     method: 'POST',

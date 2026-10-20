@@ -1,9 +1,11 @@
 import { Lock, Plus } from 'lucide-react'
 import { useState } from 'react'
+import { useWorkspaceData } from '../../../features/workspace/workspaceDataContext'
 import {
   catalogAssetUrl,
   COMPONENT_TYPE_LABELS,
   createComponent,
+  deleteComponent,
   updateStudyMaterial,
   type ComponentType,
   type FlexibleSection,
@@ -16,6 +18,8 @@ import {
   type StudyTheme,
   templateFaces,
 } from '../../../lib/studyMaterialApi'
+import { definitionCardBack } from '../../../lib/knowledgeCards'
+import type { WikiEntry } from '../../../lib/workspaceApi'
 import { ErrorBanner } from '../ErrorBanner'
 import { ComponentEditor } from './ComponentEditor'
 import { COMPONENT_ICONS } from './componentIcons'
@@ -175,6 +179,9 @@ export function ConfigureStep({
                 section={selected}
                 material={material}
                 catalog={catalog}
+                template={template}
+                allComponents={components}
+                onReplaceComponents={setComponents}
                 components={components.filter((item) => item.section_id === selected.id)}
                 onAdd={(componentType) => void addComponent(selected, componentType)}
                 onChange={(updated) =>
@@ -330,6 +337,9 @@ function FlexibleInspector({
   section,
   material,
   catalog,
+  template,
+  allComponents,
+  onReplaceComponents,
   components,
   onAdd,
   onChange,
@@ -340,12 +350,15 @@ function FlexibleInspector({
   section: FlexibleSection
   material: StudyMaterial
   catalog: StudyCatalog
+  template: StudyTemplate
+  allComponents: StudyComponent[]
+  onReplaceComponents: (components: StudyComponent[]) => void
   components: StudyComponent[]
   onAdd: (componentType: ComponentType) => void
   onChange: (component: StudyComponent) => void
   onDelete: (componentId: string) => void
   onSaveNotes: (notes: string) => void
-  onError: (message: string) => void
+  onError: (message: string | null) => void
 }) {
   const [notes, setNotes] = useState(material.options.section_notes[section.id] ?? '')
   const full = components.length >= section.max_components
@@ -363,6 +376,16 @@ function FlexibleInspector({
       <p className="dsn-hint">
         {width} × {height} in. The orchestrator sets order, size, and spacing inside this section only.
       </p>
+      {template.id === 'flashcard' && section.page === 'front' ? (
+        <CardEntrySearch
+          section={section}
+          template={template}
+          materialId={material.id}
+          components={allComponents}
+          onReplace={onReplaceComponents}
+          onError={onError}
+        />
+      ) : null}
 
       <div className="dsn-add-row" role="group" aria-label="Add component">
         {section.allowed_types.map((componentType) => {
@@ -416,6 +439,108 @@ function FlexibleInspector({
           if (notes.trim() !== (material.options.section_notes[section.id] ?? '')) onSaveNotes(notes.trim())
         }}
       />
+    </div>
+  )
+}
+
+function CardEntrySearch({
+  section,
+  template,
+  materialId,
+  components,
+  onReplace,
+  onError,
+}: {
+  section: FlexibleSection
+  template: StudyTemplate
+  materialId: string
+  components: StudyComponent[]
+  onReplace: (components: StudyComponent[]) => void
+  onError: (message: string | null) => void
+}) {
+  const { wikiEntries } = useWorkspaceData()
+  const [query, setQuery] = useState('')
+  const [busy, setBusy] = useState(false)
+  const needle = query.trim().toLowerCase()
+  const matches = wikiEntries
+    .filter((entry) => entry.entry_kind === 'term' || entry.entry_kind === 'list')
+    .filter((entry) => entry.status !== 'deprecated')
+    .filter((entry) => !needle || entry.preferred_label.toLowerCase().includes(needle))
+    .sort((left, right) => left.preferred_label.localeCompare(right.preferred_label))
+    .slice(0, 20)
+
+  const place = async (entry: WikiEntry) => {
+    const back = template.sections.find(
+      (item): item is FlexibleSection =>
+        item.kind === 'flexible' && item.pair === section.pair && item.page === 'back',
+    )
+    if (!back) {
+      onError('This card has no back.')
+      return
+    }
+    const pairIds = new Set([section.id, back.id])
+    const stale = components.filter(
+      (item) => pairIds.has(item.section_id) && item.settings.verbatim === true,
+    )
+    setBusy(true)
+    onError(null)
+    try {
+      for (const item of stale) {
+        await deleteComponent(materialId, item.id)
+      }
+      const front = await createComponent(materialId, {
+        section_id: section.id,
+        component_type: 'text',
+        instructions: entry.preferred_label,
+        settings: { verbatim: true },
+      })
+      const backText = definitionCardBack(entry)
+      const reverse = await createComponent(materialId, {
+        section_id: back.id,
+        component_type: 'text',
+        instructions: backText || entry.preferred_label,
+        settings: { verbatim: true },
+      })
+      const removed = new Set(stale.map((item) => item.id))
+      onReplace([...components.filter((item) => !removed.has(item.id)), front, reverse])
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : 'Could not place this entry.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="dsn-entry-search">
+      <label className="as-console__field-label dsn-label-sm" htmlFor={`dsn-entry-${section.id}`}>
+        Search terms
+      </label>
+      <input
+        id={`dsn-entry-${section.id}`}
+        className="as-wiki__input"
+        value={query}
+        placeholder="Search a term or list"
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      <div className="dsn-entry-search__results" role="listbox" aria-label="Matching entries">
+        {matches.length === 0 ? (
+          <p className="dsn-hint">No terms or lists match.</p>
+        ) : (
+          matches.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              role="option"
+              className="dsn-entry-search__hit"
+              disabled={busy}
+              onClick={() => void place(entry)}
+            >
+              <span>{entry.preferred_label}</span>
+              <span className="dsn-entry-search__kind">{entry.entry_kind}</span>
+            </button>
+          ))
+        )}
+      </div>
     </div>
   )
 }

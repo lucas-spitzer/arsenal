@@ -19,14 +19,17 @@ $$;
 create table public.approved_users (
   id uuid primary key default gen_random_uuid(),
   email citext unique not null,
-  role text not null default 'owner',
+  role text not null default 'student',
   is_active boolean not null default true,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint approved_users_role_check
+    check (role in ('admin', 'student'))
 );
 
 -- Replace with your Google account email before signing in.
+-- admin: Foundry and Academy. student: Academy only.
 insert into public.approved_users (email, role, is_active)
-values ('example@email.com', 'owner', true)
+values ('example@email.com', 'admin', true)
 on conflict (email)
 do update set is_active = true, role = excluded.role;
 

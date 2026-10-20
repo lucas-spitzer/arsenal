@@ -1,10 +1,12 @@
 # Foundry Style Guide
 
-Foundry should use a restrained, professional visual system derived from the official United States Marine Corps digital style guide. The interface should feel authoritative, disciplined, readable, and operational—not decorative.
+Foundry should use a restrained, professional visual system derived from the United States Marine Corps digital style guide. The interface should feel authoritative, disciplined, readable, and operational.
 
 ## 1. Brand Direction
 
-Foundry is a private educational production webapp. The Marine Corps visual language should be used as a design influence for color, typography, hierarchy, and tone, not as a claim that Foundry is an official Marine Corps product unless formally authorized.
+Arsenal is an unofficial study tool for one student platoon at The Basic School. The Academics officer produces material in Foundry. Peers study it in Academy. Arsenal is not a United States Marine Corps website, and the interface must not say or imply that it is.
+
+The Marine Corps visual language is a design influence for color, typography, hierarchy, and tone.
 
 Design principles:
 
@@ -12,7 +14,7 @@ Design principles:
 - **Authoritative:** bold headings, decisive contrast, minimal ornamentation.
 - **Readable:** body text and learning material must remain easy to scan.
 - **Operational:** interface patterns should feel like a professional knowledge system.
-- **Respectful:** avoid parody, excessive militarization, or casual misuse of Marine Corps marks.
+- **Respectful:** avoid parody, excessive militarization, or use of Marine Corps marks that would make Arsenal look like an official product.
 
 ## 2. Core Color Palette
 
@@ -335,4 +337,4 @@ Before merging UI work, verify:
 
 ## 13. Design Rule of Thumb
 
-Foundry should look like a disciplined Marine Corps-inspired knowledge production system: scarlet for command emphasis, navy for operational structure, gold for prestige and metadata, black and white for clarity, and typography that communicates authority without sacrificing usability.
+Foundry should look like a disciplined study tool for The Basic School: scarlet for command emphasis, navy for operational structure, gold for prestige and metadata, black and white for clarity, and typography that communicates authority without sacrificing usability. It must still read as unofficial.

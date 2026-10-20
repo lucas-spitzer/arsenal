@@ -6,7 +6,8 @@ Operator patches (`alter-*.sql`, `restore-stages.sql`) are for **existing** data
 
 ## Prerequisites
 
-- A Supabase project with **Google OAuth** configured in Auth (required for sign-in).
+- A Supabase project with **Google OAuth** configured in Auth.
+- Custom SMTP and the Magic Link template in [Email sign-in codes](#email-sign-in-codes), so an approved address that is not a Google account can receive a code.
 - The FastAPI backend uses the **service role** key for data access in V1. Client roles are revoked from application tables.
 
 ## Apply setup (fresh project)
@@ -37,6 +38,22 @@ Do **not** glob `supabase/setup/*.sql` — that would also pick up operator patc
 
 After running setup, replace the placeholder owner email in `approved_users` with your own Google account address.
 
+## Email sign-in codes
+
+Google stays available. `POST /auth/email-code` sends a 6-digit code only when the address is an active `approved_users` row. The sign-in page then calls `verifyOtp`.
+
+Supabase's built-in mailer sends only to members of the Supabase organization. This project was created on 2026-06-06. On the Free plan, a project created after 2026-06-03 also cannot edit the auth email template until a custom SMTP provider is set. Peers will not receive codes until that provider is in place.
+
+In the Supabase dashboard for Arsenal:
+
+1. Authentication, SMTP: set a custom provider.
+2. Authentication, Email Templates, Magic Link: set the subject to `Your Arsenal sign-in code`.
+3. Replace the template body with [`sign-in-code-email.html`](sign-in-code-email.html).
+4. Do not add `{{ .ConfirmationURL }}`. Outlook and Defender prefetch links and consume the sign-in.
+5. Leave Email OTP expiration at the dashboard default. Do not set it above one day.
+
+The message uses the Arsenal palette: navy band, scarlet code, Arial, a gold divider, and a gray line that says Arsenal is an unofficial study tool and not a United States Marine Corps website. No Marine Corps mark.
+
 ## Existing database patches
 
 Run these only on databases that already have a Foundry schema and need a targeted upgrade. Fresh installs from `01`–`04` already include the current shape.
@@ -56,6 +73,7 @@ Run these only on databases that already have a Foundry schema and need a target
 | `alter-sources-bucket-wav.sql` | DB was created before Cartesia/Gemini WAV clips. Adds `audio/wav` to the `sources` bucket allowlist. |
 | `alter-drop-artifacts-bucket.sql` | Operator note only (SQL no-op). Supabase blocks dropping `storage.buckets` / `storage.objects` from SQL. After migrating objects into the `sources` bucket, purge the legacy `artifacts` bucket via the Storage API or Dashboard. |
 | `alter-discussion-threads.sql` | DB was created before persisted discussion threads. Adds `discussion_threads` and `discussion_messages` with RLS + role revokes. Idempotent. |
+| `alter-platoon-access.sql` | DB was created before admin and student access. Constrains `approved_users.role` to `admin` or `student` (existing `owner` rows become `admin`) and adds `discussion_threads.user_id`. |
 | `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. |
 | `../maintenance/delete-production-run.sql` | Operator utility. Deletes one production run and the rows it created. Refuses Study Material runs. Storage files cannot be deleted from SQL. |
 | `../maintenance/delete-study-material-run.sql` | Operator utility. Deletes one Study Material production run, its material, components, versions, artifacts, and stage runs. Storage files cannot be deleted from SQL. |

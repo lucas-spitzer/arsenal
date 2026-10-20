@@ -28,7 +28,7 @@ def _workspace() -> WorkspaceResponse:
 
 
 def _user() -> CurrentUser:
-    return CurrentUser(id="owner-1", email="owner@example.com", role="approved")
+    return CurrentUser(id="owner-1", email="owner@example.com", role="admin")
 
 
 class FakeProductionRunRepository:

@@ -10,6 +10,7 @@ import {
   listScenarios,
   listStageRuns,
   listSources,
+  listKnowledgeRunTitles,
   listWikiEntries,
   uploadSource as uploadSourceRequest,
   uploadStructuredData as uploadStructuredDataRequest,
@@ -21,9 +22,12 @@ import {
   type Scenario,
   type StageRun,
   type Source,
+  type KnowledgeRunTitle,
   type WikiEntry,
 } from '../../lib/workspaceApi'
 import { collapseDuplicateNarrationArtifacts } from '../../lib/foundryMappers'
+import { isAdminAccess } from '../auth/access'
+import { useAuth } from '../auth/authContext'
 import { useWorkspace } from './workspaceContext'
 import { WorkspaceDataContext } from './workspaceDataContext'
 
@@ -36,6 +40,8 @@ interface WorkspaceDataProviderProps {
 
 export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) {
   const { activeWorkspace } = useWorkspace()
+  const { approvedUser } = useAuth()
+  const isAdmin = isAdminAccess(approvedUser?.role)
   const workspaceId = activeWorkspace?.id ?? null
 
   const [sources, setSources] = useState<Source[]>([])
@@ -47,6 +53,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
   const [flashcards, setFlashcards] = useState<Flashcard[]>([])
   const [quizzes, setQuizzes] = useState<Quiz[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>([])
+  const [knowledgeRunTitles, setKnowledgeRunTitles] = useState<KnowledgeRunTitle[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -67,25 +74,28 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
     try {
       const [
         nextSources,
-        nextRuns,
         nextArtifacts,
         nextWikiEntries,
         nextFlashcards,
         nextQuizzes,
         nextScenarios,
+        nextKnowledgeRunTitles,
       ] = await Promise.all([
         listSources(refreshWorkspaceId),
-        listProductionRuns(refreshWorkspaceId),
         listArtifacts(refreshWorkspaceId),
         listWikiEntries(refreshWorkspaceId),
         listFlashcards(refreshWorkspaceId),
         listQuizzes(refreshWorkspaceId),
         listScenarios(refreshWorkspaceId),
+        listKnowledgeRunTitles(refreshWorkspaceId),
       ])
 
-      const stageRunEntries = await Promise.all(
-        nextRuns.map(async (run) => [run.id, await listStageRuns(run.id)] as const),
-      )
+      const nextRuns = isAdmin ? await listProductionRuns(refreshWorkspaceId) : []
+      const stageRunEntries = isAdmin
+        ? await Promise.all(
+            nextRuns.map(async (run) => [run.id, await listStageRuns(run.id)] as const),
+          )
+        : []
 
       // Drop stale results if the active workspace changed mid-flight.
       if (refreshWorkspaceId !== workspaceIdRef.current) {
@@ -101,6 +111,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       setFlashcards(nextFlashcards)
       setQuizzes(nextQuizzes)
       setScenarios(nextScenarios)
+      setKnowledgeRunTitles(nextKnowledgeRunTitles)
     } catch (loadError) {
       if (refreshWorkspaceId !== workspaceIdRef.current) {
         return
@@ -112,7 +123,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       }
       refreshInFlight.current = false
     }
-  }, [workspaceId])
+  }, [isAdmin, workspaceId])
 
   useEffect(() => {
     if (!workspaceId) {
@@ -125,6 +136,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       setFlashcards([])
       setQuizzes([])
       setScenarios([])
+      setKnowledgeRunTitles([])
       setError(null)
       setIsLoading(false)
       return
@@ -244,6 +256,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       flashcards,
       quizzes,
       scenarios,
+      knowledgeRunTitles,
       isLoading,
       error,
       activeRunCount,
@@ -266,6 +279,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       flashcards,
       quizzes,
       scenarios,
+      knowledgeRunTitles,
       isLoading,
       error,
       activeRunCount,

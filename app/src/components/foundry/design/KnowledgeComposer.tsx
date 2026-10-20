@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight, Shuffle, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { drawOptions, emptyPool, hasPool, type AnswerPool } from '../../../lib/answerPool'
 import { cardFace } from '../../../lib/assessmentVisual'
+import { definitionCardBack } from '../../../lib/knowledgeCards'
 import {
   deleteKnowledgeItem,
   duplicateKnowledgeItem,
@@ -75,16 +76,9 @@ function isDone(entry: KnowledgeEntry, step: DesignStep): boolean {
   return entry.scenarios.length > 0
 }
 
-function description(entry: KnowledgeEntry): string {
-  const definition = entry.definition.trim()
-  const significance = entry.significance?.trim() ?? ''
-  if (definition && significance) return `${definition}\n\n${significance}`
-  return definition || significance
-}
-
 function defaultSides(entry: KnowledgeEntry): { front: string; back: string } {
   if (entry.layout === 'image_label') return { front: entry.preferred_label, back: entry.preferred_label }
-  return { front: entry.preferred_label, back: description(entry) }
+  return { front: entry.preferred_label, back: definitionCardBack(entry) }
 }
 
 export function KnowledgeComposer({

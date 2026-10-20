@@ -9,8 +9,7 @@ from app.knowledge.visuals import cited_wiki_id, storage_path_of
 
 def flashcard_enabled_by_default(entry: dict[str, Any]) -> bool:
     kind = str(entry.get("entry_kind") or "")
-    importance = str(entry.get("importance") or "")
-    return kind in {"term", "list"} and importance in {"essential", "supporting"}
+    return kind in {"term", "list"}
 
 
 def flashcard_plan_rows(

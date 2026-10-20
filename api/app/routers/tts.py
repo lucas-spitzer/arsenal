@@ -2,12 +2,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.dependencies.auth import require_approved_user
+from app.dependencies.auth import require_admin, require_approved_user
 from app.models.auth import CurrentUser
 from app.models.tts import TtsCatalogModelResponse, TtsCatalogResponse, TtsVoiceResponse
 from app.services.tts.catalog import TTS_MODEL_CATALOG
 
-router = APIRouter(prefix="/tts", tags=["tts"])
+router = APIRouter(prefix="/tts", tags=["tts"], dependencies=[Depends(require_admin)])
 
 
 @router.get("/catalog", response_model=TtsCatalogResponse)

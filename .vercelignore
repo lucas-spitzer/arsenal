@@ -1,0 +1,7 @@
+api/.venv
+api/tests
+api/.pytest_cache
+**/.venv
+**/__pycache__
+**/.pytest_cache
+docs

@@ -2,13 +2,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.dependencies.auth import require_approved_user
+from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import get_stage_repository
 from app.models.auth import CurrentUser
 from app.models.stage import StageResponse
 from app.repositories.stages import StageRepository
 
-router = APIRouter(prefix="/stages", tags=["stages"])
+router = APIRouter(prefix="/stages", tags=["stages"], dependencies=[Depends(require_admin)])
 
 
 @router.get("", response_model=list[StageResponse])

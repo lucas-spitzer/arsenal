@@ -751,6 +751,7 @@ create index scenarios_knowledge_project_id_idx on public.scenarios (knowledge_p
 create table public.discussion_threads (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
   title text not null,
   submode text not null default 'socratic',
   source_id uuid references public.sources (id) on delete set null,
@@ -762,6 +763,9 @@ create table public.discussion_threads (
 
 create index discussion_threads_workspace_id_idx
 on public.discussion_threads (workspace_id);
+
+create index discussion_threads_user_id_idx
+on public.discussion_threads (workspace_id, user_id);
 
 create trigger discussion_threads_set_updated_at
 before update on public.discussion_threads

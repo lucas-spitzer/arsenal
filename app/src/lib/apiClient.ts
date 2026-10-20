@@ -1,6 +1,12 @@
-import { getAccessToken } from '../features/auth/authService'
+function configuredApiBaseUrl(): string | undefined {
+  const value = import.meta.env.VITE_API_BASE_URL
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim().replace(/\/$/, '')
+  return trimmed || undefined
+}
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined
+// Hosted builds call FastAPI on the same origin. Local dev sets the full uvicorn URL.
+const apiBaseUrl = configuredApiBaseUrl() ?? (import.meta.env.PROD ? '/api' : undefined)
 
 interface ApiRequestOptions extends RequestInit {
   requiresAuth?: boolean
@@ -73,6 +79,7 @@ async function sendApiRequest(
   }
 
   if (requiresAuth) {
+    const { getAccessToken } = await import('../features/auth/authService')
     const token = await getAccessToken()
 
     if (!token) {

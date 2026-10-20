@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
 
+from app.access import forbid_unless_admin
 from app.config import Settings, get_settings
 from app.models.auth import CurrentUser
 from app.services.supabase import (
@@ -60,3 +61,10 @@ async def require_approved_user(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Arsenal could not reach Supabase.",
         ) from exc
+
+
+async def require_admin(
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
+) -> CurrentUser:
+    forbid_unless_admin(user)
+    return user

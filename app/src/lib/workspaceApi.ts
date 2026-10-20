@@ -4,6 +4,7 @@ import {
   ApiError,
   apiRequest,
   apiRequestVoid,
+  apiUrl,
   hasApiBaseUrl,
   parseApiErrorMessage,
 } from './apiClient'
@@ -93,6 +94,7 @@ export interface AssessmentVisual {
 export interface Flashcard {
   id: string
   source_id?: string | null
+  knowledge_project_id?: string | null
   production_run_id?: string | null
   item_id?: string | null
   subtype?: string | null
@@ -107,6 +109,7 @@ export interface Flashcard {
 export interface Quiz {
   id: string
   source_id?: string | null
+  knowledge_project_id?: string | null
   production_run_id?: string | null
   item_id?: string | null
   subtype?: string | null
@@ -126,6 +129,7 @@ export interface Quiz {
 export interface Scenario {
   id: string
   source_id?: string | null
+  knowledge_project_id?: string | null
   production_run_id?: string | null
   item_id?: string | null
   subtype?: string | null
@@ -210,7 +214,6 @@ export async function uploadMultipart<TResponse>(path: string, file: File): Prom
     throw new ApiError('Missing VITE_API_BASE_URL.', 0)
   }
 
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string
   const token = await getAccessToken()
 
   if (!token) {
@@ -220,7 +223,7 @@ export async function uploadMultipart<TResponse>(path: string, file: File): Prom
   const formData = new FormData()
   formData.append('file', file)
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await fetch(apiUrl(path), {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -272,6 +275,16 @@ export async function getArtifactDownloadUrl(
   return apiRequest<{ download_url: string; expires_in: number }>(
     `/artifacts/${artifactId}/download`,
   )
+}
+
+export interface KnowledgeRunTitle {
+  id: string
+  source_id: string
+  title: string
+}
+
+export async function listKnowledgeRunTitles(workspaceId: string): Promise<KnowledgeRunTitle[]> {
+  return apiRequest<KnowledgeRunTitle[]>(`/workspaces/${workspaceId}/knowledge-titles`)
 }
 
 export async function listFlashcards(workspaceId: string): Promise<Flashcard[]> {

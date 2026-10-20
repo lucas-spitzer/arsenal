@@ -33,6 +33,7 @@ from app.mathesys.study_material.generation import (
     generate_image_component,
     generate_text_component,
     plan_layout,
+    verbatim_text_component,
     text_word_budget,
 )
 from app.mathesys.study_material.images import get_image_client, resolve_image_settings
@@ -234,6 +235,9 @@ class StudyMaterialRunner:
         if component_type == "diagram":
             return generate_diagram_component(ctx, self.completer_factory("study_material"))
         if component_type == "text":
+            settings = component.get("settings") if isinstance(component.get("settings"), dict) else {}
+            if settings.get("verbatim"):
+                return verbatim_text_component(str(component.get("instructions") or ""))
             return generate_text_component(ctx, self.completer_factory("study_material"))
 
         image_default = job.image_default

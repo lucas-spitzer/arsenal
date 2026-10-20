@@ -82,6 +82,8 @@ def component_settings(
             default_model=image_default.model if image_default else None,
             default_quality=image_default.quality if image_default else None,
         )
+    if component_type == "text" and isinstance(raw, dict) and raw.get("verbatim") is True:
+        return {"verbatim": True}
     return {}
 
 

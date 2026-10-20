@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.artifact_paths import next_available_slug, storage_slug
 from app.config import get_settings
-from app.dependencies.auth import require_approved_user
+from app.access import STUDENT_ROLE, is_platoon_workspace
+from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import (
     get_stage_settings_repository,
     get_workspace_repository,
@@ -126,14 +127,21 @@ async def list_workspaces(
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
 ) -> list[WorkspaceResponse]:
-    rows = await workspaces.list_for_owner(user.id)
+    if user.role == STUDENT_ROLE:
+        rows = [
+            row
+            for row in await workspaces.list_all()
+            if is_platoon_workspace(str(row.get("name") or ""))
+        ]
+    else:
+        rows = await workspaces.list_for_owner(user.id)
     return [WorkspaceResponse.model_validate(row) for row in rows]
 
 
 @router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     payload: WorkspaceCreate,
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_admin)],
     workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
 ) -> WorkspaceResponse:
     taken = await workspaces.list_slugs()
@@ -166,7 +174,7 @@ async def get_workspace(
 async def update_workspace(
     payload: WorkspaceUpdate,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_admin)],
     workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
 ) -> WorkspaceResponse:
     updates = payload.model_dump(exclude_unset=True)
@@ -198,13 +206,17 @@ async def update_workspace(
 @router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workspace(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    user: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_admin)],
     workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
 ) -> None:
     await workspaces.delete(workspace.id, user.id)
 
 
-@router.get("/{workspace_id}/stage-settings", response_model=StageSettingsResponse)
+@router.get(
+    "/{workspace_id}/stage-settings",
+    response_model=StageSettingsResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def get_stage_settings(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
     stage_settings: Annotated[
@@ -238,7 +250,11 @@ async def get_stage_settings(
     return StageSettingsResponse(settings=settings)
 
 
-@router.put("/{workspace_id}/stage-settings/{stage_action}", response_model=StageSetting)
+@router.put(
+    "/{workspace_id}/stage-settings/{stage_action}",
+    response_model=StageSetting,
+    dependencies=[Depends(require_admin)],
+)
 async def put_stage_setting(
     stage_action: str,
     payload: StageSettingUpdate,
@@ -310,6 +326,7 @@ async def put_stage_setting(
 @router.delete(
     "/{workspace_id}/stage-settings/{stage_action}",
     status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
 )
 async def delete_stage_setting(
     stage_action: str,

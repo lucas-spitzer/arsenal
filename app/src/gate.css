@@ -385,6 +385,63 @@
   margin-top: var(--space-6);
 }
 
+.as-gate__or {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  color: var(--bwg-text-faint);
+  font-family: var(--bwg-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.as-gate__or::before,
+.as-gate__or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-gold);
+}
+
+.as-gate__email {
+  margin-top: var(--space-4);
+}
+
+.as-gate__panel .as-gate__email .as-gate__cta {
+  margin-top: var(--space-4);
+}
+
+.as-gate__input--code {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+}
+
+.as-gate__text-action {
+  display: block;
+  margin-top: var(--space-4);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--bwg-text-faint);
+  font-family: var(--bwg-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.as-gate__text-action:hover:not(:disabled) {
+  color: #fff;
+}
+
+.as-gate__text-action:disabled {
+  opacity: 0.6;
+}
+
 /* ---- workspace provisioning ------------------------------------------------ */
 
 .as-gate__provision {

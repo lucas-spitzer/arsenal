@@ -12,6 +12,7 @@ import html
 import re
 from typing import Any
 
+from app.intellex.structuring.chapter_titles import display_chapter_title
 from app.intellex.structuring.models import Book
 
 _SUP_RE = re.compile(r"<sup>.*?</sup>", re.IGNORECASE | re.DOTALL)
@@ -33,7 +34,8 @@ def book_to_epub_chapters(book: Book) -> list[dict[str, Any]]:
     """Return [{title, xhtml_body}] for app.mathesys.epub_builder.build_epub."""
     chapters: list[dict[str, Any]] = []
     for chapter in book.chapters:
-        parts = [f"<h1>{html.escape(chapter.title)}</h1>"]
+        title = display_chapter_title(chapter.title)
+        parts = [f"<h1>{html.escape(title)}</h1>"]
         for para in chapter.intro:
             body = _md_to_html(para.md)
             if body:
@@ -44,5 +46,5 @@ def book_to_epub_chapters(book: Book) -> list[dict[str, Any]]:
                 body = _md_to_html(para.md)
                 if body:
                     parts.append(f"<p>{body}</p>")
-        chapters.append({"title": chapter.title, "xhtml_body": "".join(parts)})
+        chapters.append({"title": title, "xhtml_body": "".join(parts)})
     return chapters

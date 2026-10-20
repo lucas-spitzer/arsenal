@@ -6,6 +6,7 @@ tests own the network.
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -152,6 +153,21 @@ def generate_diagram_component(
         token_usage=dict(completion.token_usage),
         settings={},
         summary=summary,
+    )
+
+
+def verbatim_text_component(text: str) -> GeneratedComponent:
+    """Print the supplied text. A knowledge card is not rewritten by a model."""
+    blocks = [html.escape(line.strip()) for line in text.splitlines() if line.strip()]
+    body = "".join(f"<p>{line}</p>" for line in blocks)
+    words = count_words(body)
+    return GeneratedComponent(
+        output={"html": body, "summary": text.strip()[:240], "word_count": words, "word_budget": None},
+        model="",
+        provider="verbatim",
+        token_usage={},
+        settings={"verbatim": True},
+        summary=text.strip()[:240] or "Verbatim text",
     )
 
 

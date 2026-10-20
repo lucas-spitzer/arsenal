@@ -19,7 +19,7 @@ def test_flashcard_layouts() -> None:
 
     assert flashcard_sides(entry, "label_description") == (
         "Friction",
-        "The collective force that resists all action.\n\nThe primary operational obstacle.",
+        "The collective force that resists all action.",
     )
     assert flashcard_sides(entry, "image_label") == ("Friction", "Friction")
     assert flashcard_sides(entry, "image_label_description")[0] == "Friction"

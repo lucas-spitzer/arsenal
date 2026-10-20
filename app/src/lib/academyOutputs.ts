@@ -4,7 +4,7 @@ import type { AcademyPage } from '../components/academy/types'
 import { collapseDuplicateNarrationArtifacts } from './foundryMappers'
 import { formatDuration } from './foundryFormat'
 import { sourceDisplayName } from './sourceDisplay'
-import type { Artifact, Source, WikiEntry } from './workspaceApi'
+import type { Artifact, KnowledgeRunTitle, Source, WikiEntry } from './workspaceApi'
 
 export type OutputKind = 'audio' | 'book' | 'artifact' | 'material' | 'flashcard' | 'question' | 'scenario' | 'wiki'
 export type OutputType = 'all' | OutputKind
@@ -19,6 +19,8 @@ export interface OutputItem {
   title: string
   sourceId: string | null
   sourceName: string
+  /** Book name for a book or audio card. Knowledge and study-material cards use the run title. */
+  footer: string
   badge: string // difficulty for assessments, format for artifacts
   createdAt: string
   runnerPage: AcademyPage | null // where "Open" routes; null = artifact (reader/download)
@@ -130,6 +132,34 @@ export function outputChipLabel(item: OutputItem): string {
   return KIND_CHIP[item.kind]
 }
 
+const RUN_FOOTER_KINDS = new Set<OutputKind>(['wiki', 'flashcard', 'question', 'scenario', 'material'])
+
+export function outputFooter(kind: OutputKind, sourceName: string, runTitle: string | null | undefined): string {
+  const title = runTitle?.trim() ?? ''
+  if (RUN_FOOTER_KINDS.has(kind) && title) return title
+  return sourceName
+}
+
+export function knowledgeRunTitleForSource(
+  sourceId: string | null,
+  titles: Pick<KnowledgeRunTitle, 'source_id' | 'title'>[],
+): string | null {
+  if (!sourceId) return null
+  const names = [
+    ...new Set(
+      titles
+        .filter((run) => run.source_id === sourceId)
+        .map((run) => run.title.trim())
+        .filter(Boolean),
+    ),
+  ]
+  return names.length > 0 ? names.join(' · ') : null
+}
+
+function titleByProjectId(titles: KnowledgeRunTitle[]): Map<string, string> {
+  return new Map(titles.map((run) => [run.id, run.title]))
+}
+
 function sourceLabel(source: Source | undefined): string {
   if (!source) return UNASSIGNED
   return sourceDisplayName(source)
@@ -149,6 +179,7 @@ export function wikiSourceId(entry: WikiEntry): string | null {
 export function wikiEntriesToOutputItems(
   wikiEntries: WikiEntry[],
   nameOf: (id: string | null | undefined) => string,
+  runTitles: Pick<KnowledgeRunTitle, 'source_id' | 'title'>[] = [],
 ): OutputItem[] {
   const groups = new Map<string, WikiEntry[]>()
   for (const entry of wikiEntries) {
@@ -162,6 +193,7 @@ export function wikiEntriesToOutputItems(
 
   return [...groups.entries()].map(([key, entries]) => {
     const sourceId = key || null
+    const sourceName = nameOf(sourceId)
     const newest = entries.reduce((latest, entry) =>
       entry.created_at > latest.created_at ? entry : latest,
     )
@@ -170,7 +202,8 @@ export function wikiEntriesToOutputItems(
       id: sourceId ?? 'unassigned',
       title: countLabel(entries.length, 'entry', 'entries'),
       sourceId,
-      sourceName: nameOf(sourceId),
+      sourceName,
+      footer: outputFooter('wiki', sourceName, knowledgeRunTitleForSource(sourceId, runTitles)),
       badge: '',
       createdAt: newest.created_at,
       runnerPage: 'wiki',
@@ -183,70 +216,100 @@ export function wikiEntriesToOutputItems(
 }
 
 export function useOutputs(): { items: OutputItem[]; sources: { id: string; name: string }[] } {
-  const { flashcards, quizzes, scenarios, artifacts, wikiEntries, sources } = useWorkspaceData()
+  const { flashcards, quizzes, scenarios, artifacts, wikiEntries, sources, knowledgeRunTitles } =
+    useWorkspaceData()
 
   return useMemo(() => {
     const byId = new Map(sources.map((s) => [s.id, s]))
     const nameOf = (id: string | null | undefined) =>
       id ? sourceLabel(byId.get(id)) : UNASSIGNED
+    const projectTitle = titleByProjectId(knowledgeRunTitles)
 
     const items: OutputItem[] = [
-      ...flashcards.map<OutputItem>((f) => ({
-        kind: 'flashcard',
-        id: f.id,
-        title: f.front,
-        sourceId: f.source_id ?? null,
-        sourceName: nameOf(f.source_id),
-        badge: f.difficulty,
-        createdAt: f.created_at,
-        runnerPage: 'flashcards',
-        isAudio: false,
-        isEbook: false,
-        isNarration: false,
-      })),
-      ...quizzes.map<OutputItem>((q) => ({
-        kind: 'question',
-        id: q.id,
-        title: q.question,
-        sourceId: q.source_id ?? null,
-        sourceName: nameOf(q.source_id),
-        badge: q.difficulty,
-        createdAt: q.created_at,
-        runnerPage: 'quiz',
-        isAudio: false,
-        isEbook: false,
-        isNarration: false,
-      })),
-      ...scenarios.map<OutputItem>((s) => ({
-        kind: 'scenario',
-        id: s.id,
-        title: s.title,
-        sourceId: s.source_id ?? null,
-        sourceName: nameOf(s.source_id),
-        badge: s.difficulty,
-        createdAt: s.created_at,
-        runnerPage: 'scenarios',
-        isAudio: false,
-        isEbook: false,
-        isNarration: false,
-      })),
-      ...wikiEntriesToOutputItems(wikiEntries, nameOf),
+      ...flashcards.map<OutputItem>((f) => {
+        const sourceName = nameOf(f.source_id)
+        return {
+          kind: 'flashcard',
+          id: f.id,
+          title: f.front,
+          sourceId: f.source_id ?? null,
+          sourceName,
+          footer: outputFooter(
+            'flashcard',
+            sourceName,
+            f.knowledge_project_id ? projectTitle.get(f.knowledge_project_id) : null,
+          ),
+          badge: f.difficulty,
+          createdAt: f.created_at,
+          runnerPage: 'flashcards',
+          isAudio: false,
+          isEbook: false,
+          isNarration: false,
+        }
+      }),
+      ...quizzes.map<OutputItem>((q) => {
+        const sourceName = nameOf(q.source_id)
+        return {
+          kind: 'question',
+          id: q.id,
+          title: q.question,
+          sourceId: q.source_id ?? null,
+          sourceName,
+          footer: outputFooter(
+            'question',
+            sourceName,
+            q.knowledge_project_id ? projectTitle.get(q.knowledge_project_id) : null,
+          ),
+          badge: q.difficulty,
+          createdAt: q.created_at,
+          runnerPage: 'quiz',
+          isAudio: false,
+          isEbook: false,
+          isNarration: false,
+        }
+      }),
+      ...scenarios.map<OutputItem>((s) => {
+        const sourceName = nameOf(s.source_id)
+        return {
+          kind: 'scenario',
+          id: s.id,
+          title: s.title,
+          sourceId: s.source_id ?? null,
+          sourceName,
+          footer: outputFooter(
+            'scenario',
+            sourceName,
+            s.knowledge_project_id ? projectTitle.get(s.knowledge_project_id) : null,
+          ),
+          badge: s.difficulty,
+          createdAt: s.created_at,
+          runnerPage: 'scenarios',
+          isAudio: false,
+          isEbook: false,
+          isNarration: false,
+        }
+      }),
+      ...wikiEntriesToOutputItems(wikiEntries, nameOf, knowledgeRunTitles),
       ...collapseDuplicateNarrationArtifacts(artifacts)
         .filter((a) => !isIncompleteNarrationArtifact(a))
         .map<OutputItem>((a) => {
         const card = artifactLibraryCard(a)
+        const kind: OutputItem['kind'] = card.isStudyMaterial
+          ? 'material'
+          : card.isEbook
+            ? 'book'
+            : card.isAudio || card.isNarration
+              ? 'audio'
+              : 'artifact'
+        const sourceName = card.isStudyMaterial ? STUDY_MATERIAL_GROUP : nameOf(a.source_id)
+        const materialTitle = typeof a.manifest.title === 'string' ? a.manifest.title : ''
         return {
-          kind: card.isStudyMaterial
-            ? 'material'
-            : card.isEbook
-              ? 'book'
-              : card.isAudio || card.isNarration
-                ? 'audio'
-                : 'artifact',
+          kind,
           id: a.id,
           title: card.title,
           sourceId: a.source_id ?? null,
-          sourceName: card.isStudyMaterial ? STUDY_MATERIAL_GROUP : nameOf(a.source_id),
+          sourceName,
+          footer: outputFooter(kind, sourceName, card.isStudyMaterial ? materialTitle : null),
           badge: (a.format || 'file').toUpperCase(),
           createdAt: a.created_at,
           runnerPage: null,
@@ -267,7 +330,7 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
       .sort((a, b) => a.name.localeCompare(b.name))
 
     return { items, sources: sourceList }
-  }, [flashcards, quizzes, scenarios, artifacts, wikiEntries, sources])
+  }, [flashcards, quizzes, scenarios, artifacts, wikiEntries, sources, knowledgeRunTitles])
 }
 
 export function filterOutputs(
@@ -279,7 +342,7 @@ export function filterOutputs(
     if (type !== 'all' && item.kind !== type) return false
     if (sourceId && item.sourceId !== sourceId) return false
     if (q) {
-      const haystack = `${item.title} ${item.sourceName} ${outputChipLabel(item)} ${item.searchText ?? ''}`.toLowerCase()
+      const haystack = `${item.title} ${item.footer} ${item.sourceName} ${outputChipLabel(item)} ${item.searchText ?? ''}`.toLowerCase()
       if (!haystack.includes(q)) return false
     }
     return true

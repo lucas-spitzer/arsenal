@@ -24,6 +24,14 @@ class KnowledgeProjectRepository:
             order="updated_at.desc",
         )
 
+    async def list_titles(self, workspace_id: str) -> list[dict[str, Any]]:
+        return await self.db.select_many(
+            "knowledge_projects",
+            filters={"workspace_id": f"eq.{workspace_id}"},
+            columns="id,source_id,title",
+            order="updated_at.desc",
+        )
+
     async def update(self, project_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         rows = await self.db.update(
             "knowledge_projects",

@@ -53,8 +53,9 @@ async def _require_thread(
     threads: DiscussionRepository,
     thread_id: str,
     workspace_id: str,
+    user_id: str,
 ) -> dict[str, Any]:
-    thread = await threads.get_thread(thread_id, workspace_id)
+    thread = await threads.get_thread(thread_id, workspace_id, user_id)
     if thread is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -66,10 +67,10 @@ async def _require_thread(
 @router.get("/threads", response_model=list[DiscussionThreadResponse])
 async def list_discussion_threads(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
     threads: Annotated[DiscussionRepository, Depends(get_discussion_repository)],
 ) -> list[DiscussionThreadResponse]:
-    rows = await threads.list_threads(workspace.id)
+    rows = await threads.list_threads(workspace.id, user.id)
     return [_thread_model(row) for row in rows]
 
 
@@ -81,7 +82,7 @@ async def list_discussion_threads(
 async def create_discussion_thread(
     request: CreateDiscussionThreadRequest,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
     threads: Annotated[DiscussionRepository, Depends(get_discussion_repository)],
 ) -> DiscussionThreadDetailResponse:
     title = request.title.strip()
@@ -94,6 +95,7 @@ async def create_discussion_thread(
     row = await threads.create_thread(
         {
             "workspace_id": workspace.id,
+            "user_id": user.id,
             "title": title,
             "submode": request.submode,
             "source_id": request.source_id,
@@ -119,10 +121,10 @@ async def create_discussion_thread(
 async def get_discussion_thread(
     thread_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
     threads: Annotated[DiscussionRepository, Depends(get_discussion_repository)],
 ) -> DiscussionThreadDetailResponse:
-    thread = await _require_thread(threads, thread_id, workspace.id)
+    thread = await _require_thread(threads, thread_id, workspace.id, user.id)
     rows = await threads.list_messages(thread_id)
     return DiscussionThreadDetailResponse(
         **thread,
@@ -135,10 +137,10 @@ async def update_discussion_thread(
     thread_id: str,
     request: UpdateDiscussionThreadRequest,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
     threads: Annotated[DiscussionRepository, Depends(get_discussion_repository)],
 ) -> DiscussionThreadResponse:
-    await _require_thread(threads, thread_id, workspace.id)
+    await _require_thread(threads, thread_id, workspace.id, user.id)
 
     payload: dict[str, Any] = {}
     if request.title is not None and request.title.strip():
@@ -152,7 +154,7 @@ async def update_discussion_thread(
             detail="Nothing to update.",
         )
 
-    updated = await threads.update_thread(thread_id, workspace.id, payload)
+    updated = await threads.update_thread(thread_id, workspace.id, user.id, payload)
     if updated is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -165,11 +167,11 @@ async def update_discussion_thread(
 async def delete_discussion_thread(
     thread_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
     threads: Annotated[DiscussionRepository, Depends(get_discussion_repository)],
 ) -> None:
-    await _require_thread(threads, thread_id, workspace.id)
-    await threads.delete_thread(thread_id, workspace.id)
+    await _require_thread(threads, thread_id, workspace.id, user.id)
+    await threads.delete_thread(thread_id, workspace.id, user.id)
 
 
 @router.post(
@@ -180,7 +182,7 @@ async def send_discussion_message(
     thread_id: str,
     request: SendDiscussionMessageRequest,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
     threads: Annotated[DiscussionRepository, Depends(get_discussion_repository)],
     assistant: Annotated[AssistantService, Depends(get_assistant_service)],
 ) -> SendDiscussionMessageResponse:
@@ -191,7 +193,7 @@ async def send_discussion_message(
             detail="Message content is required.",
         )
 
-    thread = await _require_thread(threads, thread_id, workspace.id)
+    thread = await _require_thread(threads, thread_id, workspace.id, user.id)
 
     history_rows = await threads.list_messages(thread_id)
     user_row = await threads.append_message(
@@ -224,7 +226,7 @@ async def send_discussion_message(
         }
     )
 
-    await threads.touch_thread(thread_id, workspace.id)
+    await threads.touch_thread(thread_id, workspace.id, user.id)
 
     return SendDiscussionMessageResponse(
         user_message=_message_model(user_row),

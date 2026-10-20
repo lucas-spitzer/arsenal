@@ -7,6 +7,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from app.knowledge.cards import definition_flashcard_row, is_definition_flashcard
 from app.knowledge.plans import (
     flashcard_plan_rows,
     item_plan_rows,
@@ -146,13 +147,14 @@ class KnowledgeRunner:
         entries = self.db.get_wiki_entries(entry_ids)
         if not entries:
             raise RuntimeError("Structuring finished without any wiki entries.")
-        self.db.insert_knowledge_item_plans(
+        plans = self.db.insert_knowledge_item_plans(
             flashcard_plan_rows(
                 project_id=str(project["id"]),
                 workspace_id=workspace_id,
                 entries=entries,
             ),
         )
+        self._write_definition_flashcards(project, plans, entries)
         self.db.update_knowledge_project(str(project["id"]), {"status": "composing", "error": None})
         return pipeline
 
@@ -173,11 +175,24 @@ class KnowledgeRunner:
         study_ids = study_wiki_ids(plans, entries)
         flashcard_ids = study_ids
         drafted_ids = study_ids or all_ids
-        self.db.delete_assessments_for_project(project_id)
+        existing_cards = self.db.list_assessments_for_project("flashcards", project_id)
+        kept_cards = [row for row in existing_cards if is_definition_flashcard(row)]
+        kept_card_ids = {str(row["id"]) for row in kept_cards}
+        kept_wiki_ids = {
+            wiki_id
+            for wiki_id in (cited_wiki_id(row.get("citations")) for row in kept_cards)
+            if wiki_id
+        }
+        self.db.delete_assessments_for_project(project_id, keep_flashcard_ids=kept_card_ids)
         self.db.delete_knowledge_item_plans(project_id, ["question", "scenario"])
-        self.db.clear_plan_assessments(project_id, "flashcard")
+        self.db.clear_plan_assessments(
+            project_id,
+            "flashcard",
+            keep_assessment_ids=kept_card_ids,
+        )
 
-        if flashcard_ids and _has_step(pipeline, "generate-flashcards"):
+        pending_flashcards = set(flashcard_ids) - kept_wiki_ids
+        if pending_flashcards and _has_step(pipeline, "generate-flashcards"):
             pipeline = self._run_named_step(
                 pipeline,
                 "generate-flashcards",
@@ -185,12 +200,19 @@ class KnowledgeRunner:
                     production_run_id=str(run["id"]),
                     workspace_id=workspace_id,
                     source=source,
-                    wiki_ids=flashcard_ids,
+                    wiki_ids=pending_flashcards,
                     knowledge_project_id=project_id,
                     skip_importance_filter=True,
                 ),
             )
             self.db.update_production_run(str(run["id"]), {"pipeline": pipeline})
+        elif _has_step(pipeline, "generate-flashcards"):
+            pipeline = mark_step(
+                pipeline,
+                "generate-flashcards",
+                status="completed",
+                detail="Definition cards kept",
+            )
 
         if project.get("draft_questions") and drafted_ids and _has_step(pipeline, "generate-questions"):
             pipeline = self._run_named_step(
@@ -295,6 +317,34 @@ class KnowledgeRunner:
             )
             if planned:
                 self.db.insert_knowledge_item_plans(planned)
+
+    def _write_definition_flashcards(
+        self,
+        project: dict[str, Any],
+        plans: list[dict[str, Any]],
+        entries: list[dict[str, Any]],
+    ) -> None:
+        by_wiki = {
+            str(plan["wiki_entry_id"]): plan
+            for plan in plans
+            if plan.get("item_type") == "flashcard" and plan.get("wiki_entry_id")
+        }
+        rows: list[dict[str, Any]] = []
+        used: list[dict[str, Any]] = []
+        for entry in entries:
+            if str(entry.get("entry_kind") or "") not in {"term", "list"}:
+                continue
+            plan = by_wiki.get(str(entry["id"]))
+            if plan is None or not str(entry.get("preferred_label") or "").strip():
+                continue
+            rows.append(definition_flashcard_row(project, entry))
+            used.append(plan)
+        saved = self.db.insert_flashcards(rows)
+        for plan, card in zip(used, saved, strict=True):
+            self.db.update_knowledge_item_plan(
+                str(plan["id"]),
+                {"assessment_id": str(card["id"]), "enabled": True},
+            )
 
     def _source(self, source_id: str) -> dict[str, Any]:
         sources = self.db.get_sources([source_id])

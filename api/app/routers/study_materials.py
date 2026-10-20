@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 from app.artifact_paths import next_available_slug, storage_slug, study_material_file_path
 from app.config import Settings, get_settings
-from app.dependencies.auth import require_approved_user
+from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import (
     get_production_run_repository,
     get_stage_settings_repository,
@@ -67,7 +67,7 @@ from app.services.supabase_storage import SupabaseStorageClient
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["study-materials"])
+router = APIRouter(tags=["study-materials"], dependencies=[Depends(require_admin)])
 
 Repo = Annotated[StudyMaterialRepository, Depends(get_study_material_repository)]
 User = Annotated[CurrentUser, Depends(require_approved_user)]

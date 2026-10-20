@@ -3,8 +3,14 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.config import Settings, get_settings
+from app.access import can_read_library
 from app.dependencies.auth import require_approved_user
-from app.dependencies.services import get_assessment_repository, get_supabase_storage_client
+from app.dependencies.services import (
+    get_assessment_repository,
+    get_knowledge_project_repository,
+    get_supabase_storage_client,
+    get_workspace_repository,
+)
 from app.dependencies.workspace import require_workspace
 from app.knowledge.visuals import storage_path_of, visual_for_response
 from app.models.assessment import (
@@ -13,11 +19,31 @@ from app.models.assessment import (
     ScenarioResponse,
 )
 from app.models.auth import CurrentUser
+from app.models.knowledge import KnowledgeRunTitle
 from app.models.workspace import WorkspaceResponse
 from app.repositories.assessments import AssessmentRepository
+from app.repositories.knowledge_projects import KnowledgeProjectRepository
+from app.repositories.workspaces import WorkspaceRepository
 from app.services.supabase_storage import SupabaseStorageClient
 
 router = APIRouter(tags=["assessments"])
+
+
+async def _readable_row(
+    row: dict[str, Any] | None,
+    user: CurrentUser,
+    workspaces: WorkspaceRepository,
+) -> dict[str, Any] | None:
+    if not row:
+        return None
+    workspace = await workspaces.get(str(row["workspace_id"]))
+    if not workspace or not can_read_library(
+        user,
+        str(workspace["owner_id"]),
+        workspace_name=str(workspace.get("name") or ""),
+    ):
+        return None
+    return row
 
 
 async def _with_signed_visuals(
@@ -43,6 +69,19 @@ async def _with_signed_visuals(
         path = storage_path_of(visual)
         prepared.append({**row, "visual": visual_for_response(visual, signed.get(path or ""))})
     return prepared
+
+
+@router.get(
+    "/workspaces/{workspace_id}/knowledge-titles",
+    response_model=list[KnowledgeRunTitle],
+)
+async def list_knowledge_titles(
+    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
+    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    projects: Annotated[KnowledgeProjectRepository, Depends(get_knowledge_project_repository)],
+) -> list[KnowledgeRunTitle]:
+    rows = await projects.list_titles(workspace.id)
+    return [KnowledgeRunTitle.model_validate(row) for row in rows]
 
 
 @router.get(
@@ -72,10 +111,15 @@ async def get_flashcard(
     flashcard_id: str,
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     assessments: Annotated[AssessmentRepository, Depends(get_assessment_repository)],
+    workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
     storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> FlashcardResponse:
-    row = await assessments.get_flashcard_for_owner(flashcard_id, user.id)
+    row = await _readable_row(
+        await assessments.get_flashcard_by_id(flashcard_id),
+        user,
+        workspaces,
+    )
 
     if not row:
         raise HTTPException(
@@ -114,10 +158,15 @@ async def get_quiz(
     quiz_id: str,
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     assessments: Annotated[AssessmentRepository, Depends(get_assessment_repository)],
+    workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
     storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> QuizResponse:
-    row = await assessments.get_quiz_for_owner(quiz_id, user.id)
+    row = await _readable_row(
+        await assessments.get_quiz_by_id(quiz_id),
+        user,
+        workspaces,
+    )
 
     if not row:
         raise HTTPException(
@@ -156,10 +205,15 @@ async def get_scenario(
     scenario_id: str,
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     assessments: Annotated[AssessmentRepository, Depends(get_assessment_repository)],
+    workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
     storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ScenarioResponse:
-    row = await assessments.get_scenario_for_owner(scenario_id, user.id)
+    row = await _readable_row(
+        await assessments.get_scenario_by_id(scenario_id),
+        user,
+        workspaces,
+    )
 
     if not row:
         raise HTTPException(

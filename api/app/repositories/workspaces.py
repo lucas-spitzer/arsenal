@@ -30,6 +30,18 @@ class WorkspaceRepository:
         rows = await self.db.select_many("workspaces", columns="slug")
         return {str(row["slug"]) for row in rows if row.get("slug")}
 
+    async def get(self, workspace_id: str) -> dict[str, Any] | None:
+        return await self.db.select_one(
+            "workspaces",
+            filters={"id": f"eq.{workspace_id}"},
+        )
+
+    async def list_all(self) -> list[dict[str, Any]]:
+        return await self.db.select_many(
+            "workspaces",
+            order="created_at.desc",
+        )
+
     async def list_for_owner(self, owner_id: str) -> list[dict[str, Any]]:
         return await self.db.select_many(
             "workspaces",

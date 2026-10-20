@@ -13,6 +13,7 @@ from app.routers import (
     assistant,
     artifacts,
     assessments,
+    email_code,
     image,
     llm,
     production_runs,
@@ -67,6 +68,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+app.include_router(email_code.router)
 app.include_router(workspaces.router)
 app.include_router(stages.router)
 app.include_router(sources.router)

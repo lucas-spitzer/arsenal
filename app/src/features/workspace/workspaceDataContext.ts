@@ -8,6 +8,7 @@ import type {
   StageRun,
   Source,
   WikiEntry,
+  KnowledgeRunTitle,
 } from '../../lib/workspaceApi'
 
 export interface WorkspaceDataContextValue {
@@ -21,6 +22,7 @@ export interface WorkspaceDataContextValue {
   flashcards: Flashcard[]
   quizzes: Quiz[]
   scenarios: Scenario[]
+  knowledgeRunTitles: KnowledgeRunTitle[]
   isLoading: boolean
   error: string | null
   activeRunCount: number

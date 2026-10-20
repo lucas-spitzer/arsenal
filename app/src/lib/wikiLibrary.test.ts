@@ -6,7 +6,7 @@ vi.mock('../features/auth/authService', () => ({
 
 import { academyRailItems } from '../components/academy/types'
 import { railItems } from '../components/foundry/types'
-import { filterOutputs, wikiEntriesToOutputItems } from './academyOutputs'
+import { filterOutputs, knowledgeRunTitleForSource, outputFooter, wikiEntriesToOutputItems } from './academyOutputs'
 import { ARTIFACT_OPTIONS, type WikiEntry } from './workspaceApi'
 
 function wikiEntry(overrides: Partial<WikiEntry> = {}): WikiEntry {
@@ -120,5 +120,24 @@ describe('wiki knowledge on New Run and Library', () => {
 
     expect(filterOutputs(items, { search: 'War', type: 'all', sourceId: null })).toEqual(items)
     expect(filterOutputs(items, { search: 'missing', type: 'all', sourceId: null })).toEqual([])
+  })
+
+  it('puts the knowledge run title on a wiki card and keeps the book name on a book', () => {
+    const items = wikiEntriesToOutputItems(
+      [wikiEntry()],
+      () => 'Armed Forces Officer',
+      [{ source_id: 'src-origin', title: 'Chapter 1 Terms' }],
+    )
+
+    expect(items[0]?.footer).toBe('Chapter 1 Terms')
+    expect(items[0]?.sourceName).toBe('Armed Forces Officer')
+    expect(outputFooter('book', 'Armed Forces Officer', 'Chapter 1 Terms')).toBe('Armed Forces Officer')
+    expect(outputFooter('audio', 'Armed Forces Officer', null)).toBe('Armed Forces Officer')
+    expect(outputFooter('material', 'Study Material', 'Oath Cutout')).toBe('Oath Cutout')
+    expect(outputFooter('flashcard', 'Armed Forces Officer', 'Chapter 1 Terms')).toBe('Chapter 1 Terms')
+    expect(knowledgeRunTitleForSource('src-origin', [
+      { source_id: 'src-origin', title: 'Chapter 1 Terms' },
+      { source_id: 'src-origin', title: 'Chapter 2 Terms' },
+    ])).toBe('Chapter 1 Terms · Chapter 2 Terms')
   })
 })

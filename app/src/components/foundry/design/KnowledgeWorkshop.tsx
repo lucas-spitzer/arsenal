@@ -6,6 +6,7 @@ import {
   activeKnowledgeRunId,
   attachKnowledgeVisuals,
   createKnowledgeProject,
+  deleteKnowledgeProject,
   getKnowledgeProject,
   listKnowledgeProjects,
   uploadPlanVisual,
@@ -14,6 +15,7 @@ import {
   type KnowledgeProjectSummary,
 } from '../../../lib/knowledgeApi'
 import { ErrorBanner } from '../ErrorBanner'
+import { FoundryDialog } from '../FoundryDialog'
 import { FoundryLoader } from '../FoundryLoader'
 import { KnowledgeComposer } from './KnowledgeComposer'
 import { RunSteps } from './RunSteps'
@@ -275,6 +277,8 @@ function KnowledgeProject({
   const { refresh } = useWorkspaceData()
   const [project, setProject] = useState<KnowledgeProjectDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const status = project?.status
 
   const reload = useCallback(() => {
@@ -343,6 +347,15 @@ function KnowledgeProject({
           <button type="button" className="as-console__cta as-console__cta--ghost" onClick={onBack}>
             All projects
           </button>
+          {project.status === 'composing' || project.status === 'failed' ? (
+            <button
+              type="button"
+              className="as-console__cta as-console__cta--ghost dsn-cta--danger"
+              onClick={() => setDeleteOpen(true)}
+            >
+              Delete
+            </button>
+          ) : null}
         </div>
       </header>
       <div className="as-console__scroll">
@@ -357,6 +370,50 @@ function KnowledgeProject({
         ) : null}
         {project.status === 'ready' ? <ReviewView project={project} onChange={setProject} onError={setError} /> : null}
       </div>
+      <FoundryDialog
+        title="Delete knowledge draft"
+        open={deleteOpen}
+        onClose={() => {
+          if (!isDeleting) setDeleteOpen(false)
+        }}
+      >
+        <p className="as-console__confirm-copy">
+          Delete "{project.title}"? Wiki entries already saved stay in the library.
+        </p>
+        <div className="as-console__dialog-actions">
+          <button
+            type="button"
+            className="as-console__cta as-console__cta--ghost"
+            onClick={() => setDeleteOpen(false)}
+            disabled={isDeleting}
+            autoFocus
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="as-console__cta"
+            disabled={isDeleting}
+            onClick={() => {
+              if (isDeleting) return
+              setIsDeleting(true)
+              setError(null)
+              void deleteKnowledgeProject(project.id)
+                .then(() => {
+                  void refresh()
+                  onBack()
+                })
+                .catch((caught: unknown) => {
+                  setError(errorMessage(caught, 'Could not delete.'))
+                  setIsDeleting(false)
+                  setDeleteOpen(false)
+                })
+            }}
+          >
+            {isDeleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </FoundryDialog>
     </>
   )
 }

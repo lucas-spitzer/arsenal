@@ -10,6 +10,7 @@ class FlashcardResponse(BaseModel):
     id: str
     workspace_id: str
     source_id: str | None
+    knowledge_project_id: str | None = None
     production_run_id: str | None
     stage_run_id: str | None
     item_id: str | None = None
@@ -28,6 +29,7 @@ class QuizResponse(BaseModel):
     id: str
     workspace_id: str
     source_id: str | None
+    knowledge_project_id: str | None = None
     production_run_id: str | None
     stage_run_id: str | None
     item_id: str | None = None
@@ -50,6 +52,7 @@ class ScenarioResponse(BaseModel):
     id: str
     workspace_id: str
     source_id: str | None
+    knowledge_project_id: str | None = None
     production_run_id: str | None
     stage_run_id: str | None
     item_id: str | None = None

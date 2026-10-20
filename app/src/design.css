@@ -672,6 +672,39 @@ button.dsn-page__section:hover { background: rgba(132, 117, 78, 0.08); }
 .kcomp__batch-head { display: flex; align-items: baseline; gap: 10px; }
 .kcomp__batch-head strong { color: #fff; font-family: var(--as-grotesk); }
 
+.dsn-entry-search {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.dsn-entry-search__results {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+}
+.dsn-entry-search__hit {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  font: inherit;
+}
+.dsn-entry-search__hit:hover:not(:disabled) {
+  border-color: var(--color-scarlet, #940000);
+}
+.dsn-entry-search__kind {
+  color: #818283;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 @media (max-width: 1100px) {
   .kcomp__grid { grid-template-columns: 1fr; }
   .kcomp__pool-row--distractor { grid-template-columns: 1fr; }

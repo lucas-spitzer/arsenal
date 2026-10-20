@@ -13,7 +13,7 @@ def test_warfighting_notes_become_terms_and_lists() -> None:
 
     terms = [entry for entry in notes.entries if entry["entry_kind"] == "term"]
     lists = [entry for entry in notes.entries if entry["entry_kind"] == "list"]
-    assert len(terms) == 26
+    assert len(terms) == 23
     assert len(lists) == 5
 
     friction = next(entry for entry in terms if entry["label"] == "Friction")
@@ -26,8 +26,10 @@ def test_warfighting_notes_become_terms_and_lists() -> None:
     assert friction_item["details"] != friction["definition"]
     assert characteristics["definition"].startswith("The fundamental environmental attributes")
 
-    human_will = next(entry for entry in terms if entry["label"] == "Human Will")
-    assert human_will["definition"].startswith("The central driving force")
+    assert all(entry["label"] != "Human Will" for entry in terms)
+    human_factors = next(entry for entry in lists if entry["label"] == "Human Factors in Combat")
+    human_will = next(item for item in human_factors["items"] if item["name"] == "Human Will")
+    assert human_will["details"].startswith("The central driving force")
 
 
 def test_list_item_details_do_not_replace_the_term_definition() -> None:

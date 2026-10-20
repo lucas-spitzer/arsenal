@@ -206,7 +206,7 @@ function CardGrid({
             <div className="lib__fill" />
             <div className="lib__foot">
               <div className="lib__meta">
-                <span>{item.sourceName}</span>
+                <span>{item.footer}</span>
               </div>
               <button type="button" className="lib__open" onClick={() => onOpen(item)}>
                 {openLabel(item)}

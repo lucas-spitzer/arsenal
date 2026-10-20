@@ -99,7 +99,6 @@ def _notes_from_terms_and_lists(payload: dict[str, Any]) -> StructuredNotes:
         raise StructuredNotesError("terms and key_lists must be arrays.")
 
     entries: list[dict[str, Any]] = []
-    labels: set[str] = set()
 
     for raw in raw_terms:
         if not isinstance(raw, dict):
@@ -118,7 +117,6 @@ def _notes_from_terms_and_lists(payload: dict[str, Any]) -> StructuredNotes:
                 importance=str(raw.get("importance") or "supporting"),
             ),
         )
-        labels.add(label.casefold())
 
     for raw in raw_lists:
         if not isinstance(raw, dict):
@@ -128,18 +126,6 @@ def _notes_from_terms_and_lists(payload: dict[str, Any]) -> StructuredNotes:
             continue
         items = _items(raw)
         category = _optional_text(raw.get("category"))
-        for item in items:
-            if item["name"].casefold() in labels or not item["details"]:
-                continue
-            entries.append(
-                _entry(
-                    label=item["name"],
-                    definition=item["details"],
-                    entry_kind="term",
-                    category=category,
-                ),
-            )
-            labels.add(item["name"].casefold())
         overview = str(raw.get("overview") or raw.get("definition") or "").strip()
         if not overview and not items:
             continue
