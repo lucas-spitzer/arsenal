@@ -92,7 +92,7 @@ export function displayChapterTitle(title: string): string {
 
 export type Block = {
   seq: number // ndr_segments.sequence_index — the stable deep-link anchor
-  id: string // ndr_segments.id (segment UUID); synthetic for the demo passage
+  id: string // ndr_segments.id (segment UUID)
   kind: 'heading' | 'paragraph'
   level: 0 | 1 | 2 // 0 = body, 1 = chapter title, 2 = section heading
   variant?: 'list_item' | 'table' | 'caption'
@@ -101,22 +101,6 @@ export type Block = {
   chapterTitle: string
   isChapterStart: boolean
 }
-
-// --- Demo content ----------------------------------------------------------
-// Self-contained sample passage shown when the reader is opened without a
-// source (rail navigation): the full UX works without any live data.
-export const MOCK_BLOCKS: Block[] = [
-  { seq: 0, id: 'mock-0', kind: 'heading', level: 1, text: 'The Architecture of Memory', md: null, chapterTitle: 'The Architecture of Memory', isChapterStart: true },
-  { seq: 1, id: 'mock-1', kind: 'paragraph', level: 0, text: 'Memory is not a single faculty but a federation of systems, each tuned to a different kind of remembering. The brain does not store experience the way a tape records sound; it reconstructs it, assembling a usable past out of fragments distributed across the cortex. What feels like retrieval is closer to rebuilding.', md: null, chapterTitle: 'The Architecture of Memory', isChapterStart: false },
-  { seq: 2, id: 'mock-2', kind: 'heading', level: 2, text: 'Encoding and consolidation', md: null, chapterTitle: 'The Architecture of Memory', isChapterStart: false },
-  { seq: 3, id: 'mock-3', kind: 'paragraph', level: 0, text: 'When you first meet a new idea, it lives in a fragile, short-lived state. Sleep and spaced rehearsal then move it into longer storage through consolidation. This is why cramming feels productive but fades fast: the material never makes the journey from working memory into durable form, and the next morning the scaffolding is gone.', md: null, chapterTitle: 'The Architecture of Memory', isChapterStart: false },
-  { seq: 4, id: 'mock-4', kind: 'paragraph', level: 0, text: 'The hippocampus acts as an index rather than a vault. It binds the scattered traces of an event so they can later be reassembled, then gradually hands the relationship over to the cortex itself. Over weeks and months a memory becomes less dependent on its original index and more woven into the fabric of what you already know.', md: null, chapterTitle: 'The Architecture of Memory', isChapterStart: false },
-  { seq: 5, id: 'mock-5', kind: 'heading', level: 1, text: 'Retrieval as Reconstruction', md: null, chapterTitle: 'Retrieval as Reconstruction', isChapterStart: true },
-  { seq: 6, id: 'mock-6', kind: 'paragraph', level: 0, text: 'Every act of recall changes the thing recalled. Bringing a memory to mind reopens it, and when it settles again it carries a faint imprint of the present moment. This plasticity is not a flaw. It is what lets the past stay useful, updating old lessons against new evidence instead of preserving them like insects in amber.', md: null, chapterTitle: 'Retrieval as Reconstruction', isChapterStart: false },
-  { seq: 7, id: 'mock-7', kind: 'heading', level: 2, text: 'The testing effect', md: null, chapterTitle: 'Retrieval as Reconstruction', isChapterStart: false },
-  { seq: 8, id: 'mock-8', kind: 'paragraph', level: 0, text: 'Trying to retrieve an answer strengthens the trace far more than rereading it. The effort of reaching, even when you fail, tells the brain that this is information worth keeping. A quiz is therefore not only a measurement of learning but an instrument of it, and a passage read aloud and then recalled sticks better than one merely scanned.', md: null, chapterTitle: 'Retrieval as Reconstruction', isChapterStart: false },
-  { seq: 9, id: 'mock-9', kind: 'paragraph', level: 0, text: 'Spacing those retrievals compounds the gain. Short, distributed sessions outperform a single long one of equal length, because each return visit forces a reconstruction from a slightly colder start. Difficulty, paradoxically, is the engine: the small struggle to recover what is half-forgotten is precisely what makes it permanent.', md: null, chapterTitle: 'Retrieval as Reconstruction', isChapterStart: false },
-]
 
 // --- Live content ----------------------------------------------------------
 // Join ndr_segments with document_chapters to recover the H1/H2 hierarchy the

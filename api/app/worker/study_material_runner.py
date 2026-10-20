@@ -577,8 +577,10 @@ class StudyMaterialRunner:
             theme_detail = [job.theme.name]
             if options.get("logo_locked"):
                 theme_detail.append("logo locked")
-            if job.theme.disclaimer:
-                theme_detail.append("disclaimer on every card" if job.template.disclaimer == "per_section" else "disclaimer in footer")
+            if job.theme.disclaimer and job.template.disclaimer == "per_section":
+                theme_detail.append("disclaimer on every card")
+            elif job.theme.disclaimer and job.template.disclaimer == "footer":
+                theme_detail.append("disclaimer in footer")
             pipeline = mark_step(pipeline, "introduce-theme", status="completed", detail=" · ".join(theme_detail))
             self.db.update_production_run(production_run_id, {"pipeline": pipeline})
 

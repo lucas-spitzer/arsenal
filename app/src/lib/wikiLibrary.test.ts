@@ -6,7 +6,13 @@ vi.mock('../features/auth/authService', () => ({
 
 import { academyRailItems } from '../components/academy/types'
 import { railItems } from '../components/foundry/types'
-import { filterOutputs, knowledgeRunTitleForSource, outputFooter, wikiEntriesToOutputItems } from './academyOutputs'
+import {
+  defaultReaderSourceId,
+  filterOutputs,
+  knowledgeRunOutputItems,
+  outputFooter,
+  wikiEntriesToOutputItems,
+} from './academyOutputs'
 import { ARTIFACT_OPTIONS, type WikiEntry } from './workspaceApi'
 
 function wikiEntry(overrides: Partial<WikiEntry> = {}): WikiEntry {
@@ -122,22 +128,171 @@ describe('wiki knowledge on New Run and Library', () => {
     expect(filterOutputs(items, { search: 'missing', type: 'all', sourceId: null })).toEqual([])
   })
 
-  it('puts the knowledge run title on a wiki card and keeps the book name on a book', () => {
+  it('puts the book title on a wiki card and keeps every entry for that source together', () => {
     const items = wikiEntriesToOutputItems(
-      [wikiEntry()],
+      [
+        wikiEntry(),
+        wikiEntry({
+          id: 'wiki-4',
+          preferred_label: 'Friction',
+          created_at: '2026-09-16T00:00:00Z',
+        }),
+      ],
       () => 'Armed Forces Officer',
-      [{ source_id: 'src-origin', title: 'Chapter 1 Terms' }],
     )
 
-    expect(items[0]?.footer).toBe('Chapter 1 Terms')
-    expect(items[0]?.sourceName).toBe('Armed Forces Officer')
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      footer: 'Armed Forces Officer',
+      sourceName: 'Armed Forces Officer',
+      title: '2 entries',
+      projectId: null,
+    })
     expect(outputFooter('book', 'Armed Forces Officer', 'Chapter 1 Terms')).toBe('Armed Forces Officer')
     expect(outputFooter('audio', 'Armed Forces Officer', null)).toBe('Armed Forces Officer')
+    expect(outputFooter('wiki', 'Armed Forces Officer', 'Chapter 1 Terms')).toBe('Armed Forces Officer')
     expect(outputFooter('material', 'Study Material', 'Oath Cutout')).toBe('Oath Cutout')
     expect(outputFooter('flashcard', 'Armed Forces Officer', 'Chapter 1 Terms')).toBe('Chapter 1 Terms')
-    expect(knowledgeRunTitleForSource('src-origin', [
-      { source_id: 'src-origin', title: 'Chapter 1 Terms' },
-      { source_id: 'src-origin', title: 'Chapter 2 Terms' },
-    ])).toBe('Chapter 1 Terms · Chapter 2 Terms')
+  })
+})
+
+describe('reader default book', () => {
+  const books = [
+    { sourceId: 'src-z', sourceName: 'Zebra Manual', createdAt: '2026-01-01T00:00:00Z' },
+    { sourceId: 'src-afo', sourceName: 'Armed Forces Officer', createdAt: '2026-06-01T00:00:00Z' },
+  ]
+
+  it('opens the favorited book', () => {
+    expect(
+      defaultReaderSourceId({
+        routeSourceId: null,
+        focusedSourceId: 'src-z',
+        books,
+      }),
+    ).toBe('src-z')
+  })
+
+  it('opens the first book when nothing is favorited', () => {
+    expect(
+      defaultReaderSourceId({
+        routeSourceId: null,
+        focusedSourceId: null,
+        books,
+      }),
+    ).toBe('src-afo')
+  })
+
+  it('keeps a direct reader link', () => {
+    expect(
+      defaultReaderSourceId({
+        routeSourceId: 'src-link',
+        focusedSourceId: 'src-z',
+        books,
+      }),
+    ).toBe('src-link')
+  })
+
+  it('falls through when the favorite is no longer a book', () => {
+    expect(
+      defaultReaderSourceId({
+        routeSourceId: null,
+        focusedSourceId: 'gone',
+        books,
+      }),
+    ).toBe('src-afo')
+  })
+})
+
+describe('knowledge run library cards', () => {
+  const titles = new Map([
+    ['run-1', 'Chapter 1'],
+    ['run-2', 'Chapter 2'],
+  ])
+
+  function card(id: string, projectId: string, front: string) {
+    return {
+      id,
+      source_id: 'src-1',
+      knowledge_project_id: projectId,
+      difficulty: 'medium',
+      created_at: '2026-10-01T00:00:00Z',
+      front,
+      back: `${front} back`,
+    }
+  }
+
+  it('groups each knowledge run into one flashcard, question, and scenario card', () => {
+    const flashcards = knowledgeRunOutputItems(
+      [card('c1', 'run-1', 'Commission'), card('c2', 'run-1', 'Valor'), card('c3', 'run-2', 'Tempo')],
+      {
+        kind: 'flashcard',
+        runnerPage: 'flashcards',
+        unit: 'card',
+        plural: 'cards',
+        titleOf: (record) => record.front,
+        searchOf: (record) => `${record.front} ${record.back}`,
+        nameOf: () => 'Armed Forces Officer',
+        projectTitle: titles,
+      },
+    )
+    const questions = knowledgeRunOutputItems(
+      [
+        {
+          id: 'q1',
+          source_id: 'src-1',
+          knowledge_project_id: 'run-1',
+          difficulty: 'easy',
+          created_at: '2026-10-02T00:00:00Z',
+          question: 'What is fidelity?',
+        },
+      ],
+      {
+        kind: 'question',
+        runnerPage: 'quiz',
+        unit: 'question',
+        plural: 'questions',
+        titleOf: (record) => record.question,
+        searchOf: (record) => record.question,
+        nameOf: () => 'Armed Forces Officer',
+        projectTitle: titles,
+      },
+    )
+
+    expect(flashcards.map((item) => item.id)).toEqual(['run-1', 'run-2'])
+    expect(flashcards[0]).toMatchObject({
+      kind: 'flashcard',
+      title: '2 cards',
+      footer: 'Chapter 1',
+      sourceName: 'Armed Forces Officer',
+      projectId: 'run-1',
+      runnerPage: 'flashcards',
+    })
+    expect(flashcards[1]).toMatchObject({
+      title: '1 card',
+      footer: 'Chapter 2',
+      projectId: 'run-2',
+    })
+    expect(questions[0]).toMatchObject({
+      kind: 'question',
+      title: '1 question',
+      footer: 'Chapter 1',
+      projectId: 'run-1',
+    })
+  })
+
+  it('finds a run by one of its cards', () => {
+    const items = knowledgeRunOutputItems([card('c1', 'run-1', 'Commission')], {
+      kind: 'flashcard',
+      runnerPage: 'flashcards',
+      unit: 'card',
+      plural: 'cards',
+      titleOf: (record) => record.front,
+      searchOf: (record) => `${record.front} ${record.back}`,
+      nameOf: () => 'Armed Forces Officer',
+      projectTitle: titles,
+    })
+
+    expect(filterOutputs(items, { search: 'Commission', type: 'all', sourceId: null })).toEqual(items)
+    expect(filterOutputs(items, { search: 'missing', type: 'all', sourceId: null })).toEqual([])
   })
 })

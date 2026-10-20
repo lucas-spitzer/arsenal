@@ -20,7 +20,7 @@ ASSETS_DIR = CATALOG_DIR / "assets"
 
 COMPONENT_TYPES: tuple[str, ...] = ("text", "diagram", "image")
 STRICT_CONTENT = frozenset({"title", "logo", "footer"})
-DISCLAIMER_PLACEMENTS = frozenset({"footer", "per_section"})
+DISCLAIMER_PLACEMENTS = frozenset({"footer", "per_section", "none"})
 SECTION_ALIGNS = frozenset({"center"})
 SECTION_PAGES = frozenset({"front", "back"})
 
@@ -73,6 +73,16 @@ class Template:
     disclaimer: str
     cut_lines: bool
     sections: tuple[TemplateSection, ...]
+    # Front faces of a duplex card sheet. None means every face uses body_pt.
+    label_pt: float | None = None
+    # Center every flexible section. Flashcards turn this on; other templates leave it off.
+    center_sections: bool = False
+
+    def section_font_pt(self, section: TemplateSection) -> float:
+        """Front faces use the label size when the template defines one."""
+        if section.page == "front" and self.label_pt is not None:
+            return self.label_pt
+        return self.body_pt
 
     def section(self, section_id: str) -> TemplateSection:
         for section in self.sections:
@@ -285,6 +295,8 @@ def _parse_template(raw: dict[str, Any]) -> Template:
         disclaimer=disclaimer,
         cut_lines=bool(raw.get("cut_lines")),
         sections=tuple(sections),
+        label_pt=float(type_scale["label_pt"]) if type_scale.get("label_pt") is not None else None,
+        center_sections=bool(raw.get("center_sections")),
     )
 
 

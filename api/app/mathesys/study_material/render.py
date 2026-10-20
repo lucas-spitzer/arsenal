@@ -72,6 +72,7 @@ def _css(template: Template, theme: Theme) -> str:
   --sm-heading-tracking: {heading.get('letter_spacing', 'normal')};
   --sm-body-pt: {template.body_pt:g}pt;
   --sm-title-pt: {template.title_pt:g}pt;
+  --sm-label-pt: {(template.label_pt if template.label_pt is not None else template.title_pt):g}pt;
 }}
 * {{ box-sizing: border-box; }}
 html, body {{ margin: 0; padding: 0; background: #fff; }}
@@ -114,6 +115,15 @@ body {{
 .sm-section--footer.is-centered .sm-footer-text,
 .sm-section--footer.is-centered .sm-disclaimer {{ margin-left: 0; text-align: center; }}
 .sm-section--flexible {{ padding: 0.12in 0.06in 0.06in; }}
+.sm-section--flexible.sm-section--centered {{ padding: 0.22in 0.24in; }}
+.sm-section--centered .sm-flow {{ align-items: center; justify-content: center; }}
+.sm-section--centered .sm-text {{ text-align: center; }}
+.sm-section--label .sm-text {{
+  font-family: var(--sm-font-heading); font-weight: var(--sm-heading-weight);
+  letter-spacing: var(--sm-heading-tracking); text-transform: var(--sm-heading-transform);
+  font-size: calc(var(--sm-label-pt) * var(--sm-scale, 1)); line-height: 1.05;
+  text-wrap: balance; color: var(--sm-ink);
+}}
 .sm-section--divided {{ border-left: 0.75pt solid var(--sm-rule); padding-left: 0.14in; }}
 .sm-section--leading {{ padding-right: 0.14in; }}
 .sm-section--card {{ padding: {CARD_PADDING_IN}in {CARD_PADDING_IN}in {CARD_PADDING_IN + CARD_DISCLAIMER_IN}in; }}
@@ -182,7 +192,7 @@ def _box_style(template: Template, section: TemplateSection) -> str:
     return f"left:{box.x}%;top:{box.y}%;width:{box.w}%;height:{box.h}%;"
 
 
-def _component_html(component: RenderComponent, layout: SectionLayout) -> str:
+def _component_html(component: RenderComponent, layout: SectionLayout, *, centered: bool) -> str:
     size = layout.sizes.get(component.id)
     classes = ["sm-comp"]
     if layout.emphasis == component.id:
@@ -190,6 +200,10 @@ def _component_html(component: RenderComponent, layout: SectionLayout) -> str:
 
     if layout.arrangement == "grid":
         flex = ""
+    elif centered and component.is_visual:
+        flex = f"flex:0 1 auto;width:{size or 70}%;"
+    elif centered:
+        flex = "flex:0 1 auto;width:100%;"
     elif component.is_visual:
         flex = f"flex:0 0 {size or 45}%;"
     else:
@@ -229,6 +243,11 @@ def _flexible_section_html(
     ordered.extend(component for component in components if component.id not in layout.order)
 
     classes = ["sm-section", "sm-section--flexible"]
+    centered = template.center_sections
+    if centered:
+        classes.append("sm-section--centered")
+        if section.page == "front" and template.label_pt is not None:
+            classes.append("sm-section--label")
     if template.disclaimer == "per_section":
         classes.append("sm-section--card")
     elif not template.cut_lines:
@@ -242,7 +261,7 @@ def _flexible_section_html(
     if layout.align == "center":
         flow_classes.append("sm-flow--center")
     gap = GAP_IN.get(layout.gap, GAP_IN["normal"])
-    inner = "".join(_component_html(component, layout) for component in ordered)
+    inner = "".join(_component_html(component, layout, centered=centered) for component in ordered)
     disclaimer = ""
     if template.disclaimer == "per_section" and data.theme.disclaimer:
         disclaimer = f'<div class="sm-card-disclaimer">{escape(data.theme.disclaimer)}</div>'

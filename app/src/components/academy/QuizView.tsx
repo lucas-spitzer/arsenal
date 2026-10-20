@@ -27,12 +27,14 @@ function optionIsCorrect(quiz: Quiz, option: string, index: number): boolean {
 export function QuizView({
   sourceId: initialSource = null,
   targetId = null,
+  projectId = null,
 }: {
   sourceId?: string | null
   targetId?: string | null
+  projectId?: string | null
 }) {
   const { quizzes } = useWorkspaceData()
-  const { sources } = useOutputs()
+  const { sources, items: libraryItems } = useOutputs()
   const { fullscreen, toggle } = useStudyFullscreen()
 
   const items = useMemo(
@@ -41,8 +43,9 @@ export function QuizView({
         search: '',
         sourceId: initialSource,
         sort: 'source',
+        projectId,
       }),
-    [quizzes, initialSource],
+    [quizzes, initialSource, projectId],
   )
 
   const [qIndex, setQIndex] = useState(0)
@@ -50,7 +53,7 @@ export function QuizView({
   const [score, setScore] = useState(0)
   const [finished, setFinished] = useState(false)
   const [sessionSeed, setSessionSeed] = useState(() => Date.now())
-  const [allVariants, setAllVariants] = useState(false)
+  const [allVariants, setAllVariants] = useState(() => Boolean(projectId))
   const targetAppliedRef = useRef<string | null>(null)
 
   // One draw per question for the session, stable across the variant toggle.
@@ -145,6 +148,9 @@ export function QuizView({
   const sourceName = quiz
     ? sources.find((s) => s.id === quiz.source_id)?.name ?? 'Unassigned'
     : 'Unassigned'
+  const runTitle = projectId
+    ? libraryItems.find((item) => item.kind === 'question' && item.projectId === projectId)?.footer
+    : null
 
   const head = (
     <StudyHead
@@ -199,7 +205,7 @@ export function QuizView({
               prevDisabled: safeIndex <= 0,
               // Require an answer before moving forward; the last item leads to results.
               nextDisabled: !revealed,
-              label: isLast && revealed ? 'Next: results' : sourceName,
+              label: isLast && revealed ? 'Next: results' : (runTitle ?? sourceName),
             }}
           >
             <div className="quiz">

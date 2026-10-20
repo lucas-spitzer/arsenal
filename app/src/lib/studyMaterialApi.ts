@@ -48,7 +48,7 @@ export interface StudyTemplate {
   description: string
   orientation: 'portrait' | 'landscape'
   page: { size: string; width_in: number; height_in: number; margin_in: number }
-  disclaimer: 'footer' | 'per_section'
+  disclaimer: 'footer' | 'per_section' | 'none'
   cut_lines: boolean
   has_logo_section: boolean
   page_count: number

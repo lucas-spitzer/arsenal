@@ -96,10 +96,16 @@ export function LibraryView({
       return
     }
     if (item.kind === 'wiki') {
-      onOpen('wiki', { sourceId: item.sourceId, targetId: null })
+      onOpen('wiki', { sourceId: item.sourceId, targetId: null, projectId: null })
       return
     }
-    if (item.runnerPage) onOpen(item.runnerPage, { sourceId: item.sourceId, targetId: item.id })
+    if (item.runnerPage) {
+      onOpen(item.runnerPage, {
+        sourceId: item.sourceId,
+        targetId: item.projectId ? null : item.id,
+        projectId: item.projectId,
+      })
+    }
   }
 
   return (
@@ -171,6 +177,7 @@ function CardGrid({
         const focused = isFocused(focus, item)
         const chip = outputChipLabel(item)
         const spec =
+          item.projectId !== null ||
           item.kind === 'audio' ||
           item.kind === 'book' ||
           item.kind === 'artifact' ||

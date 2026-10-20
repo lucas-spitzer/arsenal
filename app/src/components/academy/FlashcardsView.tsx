@@ -12,12 +12,14 @@ import { useStudyFullscreen } from './useStudyFullscreen'
 export function FlashcardsView({
   sourceId: initialSource = null,
   targetId = null,
+  projectId = null,
 }: {
   sourceId?: string | null
   targetId?: string | null
+  projectId?: string | null
 }) {
   const { flashcards } = useWorkspaceData()
-  const { sources } = useOutputs()
+  const { sources, items: libraryItems } = useOutputs()
   const { fullscreen, toggle } = useStudyFullscreen()
 
   const cards = useMemo(
@@ -26,8 +28,9 @@ export function FlashcardsView({
         search: '',
         sourceId: initialSource,
         sort: 'source',
+        projectId,
       }),
-    [flashcards, initialSource],
+    [flashcards, initialSource, projectId],
   )
 
   const [index, setIndex] = useState(0)
@@ -84,6 +87,9 @@ export function FlashcardsView({
   const sourceName = card
     ? sources.find((s) => s.id === card.source_id)?.name ?? 'Unassigned'
     : 'Unassigned'
+  const runTitle = projectId
+    ? libraryItems.find((item) => item.kind === 'flashcard' && item.projectId === projectId)?.footer
+    : null
 
   return (
     <section className="study-session">
@@ -109,7 +115,7 @@ export function FlashcardsView({
               onNext: () => go(1),
               prevDisabled: safeIndex <= 0,
               nextDisabled: safeIndex >= cards.length - 1,
-              label: sourceName,
+              label: runTitle ?? sourceName,
             }}
           >
             <button

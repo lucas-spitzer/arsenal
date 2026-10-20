@@ -86,7 +86,7 @@ class LayoutPlan:
 def text_word_budget(template: Template, section: TemplateSection, *, visual_count: int, text_count: int) -> int:
     width_in, height_in = template.section_size_in(section)
     visual_share = min(MAX_VISUAL_SHARE, VISUAL_SHARE * visual_count)
-    density = WORDS_PER_SQ_IN * (10.5 / template.body_pt) ** 2
+    density = WORDS_PER_SQ_IN * (10.5 / template.section_font_pt(section)) ** 2
     area = width_in * height_in * (1 - visual_share) / max(1, text_count)
     return max(MIN_WORD_BUDGET, int(area * density))
 

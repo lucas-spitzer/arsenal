@@ -61,6 +61,7 @@ function readShellState(): ShellState {
         ? {
             sourceId: typeof scope.sourceId === 'string' ? scope.sourceId : null,
             targetId: typeof scope.targetId === 'string' ? scope.targetId : null,
+            projectId: typeof scope.projectId === 'string' ? scope.projectId : null,
           }
         : emptyAcademyScope
     return { mode, foundryPage, academyPage, academyScope }

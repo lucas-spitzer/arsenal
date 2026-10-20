@@ -23,13 +23,15 @@ function openingMessage(prompt: string): ChatMessage {
 export function ScenarioView({
   sourceId: initialSource = null,
   targetId = null,
+  projectId = null,
 }: {
   sourceId?: string | null
   targetId?: string | null
+  projectId?: string | null
 }) {
   const { activeWorkspace } = useWorkspace()
   const { scenarios } = useWorkspaceData()
-  const { sources } = useOutputs()
+  const { sources, items: libraryItems } = useOutputs()
   const { fullscreen, toggle } = useStudyFullscreen()
 
   const items = useMemo(
@@ -38,8 +40,9 @@ export function ScenarioView({
         search: '',
         sourceId: initialSource,
         sort: 'source',
+        projectId,
       }),
-    [scenarios, initialSource],
+    [scenarios, initialSource, projectId],
   )
 
   const [sIndex, setSIndex] = useState(0)
@@ -149,6 +152,9 @@ export function ScenarioView({
   const sourceName = scenario
     ? sources.find((s) => s.id === scenario.source_id)?.name ?? 'Unassigned'
     : 'Unassigned'
+  const runTitle = projectId
+    ? libraryItems.find((item) => item.kind === 'scenario' && item.projectId === projectId)?.footer
+    : null
 
   const head = (
     <StudyHead
@@ -200,7 +206,7 @@ export function ScenarioView({
               onNext: nextItem,
               prevDisabled: safeIndex <= 0,
               nextDisabled: false,
-              label: isLast ? 'Next: finish set' : sourceName,
+              label: isLast ? 'Next: finish set' : (runTitle ?? sourceName),
             }}
           >
             <div className="chat">

@@ -18,7 +18,12 @@ def test_hosted_api_is_mounted_at_api(monkeypatch: pytest.MonkeyPatch) -> None:
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
 
-    assert client.get("/health").status_code == 404
+    direct = client.get("/health")
+    assert direct.status_code == 200
+    assert direct.json() == {"status": "ok"}
 
     me = client.get("/api/me")
     assert me.status_code == 401
+
+    missing = client.post("/api/auth/email-code", json={})
+    assert missing.status_code == 422

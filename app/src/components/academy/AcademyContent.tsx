@@ -1,4 +1,5 @@
 import { useWorkspace } from '../../features/workspace/workspaceContext'
+import { defaultReaderSourceId, useOutputs } from '../../lib/academyOutputs'
 import { useLibraryFocus } from '../../lib/libraryFocus'
 import { DiscussionsView } from './DiscussionsView'
 import { FlashcardsView } from './FlashcardsView'
@@ -20,9 +21,13 @@ type AcademyContentProps = {
 export function AcademyContent({ page, sourceId = null, seg = null, scope, onOpen }: AcademyContentProps) {
   const { activeWorkspace } = useWorkspace()
   const { focus } = useLibraryFocus(activeWorkspace?.id ?? null)
-  // With no explicit source, the reader opens the focused ebook; the demo
-  // template is only shown when nothing is focused.
-  const readerSourceId = sourceId ?? focus.ebookSourceId
+  const { items } = useOutputs()
+  // A reader link wins. Otherwise open the favorited ebook, then the first book.
+  const readerSourceId = defaultReaderSourceId({
+    routeSourceId: sourceId,
+    focusedSourceId: focus.ebookSourceId,
+    books: items.filter((item) => item.isEbook),
+  })
 
   return (
     <div className="academy academy--integrated">
@@ -31,11 +36,21 @@ export function AcademyContent({ page, sourceId = null, seg = null, scope, onOpe
         {page === 'reader' && <ReaderView sourceId={readerSourceId} seg={seg} onOpen={onOpen} />}
         {page === 'wiki' && <AcademyWiki sourceId={scope.sourceId} targetId={scope.targetId} />}
         {page === 'flashcards' && (
-          <FlashcardsView sourceId={scope.sourceId} targetId={scope.targetId} />
+          <FlashcardsView
+            sourceId={scope.sourceId}
+            targetId={scope.targetId}
+            projectId={scope.projectId}
+          />
         )}
-        {page === 'quiz' && <QuizView sourceId={scope.sourceId} targetId={scope.targetId} />}
+        {page === 'quiz' && (
+          <QuizView sourceId={scope.sourceId} targetId={scope.targetId} projectId={scope.projectId} />
+        )}
         {page === 'scenarios' && (
-          <ScenarioView sourceId={scope.sourceId} targetId={scope.targetId} />
+          <ScenarioView
+            sourceId={scope.sourceId}
+            targetId={scope.targetId}
+            projectId={scope.projectId}
+          />
         )}
         {page === 'discussions' && <DiscussionsView sourceId={scope.sourceId} />}
       </div>

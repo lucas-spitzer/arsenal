@@ -11,9 +11,14 @@ export type AcademyPage =
   | 'discussions'
 
 // Scope passed when opening a runner from the Library (filter + focus target).
-export type AcademyScope = { sourceId: string | null; targetId: string | null }
+export type AcademyScope = {
+  sourceId: string | null
+  targetId: string | null
+  /** Knowledge run to study. Null opens the whole source, or every record from the rail. */
+  projectId: string | null
+}
 
-export const emptyAcademyScope: AcademyScope = { sourceId: null, targetId: null }
+export const emptyAcademyScope: AcademyScope = { sourceId: null, targetId: null, projectId: null }
 
 export const academyRailItems: { id: AcademyPage; label: string; icon: LucideIcon }[] = [
   { id: 'library', label: 'LIB', icon: Library },

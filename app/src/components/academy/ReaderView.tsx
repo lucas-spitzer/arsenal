@@ -29,7 +29,6 @@ import { isAdminAccess } from '../../features/auth/access'
 import { useAuth } from '../../features/auth/authContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import {
-  MOCK_BLOCKS,
   buildBlocks,
   buildNarration,
   buildNarrationClips,
@@ -108,7 +107,7 @@ export function ReaderView({
   onOpen?: (page: AcademyPage, scope: AcademyScope) => void
 }) {
   const { activeWorkspace } = useWorkspace()
-  const { sources, wikiEntries, addWikiEntry } = useWorkspaceData()
+  const { sources, wikiEntries, addWikiEntry, isLoading } = useWorkspaceData()
   const { approvedUser } = useAuth()
   const canEditWiki = isAdminAccess(approvedUser?.role)
   const workspaceId = activeWorkspace?.id ?? null
@@ -184,7 +183,7 @@ export function ReaderView({
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const isLive = sourceId != null
-  const blocks = isLive ? live.blocks : MOCK_BLOCKS
+  const blocks = isLive ? live.blocks : []
   const { wordBlocks, total } = useMemo(() => buildNarration(blocks), [blocks])
 
   const [spread, setSpread] = useState(0)
@@ -1073,8 +1072,10 @@ export function ReaderView({
   const leftNum = safeSpread * 2 + 1
   const rightNum = Math.min(safeSpread * 2 + 2, pageCount)
 
+  const opening = (isLive && live.loading) || (!isLive && isLoading)
+  const noBook = !isLive && !isLoading
   const emptyState = isLive && !live.loading && !live.error && blocks.length === 0
-  const showBook = !(isLive && (live.loading || live.error != null)) && !emptyState
+  const showBook = isLive && !live.loading && live.error == null && !emptyState
   const progressPct = pageCount > 0 ? Math.round((rightNum / pageCount) * 100) : 0
 
   return (
@@ -1162,7 +1163,7 @@ export function ReaderView({
           </div>
         )}
         <div className="reader__viewport" ref={viewportRef}>
-          {live.loading && isLive ? (
+          {opening ? (
             <div className="reader__empty reader__opening" role="status">
               <div className="reader__opening-book" aria-hidden="true">
                 <span className="reader__opening-cover" />
@@ -1183,6 +1184,13 @@ export function ReaderView({
             <div className="reader__empty" role="alert">
               <p className="reader__empty-title">Couldn't open this source.</p>
               <p className="reader__empty-copy">{live.error}</p>
+            </div>
+          ) : noBook ? (
+            <div className="reader__empty">
+              <p className="reader__empty-title">No book yet.</p>
+              <p className="reader__empty-copy">
+                Favorite a book in the library, or generate an ebook for a source.
+              </p>
             </div>
           ) : emptyState ? (
             <div className="reader__empty">
@@ -1454,7 +1462,7 @@ export function ReaderView({
                     className="reader__term-discuss"
                     onClick={() => {
                       setDefinePop(null)
-                      onOpen('discussions', { sourceId, targetId: null })
+                      onOpen('discussions', { sourceId, targetId: null, projectId: null })
                     }}
                   >
                     Discuss with assistant
@@ -1627,49 +1635,56 @@ function ReaderBlock({
     )
   }
   const variantCls = block.variant ? ` reader__para--${block.variant}` : ''
+  const paintOf = (word: SpokenWord) => {
+    if (preciseHighlight && word.global === activeSpoken) return 'speaking'
+    if (word.global < spoken && narratedGlobals.has(word.global)) return 'read'
+    if (word.sentence === speakingSentence) return 'band'
+    return 'plain'
+  }
+
+  const runs: { band: boolean; words: SpokenWord[] }[] = []
+  for (const word of words) {
+    const band = paintOf(word) === 'band'
+    const last = runs[runs.length - 1]
+    if (last && last.band === band) last.words.push(word)
+    else runs.push({ band, words: [word] })
+  }
+
+  const renderWord = (word: SpokenWord) => {
+    const paint = paintOf(word)
+    const state = paint === 'speaking' ? ' is-speaking' : paint === 'read' ? ' is-read' : ''
+    const style = `${word.em ? ' is-em' : ''}${word.strong ? ' is-strong' : ''}`
+    const termId = termByWord.get(word.global)
+    if (termId) {
+      return (
+        <span key={word.global} className={`reader__word${state}${style}`} data-global={word.global}>
+          <button
+            type="button"
+            className="reader__term"
+            onClick={(event) => {
+              event.stopPropagation()
+              onTermClick(termId, event.currentTarget)
+            }}
+          >
+            {word.text}
+          </button>{' '}
+        </span>
+      )
+    }
+    return (
+      <span key={word.global} className={`reader__word${state}${style}`} data-global={word.global}>
+        {word.text}{' '}
+      </span>
+    )
+  }
+
   return (
     <p ref={registerRef} className={`reader__para${variantCls}${cls}`} data-segment-id={block.id}>
-      {words.map((w) => {
-        const state =
-          preciseHighlight && w.global === activeSpoken
-            ? ' is-speaking'
-            : w.global < spoken && narratedGlobals.has(w.global)
-              ? ' is-read'
-              : w.sentence === speakingSentence
-                ? ' is-band'
-                : ''
-        const style = `${w.em ? ' is-em' : ''}${w.strong ? ' is-strong' : ''}`
-        const termId = termByWord.get(w.global)
-        if (termId) {
-          return (
-            <span
-              key={w.global}
-              className={`reader__word${state}${style}`}
-              data-global={w.global}
-            >
-              <button
-                type="button"
-                className="reader__term"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onTermClick(termId, e.currentTarget)
-                }}
-              >
-                {w.text}
-              </button>{' '}
-            </span>
-          )
-        }
-        return (
-          <span
-            key={w.global}
-            className={`reader__word${state}${style}`}
-            data-global={w.global}
-          >
-            {w.text}{' '}
-          </span>
-        )
-      })}
+      {runs.map((run) => (
+        <span key={run.words[0].global} className={run.band ? 'reader__band' : undefined}>
+          {run.words.map((word) => renderWord(word))}
+        </span>
+      ))}
     </p>
   )
 }

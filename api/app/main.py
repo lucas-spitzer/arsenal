@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import get_settings
 from app.dependencies.auth import require_approved_user
@@ -99,3 +100,27 @@ async def get_me(
         email=user.email,
         role=user.role,
     )
+
+
+class AcceptApiPrefix:
+    """Hosted traffic arrives as `/api/...`. Local uvicorn calls the same routes unprefixed."""
+
+    def __init__(self, asgi_app: ASGIApp) -> None:
+        self.app = asgi_app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") == "http":
+            path = scope.get("path") or ""
+            if path == "/api" or path.startswith("/api/"):
+                scope = dict(scope)
+                trimmed = path[4:] or "/"
+                scope["path"] = trimmed
+                raw = scope.get("raw_path")
+                if isinstance(raw, (bytes, bytearray)) and (
+                    raw == b"/api" or raw.startswith(b"/api/")
+                ):
+                    scope["raw_path"] = raw[4:] or b"/"
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(AcceptApiPrefix)

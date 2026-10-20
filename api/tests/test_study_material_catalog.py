@@ -70,6 +70,12 @@ def test_template_geometry_matches_sketches() -> None:
     assert flashcard.page_count == 2
     assert flashcard.pages == ("front", "back")
     assert flashcard.margin_in == 0.25
+    assert flashcard.disclaimer == "none"
+    assert flashcard.center_sections is True
+    assert flashcard.label_pt == 44
+    assert flashcard.body_pt == 12
+    assert flashcard.section_font_pt(flashcard.sections_on("front")[0]) == 44
+    assert flashcard.section_font_pt(flashcard.sections_on("back")[0]) == 12
     fronts = flashcard.sections_on("front")
     assert len(fronts) == 8
     assert all((s.box.w, s.box.h) == (50, 25) for s in fronts)
@@ -179,6 +185,8 @@ def test_index_cards_repeat_disclaimer_and_draw_cut_lines() -> None:
     html = _render("index-card-cutout", {}, [])
     assert html.count('class="sm-card-disclaimer"') == 8
     assert 'class="sm-cutlines"' in html
+    assert "sm-section--centered\"" not in html
+    assert "sm-section--label\"" not in html
 
 
 def test_basic_sheet_centers_header_and_footer_without_a_logo() -> None:
@@ -190,6 +198,58 @@ def test_basic_sheet_centers_header_and_footer_without_a_logo() -> None:
     assert FIELD_MANUAL_DISCLAIMER in html
 
 
+def test_flashcard_faces_center_label_and_definition() -> None:
+    html = _render(
+        "flashcard",
+        {},
+        [
+            RenderComponent("term", "card_1_front", "text", html="<p>Commission</p>"),
+            RenderComponent("defn", "card_1_back", "text", html="<p>A formal document.</p>"),
+        ],
+        theme_id="field-manual",
+    )
+    front = html.split('data-section="card_1_front"', 1)[1].split("</section>", 1)[0]
+    back = html.split('data-section="card_1_back"', 1)[1].split("</section>", 1)[0]
+    assert "Commission" in front
+    assert "flex:0 1 auto;width:100%" in front
+    assert "A formal document." in back
+    assert "flex:0 1 auto;width:100%" in back
+    assert "sm-section--label" not in back
+    assert ".sm-section--centered .sm-text { text-align: center; }" in html
+
+
+def test_flashcards_print_no_footer_or_logo_on_any_theme() -> None:
+    template = get_template("flashcard")
+    assert template.has_footer_section is False
+    assert template.has_logo_section is False
+    components = [
+        RenderComponent("term", "card_1_front", "text", html="<p>Commission</p>"),
+        RenderComponent("defn", "card_1_back", "text", html="<p>A formal document.</p>"),
+    ]
+    for theme_id in load_themes():
+        theme = get_theme(theme_id)
+        resolved = resolve_options(theme, template, {"logo_locked": True, "footer_text": ""})
+        assert resolved["logo_locked"] is False
+        assert resolved["logo_id"] is None
+        html = render_document(
+            RenderInput(
+                "Officer terms",
+                template,
+                theme,
+                {"logo_locked": True, "logo_id": theme.default_logo_id, "footer_text": "Week 3"},
+                components,
+                {},
+            ),
+        )
+        assert "<footer" not in html
+        assert 'class="sm-logo-panel"' not in html
+        assert "data:image" not in html
+        assert 'class="sm-disclaimer"' not in html
+        assert 'class="sm-card-disclaimer"' not in html
+        if theme.disclaimer:
+            assert theme.disclaimer not in html
+
+
 def test_flashcard_prints_mirrored_backs_on_a_second_page() -> None:
     html = _render("flashcard", {}, [], theme_id="field-manual")
     assert html.count('class="sm-page"') == 2
@@ -197,9 +257,13 @@ def test_flashcard_prints_mirrored_backs_on_a_second_page() -> None:
     assert 'data-section="card_1_front" style="left:0.0%;top:0.0%;' in html
     assert 'data-section="card_1_back" style="left:50.0%;top:0.0%;' in html
     assert 'data-section="card_2_back" style="left:0.0%;top:0.0%;' in html
-    assert html.count('class="sm-card-disclaimer"') == 16
-    assert FIELD_MANUAL_DISCLAIMER in html
+    assert 'class="sm-card-disclaimer"' not in html
+    assert FIELD_MANUAL_DISCLAIMER not in html
     assert "text-overflow: ellipsis" not in html
+    assert 'class="sm-section sm-section--flexible sm-section--centered sm-section--label" data-section="card_1_front"' in html
+    assert 'class="sm-section sm-section--flexible sm-section--centered" data-section="card_1_back"' in html
+    assert "--sm-label-pt: 44pt" in html
+    assert "--sm-body-pt: 12pt" in html
 
 
 def test_field_manual_disclaimer_prints_in_the_footer() -> None:

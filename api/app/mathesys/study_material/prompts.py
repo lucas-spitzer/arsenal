@@ -89,7 +89,8 @@ class ComponentPromptContext:
 
 def _section_line(ctx: ComponentPromptContext) -> str:
     width_in, height_in = ctx.template.section_size_in(ctx.section)
-    return f"{ctx.section.label}: {width_in} × {height_in} in"
+    font_pt = ctx.template.section_font_pt(ctx.section)
+    return f"{ctx.section.label}: {width_in} × {height_in} in, {font_pt:g}pt"
 
 
 def _siblings_block(siblings: list[SiblingSummary]) -> str:

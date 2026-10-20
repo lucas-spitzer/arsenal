@@ -831,8 +831,15 @@
   color: var(--read-muted);
 }
 
-.reader__word.is-band {
+.reader__band {
   background: var(--read-band);
+  border-radius: 0.2em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.reader__band .reader__word {
+  border-radius: 0;
 }
 
 .reader__word.is-speaking {
