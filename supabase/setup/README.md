@@ -52,7 +52,7 @@ In the Supabase dashboard for Arsenal:
 4. Do not add `{{ .ConfirmationURL }}`. Outlook and Defender prefetch links and consume the sign-in.
 5. Leave Email OTP expiration at the dashboard default. Do not set it above one day.
 
-The message uses the Arsenal palette: navy band, scarlet code, Arial, a gold divider, and a gray line that says Arsenal is an unofficial study tool and not a United States Marine Corps website. No Marine Corps mark.
+The message follows the style guide: a navy band, a scarlet rule, a condensed scarlet heading and code, Arial body text, a gold divider, and a gray line that says Arsenal is an unofficial study tool and not a United States Marine Corps website. No Marine Corps mark.
 
 ## Existing database patches
 
