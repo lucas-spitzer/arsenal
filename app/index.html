@@ -17,6 +17,15 @@
       rel="stylesheet"
     />
     <title>Arsenal</title>
+    <script>
+      (function () {
+        if (location.hostname.endsWith(".vercel.app")) {
+          location.replace(
+            "https://www.atlas3.app" + location.pathname + location.search + location.hash,
+          )
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

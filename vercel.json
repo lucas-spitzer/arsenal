@@ -17,6 +17,26 @@
       ]
     }
   },
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "arsenal-lucas-spitzers-projects.vercel.app" }],
+      "destination": "https://www.atlas3.app/:path*",
+      "permanent": false
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "arsenal-bice.vercel.app" }],
+      "destination": "https://www.atlas3.app/:path*",
+      "permanent": false
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "arsenal-git-main-lucas-spitzers-projects.vercel.app" }],
+      "destination": "https://www.atlas3.app/:path*",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": { "service": "api" } },
     { "source": "/(.*)", "destination": { "service": "web" } }
