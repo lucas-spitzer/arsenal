@@ -44,13 +44,31 @@ Google stays available. `POST /auth/email-code` sends a 6-digit code only when t
 
 Supabase's built-in mailer sends only to members of the Supabase organization. This project was created on 2026-06-06. On the Free plan, a project created after 2026-06-03 also cannot edit the auth email template until a custom SMTP provider is set. Peers will not receive codes until that provider is in place.
 
-In the Supabase dashboard for Arsenal:
+In the Supabase dashboard for Arsenal, Authentication → Emails → SMTP Settings. The provider is Resend. Create the API key in Resend and paste it in the SMTP **Password** field. Do not put that key in git, `api/.env`, or Vercel. Supabase stores it.
 
-1. Authentication, SMTP: set a custom provider.
-2. Authentication, Email Templates, Magic Link: set the subject to `Your Arsenal sign-in code`.
-3. Replace the template body with [`sign-in-code-email.html`](sign-in-code-email.html).
-4. Do not add `{{ .ConfirmationURL }}`. Outlook and Defender prefetch links and consume the sign-in.
-5. Leave Email OTP expiration at the dashboard default. Do not set it above one day.
+Verify `atlas3.app` in Resend first, and add the DNS records Resend shows in the Vercel DNS panel for that domain.
+
+- Host: `smtp.resend.com`
+- Port: `465`
+- Username: `resend`
+- Password: the Resend API key
+- Sender email: `noreply@atlas3.app`
+- Sender name: `Arsenal`
+
+After SMTP is saved, Authentication → Rate Limits, for a class of about 50 people on one Wi-Fi:
+
+- Sending emails: 150 per hour
+- Sign-ups and sign-ins: 100 per 5 minutes
+- Token verifications: 100 per 5 minutes
+
+Leave the 60-second gap between emails to the same person.
+
+Then:
+
+1. Authentication, Email Templates, Magic Link: set the subject to `Your Arsenal sign-in code`.
+2. Replace the template body with [`sign-in-code-email.html`](sign-in-code-email.html).
+3. Do not add `{{ .ConfirmationURL }}`. Outlook and Defender prefetch links and consume the sign-in.
+4. Leave Email OTP expiration at the dashboard default. Do not set it above one day.
 
 The message follows the style guide: a navy band, a scarlet rule, a condensed scarlet heading and code, Arial body text, a gold divider, and a gray line that says Arsenal is an unofficial study tool and not a United States Marine Corps website. No Marine Corps mark.
 
