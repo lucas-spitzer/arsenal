@@ -4,7 +4,7 @@
   "description": "Eight double-sided cards (2 × 4). Print duplex, flip on the long edge. The back sheet mirrors left and right so each card's back lands on its front.",
   "orientation": "portrait",
   "page": { "size": "Letter", "width_in": 8.5, "height_in": 11, "margin_in": 0.25 },
-  "type": { "body_pt": 12, "title_pt": 14, "label_pt": 44 },
+  "type": { "body_pt": 12, "title_pt": 14, "label_pt": 36 },
   "disclaimer": "none",
   "center_sections": true,
   "cut_lines": true,

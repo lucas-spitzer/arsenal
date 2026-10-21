@@ -72,9 +72,9 @@ def test_template_geometry_matches_sketches() -> None:
     assert flashcard.margin_in == 0.25
     assert flashcard.disclaimer == "none"
     assert flashcard.center_sections is True
-    assert flashcard.label_pt == 44
+    assert flashcard.label_pt == 36
     assert flashcard.body_pt == 12
-    assert flashcard.section_font_pt(flashcard.sections_on("front")[0]) == 44
+    assert flashcard.section_font_pt(flashcard.sections_on("front")[0]) == 36
     assert flashcard.section_font_pt(flashcard.sections_on("back")[0]) == 12
     fronts = flashcard.sections_on("front")
     assert len(fronts) == 8
@@ -262,7 +262,7 @@ def test_flashcard_prints_mirrored_backs_on_a_second_page() -> None:
     assert "text-overflow: ellipsis" not in html
     assert 'class="sm-section sm-section--flexible sm-section--centered sm-section--label" data-section="card_1_front"' in html
     assert 'class="sm-section sm-section--flexible sm-section--centered" data-section="card_1_back"' in html
-    assert "--sm-label-pt: 44pt" in html
+    assert "--sm-label-pt: 36pt" in html
     assert "--sm-body-pt: 12pt" in html
 
 
