@@ -52,6 +52,18 @@ def _parse_json_object_lenient(raw: str) -> dict[str, Any]:
     raise RuntimeError("OpenAI web-search response was not a JSON object.")
 
 
+def _accepts_custom_temperature(model: str) -> bool:
+    # Imported lazily: model_catalog lives under app.services.llm, whose package
+    # init imports this module.
+    from app.services.llm.model_catalog import get_catalog_model
+
+    # GPT-6 reasoning models reject every temperature except the API default.
+    entry = get_catalog_model(model)
+    if entry is None:
+        return True
+    return not (entry.provider == "openai" and entry.supports_reasoning)
+
+
 class OpenAIClient:
     def __init__(
         self,
@@ -180,15 +192,16 @@ class OpenAIClient:
         ``{"role": "user"|"assistant", "content": str}``); the system prompt and
         any retrieved context are prepended by the caller.
         """
+        resolved_model = model or self.model
         request: dict[str, Any] = {
-            "model": model or self.model,
+            "model": resolved_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 *messages,
             ],
         }
 
-        if temperature is not None:
+        if temperature is not None and _accepts_custom_temperature(resolved_model):
             request["temperature"] = temperature
 
         if self.reasoning_effort:

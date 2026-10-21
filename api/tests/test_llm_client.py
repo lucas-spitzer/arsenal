@@ -204,3 +204,55 @@ def test_get_llm_client_openai(monkeypatch: pytest.MonkeyPatch) -> None:
     client = get_llm_client("extract_knowledge")
 
     assert client.provider == "openai"
+
+
+def _chat_completion(model: str) -> Any:
+    message = type("Message", (), {"content": "ok"})()
+    choice = type("Choice", (), {"message": message})()
+    usage = type(
+        "Usage",
+        (),
+        {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    )()
+    return type("Response", (), {"choices": [choice], "usage": usage, "model": model})()
+
+
+def test_complete_text_drops_temperature_on_reasoning_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs: Any) -> Any:
+            captured.clear()
+            captured.update(kwargs)
+            return _chat_completion(str(kwargs["model"]))
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            del api_key
+            self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr("app.services.openai_client.OpenAI", FakeOpenAI)
+    monkeypatch.setattr(
+        "app.services.openai_client.get_settings",
+        lambda: type("Settings", (), {"llm": type("LLM", (), {"openai_api_key": "test"})()})(),
+    )
+
+    from app.services.openai_client import OpenAIClient
+
+    client = OpenAIClient(api_key="test", model="gpt-6-luna")
+    client.complete_text(
+        system_prompt="Be brief.",
+        messages=[{"role": "user", "content": "Hi"}],
+        temperature=0.3,
+    )
+    assert "temperature" not in captured
+
+    client.complete_text(
+        system_prompt="Be brief.",
+        messages=[{"role": "user", "content": "Hi"}],
+        model="gpt-4o-mini",
+        temperature=0.3,
+    )
+    assert captured["temperature"] == 0.3

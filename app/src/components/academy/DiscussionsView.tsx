@@ -118,6 +118,43 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
     }
   }
 
+  const submitMessage = async (threadId: string, text: string) => {
+    if (!workspaceId) return
+    setDraft('')
+    setError(null)
+    setSending(true)
+    const optimistic: DiscussionMessage = {
+      id: `pending-${Date.now()}`,
+      thread_id: threadId,
+      role: 'user',
+      content: text,
+      citations: [],
+      created_at: new Date().toISOString(),
+    }
+    setMessages((current) => [...current, optimistic])
+    try {
+      const response = await sendThreadMessage(workspaceId, threadId, text)
+      setAnimatingMessageId(response.assistant_message.id)
+      setMessages((current) => [
+        ...current.filter((message) => message.id !== optimistic.id),
+        response.user_message,
+        response.assistant_message,
+      ])
+      setThreads((rows) => {
+        const updated = rows.find((row) => row.id === threadId)
+        if (!updated) return rows
+        const bumped = { ...updated, updated_at: new Date().toISOString() }
+        return [bumped, ...rows.filter((row) => row.id !== threadId)]
+      })
+    } catch (err) {
+      setMessages((current) => current.filter((message) => message.id !== optimistic.id))
+      setDraft(text)
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
+    } finally {
+      setSending(false)
+    }
+  }
+
   const startThread = async (options: {
     title: string
     seedPrompt?: string
@@ -126,13 +163,18 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
     if (!workspaceId || creating) return
     setCreating(true)
     setError(null)
+    const studentPrompt = options.seedPrompt?.trim() || null
+    let createdId: string | null = null
     try {
       const detail = await createThread(workspaceId, {
         title: options.title,
         submode: activeThread?.submode ?? 'socratic',
         source_id: options.sourceId ?? null,
-        seed_prompt: options.seedPrompt ?? DEFAULT_SEED_PROMPT,
+        // Suggested starters are the student's question. seed_prompt is an
+        // assistant opener, so only the blank-thread welcome uses it.
+        seed_prompt: studentPrompt ? null : DEFAULT_SEED_PROMPT,
       })
+      createdId = detail.id
       setThreads((rows) => [detail, ...rows])
       setActiveThread(detail)
       setMessages(detail.messages)
@@ -142,6 +184,9 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
       setError(err instanceof Error ? err.message : 'Could not start the conversation.')
     } finally {
       setCreating(false)
+    }
+    if (createdId && studentPrompt) {
+      await submitMessage(createdId, studentPrompt)
     }
   }
 
@@ -176,41 +221,7 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
     event.preventDefault()
     const text = draft.trim()
     if (!text || sending || !activeThread || !workspaceId) return
-
-    setDraft('')
-    setError(null)
-    setSending(true)
-    const threadId = activeThread.id
-    const optimistic: DiscussionMessage = {
-      id: `pending-${Date.now()}`,
-      thread_id: threadId,
-      role: 'user',
-      content: text,
-      citations: [],
-      created_at: new Date().toISOString(),
-    }
-    setMessages((current) => [...current, optimistic])
-    try {
-      const response = await sendThreadMessage(workspaceId, threadId, text)
-      setAnimatingMessageId(response.assistant_message.id)
-      setMessages((current) => [
-        ...current.filter((message) => message.id !== optimistic.id),
-        response.user_message,
-        response.assistant_message,
-      ])
-      setThreads((rows) => {
-        const updated = rows.find((row) => row.id === threadId)
-        if (!updated) return rows
-        const bumped = { ...updated, updated_at: new Date().toISOString() }
-        return [bumped, ...rows.filter((row) => row.id !== threadId)]
-      })
-    } catch (err) {
-      setMessages((current) => current.filter((message) => message.id !== optimistic.id))
-      setDraft(text)
-      setError(err instanceof Error ? err.message : 'Something went wrong.')
-    } finally {
-      setSending(false)
-    }
+    await submitMessage(activeThread.id, text)
   }
 
   const submode = activeThread?.submode ?? 'socratic'
