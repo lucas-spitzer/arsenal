@@ -22,26 +22,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const wasApprovedRef = useRef(false)
 
   useEffect(() => {
-    let isMounted = true
-
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (!isMounted) return
-
-      if (error) {
-        console.error('Failed to load Supabase session:', error.message)
-      }
-
-      setSession(data.session ?? null)
-      setIsSessionLoading(false)
-    })
-
+    // INITIAL_SESSION is included. A parallel getSession() can refresh the
+    // same token twice and revoke the saved login.
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
       setIsSessionLoading(false)
     })
 
     return () => {
-      isMounted = false
       listener.subscription.unsubscribe()
     }
   }, [])

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArsenalMark } from '../components/brand/ArsenalMark'
+import { redirectToCanonicalHost } from '../features/auth/canonicalHost'
 import { supabase } from '../lib/supabaseClient'
 import '../gate.css'
 
@@ -10,6 +11,8 @@ export function AuthCallbackPage() {
 
   useEffect(() => {
     async function handleCallback() {
+      if (redirectToCanonicalHost()) return
+
       const params = new URLSearchParams(window.location.search)
       const code = params.get('code')
 

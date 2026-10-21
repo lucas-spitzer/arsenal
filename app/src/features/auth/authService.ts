@@ -1,13 +1,14 @@
 import { apiRequestVoid } from '../../lib/apiClient'
+import { authCallbackUrl, redirectToCanonicalHost } from './canonicalHost'
 import { supabase } from '../../lib/supabaseClient'
 
 export async function signInWithGoogle(): Promise<void> {
-  const redirectTo = `${window.location.origin}/auth/callback`
+  if (redirectToCanonicalHost()) return
 
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo,
+      redirectTo: authCallbackUrl(),
     },
   })
 
@@ -17,6 +18,8 @@ export async function signInWithGoogle(): Promise<void> {
 }
 
 export async function requestEmailCode(email: string): Promise<void> {
+  if (redirectToCanonicalHost()) return
+
   await apiRequestVoid('/auth/email-code', {
     method: 'POST',
     requiresAuth: false,
@@ -25,6 +28,8 @@ export async function requestEmailCode(email: string): Promise<void> {
 }
 
 export async function verifyEmailCode(email: string, token: string): Promise<void> {
+  if (redirectToCanonicalHost()) return
+
   const { error } = await supabase.auth.verifyOtp({
     email,
     token,
