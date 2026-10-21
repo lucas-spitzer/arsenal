@@ -5,6 +5,7 @@ anthropic
 google-genai
 ebooklib
 pymupdf
+pillow
 python-dotenv
 python-multipart
 redis
