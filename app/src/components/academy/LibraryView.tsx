@@ -48,7 +48,7 @@ export function LibraryView({
   onOpen: (page: AcademyPage, scope: AcademyScope) => void
 }) {
   const { items, sources } = useOutputs()
-  const { downloadArtifact } = useWorkspaceData()
+  const { downloadArtifact, error, isLoading } = useWorkspaceData()
   const { activeWorkspace } = useWorkspace()
   const { focus, toggleFocus } = useLibraryFocus(activeWorkspace?.id ?? null)
   const navigate = useNavigate()
@@ -109,7 +109,7 @@ export function LibraryView({
   }
 
   return (
-    <section className="lib study-session">
+    <section className="lib study-session" aria-busy={isLoading}>
       <StudyHead
         eyebrow="Workspace catalog"
         title="Library"
@@ -133,7 +133,19 @@ export function LibraryView({
         searchPlaceholder="Search flashcards, questions, scenarios, wiki, books, audio, study material…"
       />
 
-      {filtered.length === 0 ? (
+      {isLoading && items.length === 0 ? (
+        <div className="lib__empty">
+          <p className="lib__empty-title">Loading library</p>
+          <p className="lib__empty-copy">
+            Fetching books, study tasks, and wiki entries for this workspace.
+          </p>
+        </div>
+      ) : error && items.length === 0 ? (
+        <div className="lib__empty">
+          <p className="lib__empty-title">Library unavailable</p>
+          <p className="lib__empty-copy">{error}</p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="lib__empty">
           <p className="lib__empty-title">No matching outputs</p>
           <p className="lib__empty-copy">

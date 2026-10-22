@@ -283,8 +283,22 @@ export interface KnowledgeRunTitle {
   title: string
 }
 
+export interface LibraryCatalog {
+  sources: Source[]
+  artifacts: Artifact[]
+  wiki_entries: WikiEntry[]
+  flashcards: Flashcard[]
+  quizzes: Quiz[]
+  scenarios: Scenario[]
+  knowledge_titles: KnowledgeRunTitle[]
+}
+
 export async function listKnowledgeRunTitles(workspaceId: string): Promise<KnowledgeRunTitle[]> {
   return apiRequest<KnowledgeRunTitle[]>(`/workspaces/${workspaceId}/knowledge-titles`)
+}
+
+export async function getLibrary(workspaceId: string): Promise<LibraryCatalog> {
+  return apiRequest<LibraryCatalog>(`/workspaces/${workspaceId}/library`)
 }
 
 export async function listFlashcards(workspaceId: string): Promise<Flashcard[]> {

@@ -3,15 +3,9 @@ import {
   createProductionRun as createProductionRunRequest,
   deleteProductionRun as deleteProductionRunRequest,
   getArtifactDownloadUrl,
-  listArtifacts,
-  listFlashcards,
+  getLibrary,
   listProductionRuns,
-  listQuizzes,
-  listScenarios,
   listStageRuns,
-  listSources,
-  listKnowledgeRunTitles,
-  listWikiEntries,
   uploadSource as uploadSourceRequest,
   uploadStructuredData as uploadStructuredDataRequest,
   uploadArtifact as uploadArtifactRequest,
@@ -55,6 +49,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [knowledgeRunTitles, setKnowledgeRunTitles] = useState<KnowledgeRunTitle[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [catalogWorkspaceId, setCatalogWorkspaceId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const refreshInFlight = useRef(false)
@@ -72,46 +67,40 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
     setError(null)
 
     try {
-      const [
-        nextSources,
-        nextArtifacts,
-        nextWikiEntries,
-        nextFlashcards,
-        nextQuizzes,
-        nextScenarios,
-        nextKnowledgeRunTitles,
-      ] = await Promise.all([
-        listSources(refreshWorkspaceId),
-        listArtifacts(refreshWorkspaceId),
-        listWikiEntries(refreshWorkspaceId),
-        listFlashcards(refreshWorkspaceId),
-        listQuizzes(refreshWorkspaceId),
-        listScenarios(refreshWorkspaceId),
-        listKnowledgeRunTitles(refreshWorkspaceId),
-      ])
-
-      const nextRuns = isAdmin ? await listProductionRuns(refreshWorkspaceId) : []
-      const stageRunEntries = isAdmin
-        ? await Promise.all(
-            nextRuns.map(async (run) => [run.id, await listStageRuns(run.id)] as const),
-          )
-        : []
+      const catalog = await getLibrary(refreshWorkspaceId)
 
       // Drop stale results if the active workspace changed mid-flight.
       if (refreshWorkspaceId !== workspaceIdRef.current) {
         return
       }
 
-      setSources(nextSources.filter((source) => source.source_kind !== 'structured_data'))
-      setStructuredSources(nextSources.filter((source) => source.source_kind === 'structured_data'))
+      setSources(catalog.sources.filter((source) => source.source_kind !== 'structured_data'))
+      setStructuredSources(catalog.sources.filter((source) => source.source_kind === 'structured_data'))
+      setArtifacts(collapseDuplicateNarrationArtifacts(catalog.artifacts))
+      setWikiEntries(catalog.wiki_entries)
+      setFlashcards(catalog.flashcards)
+      setQuizzes(catalog.quizzes)
+      setScenarios(catalog.scenarios)
+      setKnowledgeRunTitles(catalog.knowledge_titles)
+
+      if (!isAdmin) {
+        setProductionRuns([])
+        setStageRunsByRunId({})
+        return
+      }
+
+      const nextRuns = await listProductionRuns(refreshWorkspaceId)
+      if (refreshWorkspaceId !== workspaceIdRef.current) {
+        return
+      }
+      const stageRunEntries = await Promise.all(
+        nextRuns.map(async (run) => [run.id, await listStageRuns(run.id)] as const),
+      )
+      if (refreshWorkspaceId !== workspaceIdRef.current) {
+        return
+      }
       setProductionRuns(nextRuns)
       setStageRunsByRunId(Object.fromEntries(stageRunEntries))
-      setArtifacts(collapseDuplicateNarrationArtifacts(nextArtifacts))
-      setWikiEntries(nextWikiEntries)
-      setFlashcards(nextFlashcards)
-      setQuizzes(nextQuizzes)
-      setScenarios(nextScenarios)
-      setKnowledgeRunTitles(nextKnowledgeRunTitles)
     } catch (loadError) {
       if (refreshWorkspaceId !== workspaceIdRef.current) {
         return
@@ -119,6 +108,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       setError(loadError instanceof Error ? loadError.message : 'Failed to load workspace data.')
     } finally {
       if (refreshWorkspaceId === workspaceIdRef.current) {
+        setCatalogWorkspaceId(refreshWorkspaceId)
         setIsLoading(false)
       }
       refreshInFlight.current = false
@@ -137,6 +127,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       setQuizzes([])
       setScenarios([])
       setKnowledgeRunTitles([])
+      setCatalogWorkspaceId(null)
       setError(null)
       setIsLoading(false)
       return
@@ -257,7 +248,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       quizzes,
       scenarios,
       knowledgeRunTitles,
-      isLoading,
+      isLoading: isLoading || (workspaceId !== null && catalogWorkspaceId !== workspaceId),
       error,
       activeRunCount,
       uploadSource,
@@ -281,6 +272,8 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       scenarios,
       knowledgeRunTitles,
       isLoading,
+      catalogWorkspaceId,
+      workspaceId,
       error,
       activeRunCount,
       uploadSource,

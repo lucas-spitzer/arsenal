@@ -1,3 +1,4 @@
+import asyncio
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -6,13 +7,17 @@ from app.config import Settings, get_settings
 from app.access import can_read_library
 from app.dependencies.auth import require_approved_user
 from app.dependencies.services import (
+    get_artifact_repository,
     get_assessment_repository,
     get_knowledge_project_repository,
+    get_source_repository,
     get_supabase_storage_client,
+    get_wiki_entry_repository,
     get_workspace_repository,
 )
 from app.dependencies.workspace import require_workspace
 from app.knowledge.visuals import storage_path_of, visual_for_response
+from app.models.artifact import ArtifactResponse
 from app.models.assessment import (
     FlashcardResponse,
     QuizResponse,
@@ -20,9 +25,15 @@ from app.models.assessment import (
 )
 from app.models.auth import CurrentUser
 from app.models.knowledge import KnowledgeRunTitle
+from app.models.library import LibraryCatalogResponse
+from app.models.source import SourceResponse
+from app.models.wiki_entry import WikiEntryResponse
 from app.models.workspace import WorkspaceResponse
+from app.repositories.artifacts import ArtifactRepository
 from app.repositories.assessments import AssessmentRepository
 from app.repositories.knowledge_projects import KnowledgeProjectRepository
+from app.repositories.sources import SourceRepository
+from app.repositories.wiki_entries import WikiEntryRepository
 from app.repositories.workspaces import WorkspaceRepository
 from app.services.supabase_storage import SupabaseStorageClient
 
@@ -46,29 +57,117 @@ async def _readable_row(
     return row
 
 
+def _visual(row: dict[str, Any]) -> dict[str, Any] | None:
+    visual = row.get("visual")
+    return visual if isinstance(visual, dict) else None
+
+
 async def _with_signed_visuals(
     rows: list[dict[str, Any]],
     storage: SupabaseStorageClient,
     settings: Settings,
 ) -> list[dict[str, Any]]:
-    paths = {
-        path
-        for row in rows
-        if (path := storage_path_of(row.get("visual") if isinstance(row.get("visual"), dict) else None))
-    }
+    paths: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        path = storage_path_of(_visual(row))
+        if path and path not in seen:
+            seen.add(path)
+            paths.append(path)
+
     signed: dict[str, str] = {}
-    for path in paths:
-        signed[path] = await storage.create_signed_url(
-            bucket=settings.sources_bucket,
-            path=path,
-            expires_in=settings.signed_url_expires_seconds,
+    if paths:
+        urls = await asyncio.gather(
+            *(
+                storage.create_signed_url(
+                    bucket=settings.sources_bucket,
+                    path=path,
+                    expires_in=settings.signed_url_expires_seconds,
+                )
+                for path in paths
+            )
         )
+        signed = dict(zip(paths, urls, strict=True))
+
     prepared: list[dict[str, Any]] = []
     for row in rows:
-        visual = row.get("visual") if isinstance(row.get("visual"), dict) else None
+        visual = _visual(row)
         path = storage_path_of(visual)
         prepared.append({**row, "visual": visual_for_response(visual, signed.get(path or ""))})
     return prepared
+
+
+async def load_library_catalog(
+    *,
+    workspace_id: str,
+    owner_id: str,
+    sources: SourceRepository,
+    artifacts: ArtifactRepository,
+    wiki_entries: WikiEntryRepository,
+    assessments: AssessmentRepository,
+    projects: KnowledgeProjectRepository,
+    storage: SupabaseStorageClient,
+    settings: Settings,
+) -> LibraryCatalogResponse:
+    (
+        source_rows,
+        artifact_rows,
+        wiki_rows,
+        flashcard_rows,
+        quiz_rows,
+        scenario_rows,
+        title_rows,
+    ) = await asyncio.gather(
+        sources.list_for_workspace(workspace_id, owner_id),
+        artifacts.list_for_workspace(workspace_id),
+        wiki_entries.list_for_workspace(workspace_id),
+        assessments.list_flashcards(workspace_id),
+        assessments.list_quizzes(workspace_id),
+        assessments.list_scenarios(workspace_id),
+        projects.list_titles(workspace_id),
+    )
+    signed_flashcards, signed_quizzes, signed_scenarios = await asyncio.gather(
+        _with_signed_visuals(flashcard_rows, storage, settings),
+        _with_signed_visuals(quiz_rows, storage, settings),
+        _with_signed_visuals(scenario_rows, storage, settings),
+    )
+    return LibraryCatalogResponse(
+        sources=[SourceResponse.model_validate(row) for row in source_rows],
+        artifacts=[ArtifactResponse.model_validate(row) for row in artifact_rows],
+        wiki_entries=[WikiEntryResponse.model_validate(row) for row in wiki_rows],
+        flashcards=[FlashcardResponse.model_validate(row) for row in signed_flashcards],
+        quizzes=[QuizResponse.model_validate(row) for row in signed_quizzes],
+        scenarios=[ScenarioResponse.model_validate(row) for row in signed_scenarios],
+        knowledge_titles=[KnowledgeRunTitle.model_validate(row) for row in title_rows],
+    )
+
+
+@router.get(
+    "/workspaces/{workspace_id}/library",
+    response_model=LibraryCatalogResponse,
+)
+async def get_library(
+    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
+    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    sources: Annotated[SourceRepository, Depends(get_source_repository)],
+    artifacts: Annotated[ArtifactRepository, Depends(get_artifact_repository)],
+    wiki_entries: Annotated[WikiEntryRepository, Depends(get_wiki_entry_repository)],
+    assessments: Annotated[AssessmentRepository, Depends(get_assessment_repository)],
+    projects: Annotated[KnowledgeProjectRepository, Depends(get_knowledge_project_repository)],
+    storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> LibraryCatalogResponse:
+    return await load_library_catalog(
+        workspace_id=workspace.id,
+        owner_id=workspace.owner_id,
+        sources=sources,
+        artifacts=artifacts,
+        wiki_entries=wiki_entries,
+        assessments=assessments,
+        projects=projects,
+        storage=storage,
+        settings=settings,
+    )
 
 
 @router.get(

@@ -2,6 +2,28 @@ from typing import Any
 
 from app.services.supabase_rest import SupabaseRestClient
 
+# Catalog reads never need the 1536-dimension embedding.
+WIKI_ENTRY_LIST_COLUMNS = (
+    "id",
+    "workspace_id",
+    "preferred_label",
+    "canonical_slug",
+    "definition",
+    "significance",
+    "category",
+    "items",
+    "pronunciation",
+    "aliases",
+    "prerequisites",
+    "importance",
+    "entry_kind",
+    "status",
+    "evidence",
+    "origin",
+    "created_at",
+    "updated_at",
+)
+
 
 class WikiEntryRepository:
     def __init__(self, db: SupabaseRestClient) -> None:
@@ -29,6 +51,7 @@ class WikiEntryRepository:
         return await self.db.select_many(
             "wiki_entries",
             filters=filters,
+            columns=",".join(WIKI_ENTRY_LIST_COLUMNS),
             order="preferred_label.asc",
             limit=limit,
             offset=offset,

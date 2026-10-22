@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js'
 import { ApiError, getCurrentUser, hasApiBaseUrl } from '../../lib/apiClient'
 import type { CurrentUserResponse } from '../../lib/apiClient'
 import { supabase } from '../../lib/supabaseClient'
+import { rememberSession } from './authService'
 import { AuthContext } from './authContext'
 import type { ApprovalStatus, AuthContextValue } from './authContext'
 
@@ -25,6 +26,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // INITIAL_SESSION is included. A parallel getSession() can refresh the
     // same token twice and revoke the saved login.
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      rememberSession(nextSession)
       setSession(nextSession)
       setIsSessionLoading(false)
     })
