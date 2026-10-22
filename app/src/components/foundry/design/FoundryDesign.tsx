@@ -224,6 +224,34 @@ function MaterialWorkspace({
     </div>
   ) : null
 
+  const deleteDialog = (
+    <FoundryDialog
+      title="Delete study material"
+      open={deleteOpen}
+      onClose={() => {
+        if (!isDeleting) setDeleteOpen(false)
+      }}
+    >
+      <p className="as-console__confirm-copy">
+        Delete "{material.title}"? Finalized PDFs stay in the Library.
+      </p>
+      <div className="as-console__dialog-actions">
+        <button
+          type="button"
+          className="as-console__cta as-console__cta--ghost"
+          onClick={() => setDeleteOpen(false)}
+          disabled={isDeleting}
+          autoFocus
+        >
+          Cancel
+        </button>
+        <button type="button" className="as-console__cta" onClick={confirmDelete} disabled={isDeleting}>
+          {isDeleting ? 'Deleting…' : 'Delete'}
+        </button>
+      </div>
+    </FoundryDialog>
+  )
+
   if (material.status === 'generating') {
     return (
       <>
@@ -254,31 +282,7 @@ function MaterialWorkspace({
             void act(() => generateStudyMaterial(material.id), 'Could not start generation.')
           }}
         />
-        <FoundryDialog
-          title="Delete study material"
-          open={deleteOpen}
-          onClose={() => {
-            if (!isDeleting) setDeleteOpen(false)
-          }}
-        >
-          <p className="as-console__confirm-copy">
-            Delete "{material.title}"? Finalized PDFs stay in the Library.
-          </p>
-          <div className="as-console__dialog-actions">
-            <button
-              type="button"
-              className="as-console__cta as-console__cta--ghost"
-              onClick={() => setDeleteOpen(false)}
-              disabled={isDeleting}
-              autoFocus
-            >
-              Cancel
-            </button>
-            <button type="button" className="as-console__cta" onClick={confirmDelete} disabled={isDeleting}>
-              {isDeleting ? 'Deleting…' : 'Delete'}
-            </button>
-          </div>
-        </FoundryDialog>
+        {deleteDialog}
       </>
     )
   }
@@ -292,6 +296,7 @@ function MaterialWorkspace({
         theme={theme}
         isBusy={isBusy}
         onBack={onBack}
+        onDelete={() => setDeleteOpen(true)}
         onEdit={() => setEditing(true)}
         onFinalize={() => void act(() => finalizeStudyMaterial(material.id), 'Could not start finalization.')}
         onReopen={() => void act(() => reopenStudyMaterial(material.id), 'Could not reopen.')}
@@ -302,6 +307,7 @@ function MaterialWorkspace({
           )
         }}
       />
+      {deleteDialog}
     </>
   )
 }

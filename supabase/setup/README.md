@@ -40,7 +40,7 @@ After running setup, replace the placeholder owner email in `approved_users` wit
 
 ## Email sign-in codes
 
-Google stays available. `POST /auth/email-code` sends a 6-digit code only when the address is an active `approved_users` row. The sign-in page then calls `verifyOtp`.
+Google stays available. `POST /auth/email-code` sends an 8-digit code only when the address is an active `approved_users` row. The sign-in page then calls `verifyOtp`.
 
 Supabase's built-in mailer sends only to members of the Supabase organization. This project was created on 2026-06-06. On the Free plan, a project created after 2026-06-03 also cannot edit the auth email template until a custom SMTP provider is set. Peers will not receive codes until that provider is in place.
 
@@ -50,10 +50,12 @@ Verify `atlas3.app` in Resend first, and add the DNS records Resend shows in the
 
 - Host: `smtp.resend.com`
 - Port: `465`
-- Username: `resend`
+- Username: `resend` (those six letters, all lowercase)
 - Password: the Resend API key
 - Sender email: `noreply@atlas3.app`
 - Sender name: `Arsenal`
+
+Resend's Templates tab does not send this message. Supabase writes the HTML and hands the finished email to Resend over SMTP. Paste the template into Supabase, not into a Resend template. Resend variables use `{{{NAME}}}`, and Supabase will not fill those in.
 
 After SMTP is saved, Authentication → Rate Limits, for a class of about 50 people on one Wi-Fi:
 
@@ -65,12 +67,12 @@ Leave the 60-second gap between emails to the same person.
 
 Then:
 
-1. Authentication, Email Templates, Magic Link: set the subject to `Your Arsenal sign-in code`.
-2. Replace the template body with [`sign-in-code-email.html`](sign-in-code-email.html).
-3. Do not add `{{ .ConfirmationURL }}`. Outlook and Defender prefetch links and consume the sign-in.
+1. Authentication → Sign In / Providers → Email: leave **Email OTP length** at `8`. That control is on the Email provider page, not on Emails. The sign-in form accepts 8 digits.
+2. Authentication → Emails → Templates → open **Magic link or OTP**. The subject field is on that page. Set it to `Your Arsenal sign-in code`.
+3. Replace the template body with the full file [`sign-in-code-email.html`](sign-in-code-email.html). Copy the file as-is, including `{{ .Token }}` and `{{ .Email }}`. The code links to the sign-in page and fills the 8-digit field. Do not add letter-spacing around the code, and do not add `{{ .ConfirmationURL }}`. Outlook and Defender prefetch links and consume a sign-in link.
 4. Leave Email OTP expiration at the dashboard default. Do not set it above one day.
 
-The message follows the style guide: a navy band, a scarlet rule, a condensed scarlet heading and code, Arial body text, a gold divider, and a gray line that says Arsenal is an unofficial study tool and not a United States Marine Corps website. No Marine Corps mark.
+The message follows the style guide: a navy band, a scarlet rule, a scarlet Arial heading, the code in one monospace run with no letter-spacing, a gold divider, and a gray line that says Arsenal is an unofficial study tool and not a United States Marine Corps website. No Marine Corps mark.
 
 ## Existing database patches
 

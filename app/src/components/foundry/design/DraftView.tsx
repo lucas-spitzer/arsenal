@@ -20,6 +20,7 @@ interface DraftViewProps {
   theme: StudyTheme
   isBusy: boolean
   onBack: () => void
+  onDelete: () => void
   onEdit: () => void
   onFinalize: () => void
   onReopen: () => void
@@ -47,6 +48,7 @@ export function DraftView({
   theme,
   isBusy,
   onBack,
+  onDelete,
   onEdit,
   onFinalize,
   onReopen,
@@ -86,6 +88,14 @@ export function DraftView({
           <h2>Design Forge</h2>
         </div>
         <div className="dsn-header-actions">
+          <button
+            type="button"
+            className="as-console__cta as-console__cta--ghost dsn-cta--danger"
+            onClick={onDelete}
+            disabled={finalizing || isBusy}
+          >
+            Delete
+          </button>
           <button type="button" className="as-console__cta as-console__cta--ghost" onClick={onBack}>
             All materials
           </button>

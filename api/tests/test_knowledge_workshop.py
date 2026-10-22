@@ -385,6 +385,86 @@ def test_delete_composing_project_removes_its_cards() -> None:
     assert ("project", "project-1") in removed
 
 
+def test_delete_entry_removes_its_card_and_leaves_the_others() -> None:
+    service = KnowledgeProjectService.__new__(KnowledgeProjectService)
+    removed: list[tuple[str, list[str]]] = []
+    plans = [
+        {
+            "id": "plan-keep",
+            "item_type": "flashcard",
+            "wiki_entry_id": "wiki-keep",
+            "assessment_id": "card-keep",
+        },
+        {
+            "id": "plan-drop",
+            "item_type": "flashcard",
+            "wiki_entry_id": "wiki-drop",
+            "assessment_id": "card-drop",
+            "visual": {"storage_path": "ws/knowledge/project-1/visuals/plan-drop/map.png"},
+        },
+        {
+            "id": "plan-question",
+            "item_type": "question",
+            "wiki_entry_id": "wiki-drop",
+            "assessment_id": "quiz-drop",
+        },
+    ]
+    deleted_files: list[str] = []
+
+    class Projects:
+        async def list_plans(self, project_id: str) -> list[dict[str, Any]]:
+            assert project_id == "project-1"
+            return plans
+
+        async def list_assessments(self, table: str, project_id: str) -> list[dict[str, Any]]:
+            assert project_id == "project-1"
+            if table == "flashcards":
+                return [
+                    {"id": "card-keep", "citations": [{"uri": "wiki://wiki-keep"}]},
+                    {"id": "card-drop", "citations": [{"uri": "wiki://wiki-drop"}]},
+                ]
+            if table == "quizzes":
+                return [{"id": "quiz-drop", "citations": [{"uri": "wiki://wiki-drop"}]}]
+            return []
+
+        async def delete_rows(self, table: str, row_ids: list[str]) -> None:
+            removed.append((table, row_ids))
+
+    class Storage:
+        async def delete(self, *, bucket: str, path: str) -> None:
+            assert bucket == "sources"
+            deleted_files.append(path)
+
+    service.projects = Projects()
+    service.settings = type("Settings", (), {"sources_bucket": "sources"})()
+    asyncio.run(
+        service.delete_entry(
+            {"id": "project-1", "status": "composing"},
+            plans[1],
+            storage=Storage(),
+        )
+    )
+
+    assert ("flashcards", ["card-drop"]) in removed
+    assert ("quizzes", ["quiz-drop"]) in removed
+    assert ("scenarios", []) in removed
+    assert ("knowledge_item_plans", ["plan-drop", "plan-question"]) in removed
+    assert deleted_files == ["ws/knowledge/project-1/visuals/plan-drop/map.png"]
+    assert all("card-keep" not in ids and "plan-keep" not in ids for _, ids in removed)
+
+
+def test_delete_entry_refuses_a_question_plan() -> None:
+    service = KnowledgeProjectService.__new__(KnowledgeProjectService)
+
+    with pytest.raises(KnowledgeProjectError, match="Only an entry"):
+        asyncio.run(
+            service.delete_entry(
+                {"id": "project-1", "status": "composing"},
+                {"id": "plan-q", "item_type": "question", "wiki_entry_id": "wiki-1"},
+            )
+        )
+
+
 def test_delete_refuses_a_project_that_is_already_drafting() -> None:
     service = KnowledgeProjectService.__new__(KnowledgeProjectService)
 

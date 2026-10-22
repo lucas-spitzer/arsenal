@@ -22,6 +22,7 @@ import {
   type KnowledgeQuestion,
   type KnowledgeScenario,
 } from '../../../lib/knowledgeApi'
+import { FoundryDialog } from '../FoundryDialog'
 
 export type DesignStep = 'flashcards' | 'questions' | 'scenarios'
 
@@ -94,6 +95,7 @@ export function KnowledgeComposer({
   const [index, setIndex] = useState(0)
   const [isBusy, setIsBusy] = useState(false)
   const [showBatch, setShowBatch] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const entries = useMemo(
     () =>
@@ -125,6 +127,7 @@ export function KnowledgeComposer({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
+      if (deleteOpen) return
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return
       if (event.key === '[') goTo(safeIndex - 1)
       if (event.key === ']') goTo(safeIndex + 1)
@@ -204,6 +207,14 @@ export function KnowledgeComposer({
           </span>
         </div>
         <nav className="kcomp__nav" aria-label="Entries">
+          <button
+            type="button"
+            className="as-console__cta as-console__cta--ghost dsn-cta--danger"
+            disabled={isBusy}
+            onClick={() => setDeleteOpen(true)}
+          >
+            Delete entry
+          </button>
           <button type="button" className="kcomp__nav-btn" onClick={() => goTo(safeIndex - 1)} disabled={safeIndex === 0}>
             <ChevronLeft size={16} /> Previous
           </button>
@@ -252,6 +263,43 @@ export function KnowledgeComposer({
           <ScenarioPass key={entry.plan_id} project={project} entry={entry} busy={isBusy} act={act} />
         )}
       </div>
+      <FoundryDialog
+        title="Delete entry"
+        open={deleteOpen}
+        onClose={() => {
+          if (!isBusy) setDeleteOpen(false)
+        }}
+      >
+        <p className="as-console__confirm-copy">
+          Delete "{entry.preferred_label}" from this project? The wiki entry stays in the library.
+        </p>
+        <div className="as-console__dialog-actions">
+          <button
+            type="button"
+            className="as-console__cta as-console__cta--ghost"
+            onClick={() => setDeleteOpen(false)}
+            disabled={isBusy}
+            autoFocus
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="as-console__cta"
+            disabled={isBusy}
+            onClick={() => {
+              void act(
+                () => deleteKnowledgeItem(project.id, entry.plan_id),
+                'Could not delete the entry.',
+              ).then((removed) => {
+                if (removed) setDeleteOpen(false)
+              })
+            }}
+          >
+            {isBusy ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </FoundryDialog>
     </div>
   )
 }

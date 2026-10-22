@@ -65,6 +65,7 @@ logger = logging.getLogger(__name__)
 # Bloom levels rotated across a "spread" variant batch.
 SPREAD_BLOOM = ("remember", "understand", "apply")
 TABLE_FOR_KIND = {"question": "quizzes", "scenario": "scenarios"}
+_TABLE_FOR_ITEM = {"flashcard": "flashcards", **TABLE_FOR_KIND}
 
 
 class KnowledgeProjectError(ValueError):
@@ -633,6 +634,37 @@ class KnowledgeProjectService:
             await self.projects.delete_rows(TABLE_FOR_KIND[kind], [str(plan["assessment_id"])])
         await self.projects.delete_rows("knowledge_item_plans", [str(plan["id"])])
 
+    async def delete_entry(
+        self,
+        project: dict[str, Any],
+        plan: dict[str, Any],
+        *,
+        storage: SupabaseStorageClient | None = None,
+    ) -> None:
+        """Remove one entry from a composing project. The wiki row stays in the library."""
+        self._require_status(project, "composing")
+        if plan.get("item_type") != "flashcard" or not plan.get("wiki_entry_id"):
+            raise KnowledgeProjectError("Only an entry can be removed here.")
+        wiki_id = str(plan["wiki_entry_id"])
+        project_id = str(project["id"])
+        plans = await self.projects.list_plans(project_id)
+        related = [row for row in plans if str(row.get("wiki_entry_id") or "") == wiki_id]
+        if str(plan["id"]) not in {str(row["id"]) for row in related}:
+            related.append(plan)
+        assessment_ids: dict[str, set[str]] = {"flashcards": set(), "quizzes": set(), "scenarios": set()}
+        for row in related:
+            table = _TABLE_FOR_ITEM.get(str(row.get("item_type") or ""))
+            if table and row.get("assessment_id"):
+                assessment_ids[table].add(str(row["assessment_id"]))
+        for table in assessment_ids:
+            rows = await self.projects.list_assessments(table, project_id)
+            for row in rows:
+                if wiki_id in _cited_wiki_ids(row):
+                    assessment_ids[table].add(str(row["id"]))
+            await self.projects.delete_rows(table, list(assessment_ids[table]))
+        await self._delete_visual_files(related, storage)
+        await self.projects.delete_rows("knowledge_item_plans", [str(row["id"]) for row in related])
+
     async def _planned_entries(self, project_id: str) -> list[dict[str, Any]]:
         plans = await self.projects.list_plans(project_id)
         wiki_ids = [
@@ -784,6 +816,22 @@ class KnowledgeProjectService:
             except Exception:
                 logger.exception("Could not delete visual %s", previous)
         return updated or plan
+
+    async def _delete_visual_files(
+        self,
+        plans: list[dict[str, Any]],
+        storage: SupabaseStorageClient | None,
+    ) -> None:
+        if storage is None:
+            return
+        for plan in plans:
+            path = storage_path_of(plan.get("visual") if isinstance(plan.get("visual"), dict) else None)
+            if not path:
+                continue
+            try:
+                await storage.delete(bucket=self.settings.sources_bucket, path=path)
+            except Exception:
+                logger.exception("Could not delete visual %s", path)
 
     async def start_draft(self, project: dict[str, Any]) -> dict[str, Any]:
         self._require_status(project, "composing")

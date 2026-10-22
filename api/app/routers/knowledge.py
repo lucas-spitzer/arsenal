@@ -330,7 +330,10 @@ async def delete_knowledge_item(
     project = await _project_or_404(service, project_id, user)
     plan = await _plan_or_404(service, project_id, plan_id)
     try:
-        await service.delete_item(project, plan)
+        if str(plan.get("item_type") or "") == "flashcard":
+            await service.delete_entry(project, plan, storage=storage)
+        else:
+            await service.delete_item(project, plan)
     except KnowledgeProjectError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return await _detail(service, project, storage)

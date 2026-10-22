@@ -1,5 +1,5 @@
-import { useState, type CSSProperties, type FormEvent } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
+import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { ArsenalMark } from '../components/brand/ArsenalMark'
 import { ApiError } from '../lib/apiClient'
 import { requestEmailCode, signInWithGoogle, signOut, verifyEmailCode } from '../features/auth/authService'
@@ -10,6 +10,25 @@ interface LocationState {
   from?: {
     pathname?: string
   }
+}
+
+const EMAIL_CODE_LENGTH = 8
+
+function arrivedSignIn(params: URLSearchParams): { email: string; code: string } | null {
+  const code = (params.get('code') ?? '').replace(/\D/g, '')
+  const email = (params.get('email') ?? '').trim()
+  if (code.length !== EMAIL_CODE_LENGTH) return null
+  if (
+    email.length < 3 ||
+    email.length > 320 ||
+    !email.includes('@') ||
+    email.startsWith('@') ||
+    email.endsWith('@') ||
+    /\s/.test(email)
+  ) {
+    return null
+  }
+  return { email, code }
 }
 
 const systemModules = [
@@ -35,12 +54,38 @@ const systemModules = [
 
 export function LoginPage() {
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const arrived = useState(() => arrivedSignIn(searchParams))[0]
   const { approvalError, approvalStatus, isAuthenticated, isLoading } = useAuth()
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [pending, setPending] = useState<'google' | 'code' | null>(null)
-  const [email, setEmail] = useState('')
-  const [code, setCode] = useState('')
-  const [codeSentTo, setCodeSentTo] = useState<string | null>(null)
+  const [email, setEmail] = useState(arrived?.email ?? '')
+  const [code, setCode] = useState(arrived?.code ?? '')
+  const [codeSentTo, setCodeSentTo] = useState<string | null>(arrived?.email ?? null)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!arrived) return
+    let cancelled = false
+    void navigator.clipboard.writeText(arrived.code).then(
+      () => {
+        if (!cancelled) setCopied(true)
+      },
+      () => undefined,
+    )
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete('code')
+        next.delete('email')
+        return next
+      },
+      { replace: true },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [arrived, setSearchParams])
 
   const fromPath = (location.state as LocationState | null)?.from?.pathname ?? '/app'
 
@@ -92,7 +137,7 @@ export function LoginPage() {
 
   async function handleVerifyCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!codeSentTo || code.length !== 6) return
+    if (!codeSentTo || code.length !== EMAIL_CODE_LENGTH) return
 
     try {
       setPending('code')
@@ -194,18 +239,22 @@ export function LoginPage() {
                 className="as-gate__input as-gate__input--code"
                 inputMode="numeric"
                 autoComplete="one-time-code"
-                maxLength={6}
+                maxLength={EMAIL_CODE_LENGTH}
                 value={code}
-                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={(event) =>
+                  setCode(event.target.value.replace(/\D/g, '').slice(0, EMAIL_CODE_LENGTH))
+                }
                 required
               />
               <p className="as-gate__helper">
-                Enter the code sent to {codeSentTo}. It expires shortly and works once.
+                {copied
+                  ? 'Copied to the clipboard. It expires shortly and works once.'
+                  : `Enter the 8-digit code sent to ${codeSentTo}. It expires shortly and works once.`}
               </p>
               <button
                 type="submit"
                 className="as-gate__cta"
-                disabled={pending !== null || isLoading || code.length !== 6}
+                disabled={pending !== null || isLoading || code.length !== EMAIL_CODE_LENGTH}
               >
                 {pending === 'code' ? 'Checking…' : 'Sign in'}
               </button>
