@@ -13,6 +13,7 @@ import {
   type OutputSort,
   type OutputType,
 } from '../../lib/academyOutputs'
+import { FoundryLoader } from '../foundry/FoundryLoader'
 import { OutputFilterBar } from './OutputFilterBar'
 import { StudyHead } from './StudySessionChrome'
 import type { AcademyPage, AcademyScope } from './types'
@@ -135,10 +136,7 @@ export function LibraryView({
 
       {isLoading && items.length === 0 ? (
         <div className="lib__empty">
-          <p className="lib__empty-title">Loading library</p>
-          <p className="lib__empty-copy">
-            Fetching books, study tasks, and wiki entries for this workspace.
-          </p>
+          <FoundryLoader label="Loading library" size="sm" />
         </div>
       ) : error && items.length === 0 ? (
         <div className="lib__empty">
