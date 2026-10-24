@@ -19,15 +19,20 @@ from pydantic import BaseModel, Field, field_validator
 from app.intellex.wiki_slug import normalize_slug
 
 Importance = Literal["essential", "supporting", "contextual"]
-EntryKind = Literal["term", "list"]
+EntryKind = Literal["term", "list", "elo"]
 
 
 def canonical_kind(entry_kind: str) -> EntryKind:
-    """Map a stored or proposed kind onto ``term`` or ``list``.
+    """Map a stored or proposed kind onto ``term``, ``list``, or ``elo``.
 
     Older rows used ``concept`` and ``insight``. Both are terms.
     """
-    return "list" if str(entry_kind or "").strip().lower() == "list" else "term"
+    kind = str(entry_kind or "").strip().lower()
+    if kind == "list":
+        return "list"
+    if kind == "elo":
+        return "elo"
+    return "term"
 
 
 def merge_group(entry_kind: str) -> str:

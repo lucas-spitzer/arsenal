@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
@@ -648,3 +649,68 @@ def test_json_notes_are_stored_on_the_source_and_written_immediately() -> None:
     friction = next(row for row in terms if row["preferred_label"] == "Friction")
     assert friction["definition"].startswith("The collective force that resists all action")
     assert friction["evidence"] == [{"source_id": "book-1"}]
+    assert friction["origin"]["section_title"] == "Chapter 1"
+    assert friction["origin"]["knowledge_project_id"] == "project-1"
+
+
+def test_json_elos_use_the_project_title_and_are_not_flashcards() -> None:
+    commission = "Explain the moral and professional obligations reposed in a USMC officer by the Commission."
+    oath = "Explain the relationship between the Officer Oath and unlimited liability."
+    projects = _Projects()
+    wiki = _Wiki()
+    service = KnowledgeProjectService(
+        projects=projects,
+        production_runs=_Runs(),
+        batches=_Batches(),
+        wiki_entries=wiki,
+        settings=get_settings(),
+    )
+    content = json.dumps(
+        {
+            "elos": [
+                {"elo": commission, "response": "A commission is a grant of authority."},
+                {"elo": oath, "response": "The oath commits the officer to unlimited liability."},
+            ],
+            "terms": [
+                {
+                    "term": "Special Trust and Confidence",
+                    "definition": "The presumption of character that underwrites command.",
+                    "elo_reference": commission,
+                },
+            ],
+            "key_lists": [
+                {
+                    "concept": "The Four Commissioning Virtues",
+                    "overview": "The qualities attested in every commission.",
+                    "elo_reference": commission,
+                    "items": [{"name": "Fidelity", "details": "Unswerving allegiance."}],
+                },
+            ],
+        },
+    ).encode()
+
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Chapter 1 - Armed Forces Officer",
+        source={"id": "book-1", "slug": "armed-forces-officer", "status": "ready", "source_kind": "document"},
+        raw_notes="",
+        filename="afo-chapter1-elos.json",
+        content_type="application/json",
+        content=content,
+        storage=_Storage(),
+    ))
+
+    elos = [row for row in wiki.inserted if row["entry_kind"] == "elo"]
+    assert [row["preferred_label"] for row in elos] == [commission, oath]
+    assert [row["origin"]["elo_index"] for row in elos] == [0, 1]
+    assert elos[0]["origin"]["section_title"] == "Chapter 1 - Armed Forces Officer"
+    assert elos[0]["origin"]["knowledge_project_id"] == "project-1"
+    assert elos[0]["definition"] == "A commission is a grant of authority."
+    term = next(row for row in wiki.inserted if row["preferred_label"] == "Special Trust and Confidence")
+    assert term["origin"]["elo_reference"] == commission
+    elo_ids = {row["id"] for row in elos}
+    assert projects.plans
+    assert all(plan["wiki_entry_id"] not in elo_ids for plan in projects.plans)
+    assert any(plan["wiki_entry_id"] == term["id"] for plan in projects.plans)

@@ -244,7 +244,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
             ) : null}
           </div>
           <p className="dsn-hint">
-            JSON with terms and key_lists is imported as wiki entries. Other files are transcribed first.
+            JSON with terms, key lists, and ELOs is imported as wiki entries. Other files are transcribed first.
           </p>
         </div>
         <div className="kproj-field">

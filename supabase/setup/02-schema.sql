@@ -275,7 +275,7 @@ create table public.wiki_entries (
   constraint wiki_entries_status_check
     check (status in ('candidate', 'canonical', 'disputed', 'deprecated', 'rejected')),
   constraint wiki_entries_entry_kind_check
-    check (entry_kind in ('term', 'list')),
+    check (entry_kind in ('term', 'list', 'elo')),
   constraint wiki_entries_items_check
     check (jsonb_typeof(items) = 'array'),
   constraint wiki_entries_workspace_slug_key
@@ -753,12 +753,12 @@ create table public.discussion_threads (
   workspace_id uuid not null references public.workspaces (id) on delete cascade,
   user_id uuid not null references auth.users (id) on delete cascade,
   title text not null,
-  submode text not null default 'socratic',
+  submode text not null default 'tbs',
   source_id uuid references public.sources (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint discussion_threads_submode_check
-    check (submode in ('socratic', 'euclidean'))
+    check (submode in ('socratic', 'euclidean', 'tbs'))
 );
 
 create index discussion_threads_workspace_id_idx

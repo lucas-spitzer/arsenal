@@ -1,4 +1,4 @@
-import { BookMarked, BookOpen, FileText, Headphones, HelpCircle, Layers, Lightbulb, Star } from 'lucide-react'
+import { BookMarked, BookOpen, Download, FileText, Headphones, HelpCircle, Layers, Lightbulb, Star } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
@@ -34,6 +34,18 @@ const KIND_META: Record<
 
 function cardIcon(item: OutputItem): typeof Layers {
   return KIND_META[item.kind].icon
+}
+
+function canDownload(item: OutputItem): boolean {
+  return item.kind === 'book' || item.kind === 'audio' || item.kind === 'material'
+}
+
+function downloadTitle(item: OutputItem): string {
+  if (item.narrationDownload === 'preparing') return 'Preparing the audio file'
+  if (item.narrationDownload === 'failed') return 'Could not prepare the audio file. Try again.'
+  if (item.kind === 'book') return 'Download book'
+  if (item.kind === 'material') return 'Download study material'
+  return 'Download audio'
 }
 
 function openLabel(item: OutputItem): string {
@@ -158,11 +170,23 @@ export function LibraryView({
               <span className="lib__band-line" />
               <span className="lib__band-count">{list.length} outputs</span>
             </div>
-            <CardGrid items={list} onOpen={handleOpen} focus={focus} onToggleFocus={toggleFocus} />
+            <CardGrid
+              items={list}
+              onOpen={handleOpen}
+              onDownload={(item) => void downloadArtifact(item.id)}
+              focus={focus}
+              onToggleFocus={toggleFocus}
+            />
           </div>
         ))
       ) : (
-        <CardGrid items={filtered} onOpen={handleOpen} focus={focus} onToggleFocus={toggleFocus} />
+        <CardGrid
+          items={filtered}
+          onOpen={handleOpen}
+          onDownload={(item) => void downloadArtifact(item.id)}
+          focus={focus}
+          onToggleFocus={toggleFocus}
+        />
       )}
     </section>
   )
@@ -171,11 +195,13 @@ export function LibraryView({
 function CardGrid({
   items,
   onOpen,
+  onDownload,
   focus,
   onToggleFocus,
 }: {
   items: OutputItem[]
   onOpen: (item: OutputItem) => void
+  onDownload: (item: OutputItem) => void
   focus: LibraryFocusState
   onToggleFocus: (item: OutputItem) => void
 }) {
@@ -200,22 +226,36 @@ function CardGrid({
                 <Icon size={12} aria-hidden="true" />
                 {chip}
               </span>
-              <button
-                type="button"
-                className={`lib__focus${focused ? ' is-focused' : ''}`}
-                onClick={() => onToggleFocus(item)}
-                title={
-                  focused
-                    ? 'Remove focus'
-                    : item.isEbook
-                      ? 'Focus this ebook (becomes the default in the reader)'
-                      : 'Focus this item'
-                }
-                aria-pressed={focused}
-                aria-label={focused ? 'Remove focus' : 'Focus this item'}
-              >
-                <Star size={14} aria-hidden="true" />
-              </button>
+              <div className="lib__card-actions">
+                {canDownload(item) ? (
+                  <button
+                    type="button"
+                    className="lib__focus"
+                    onClick={() => onDownload(item)}
+                    disabled={item.narrationDownload === 'preparing'}
+                    title={downloadTitle(item)}
+                    aria-label={downloadTitle(item)}
+                  >
+                    <Download size={14} aria-hidden="true" />
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={`lib__focus${focused ? ' is-focused' : ''}`}
+                  onClick={() => onToggleFocus(item)}
+                  title={
+                    focused
+                      ? 'Remove focus'
+                      : item.isEbook
+                        ? 'Focus this ebook (becomes the default in the reader)'
+                        : 'Focus this item'
+                  }
+                  aria-pressed={focused}
+                  aria-label={focused ? 'Remove focus' : 'Focus this item'}
+                >
+                  <Star size={14} aria-hidden="true" />
+                </button>
+              </div>
             </div>
             {item.title ? (
               <p className={spec ? 'lib__pv lib__pv--fact' : 'lib__pv'}>{item.title}</p>

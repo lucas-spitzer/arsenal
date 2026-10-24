@@ -829,6 +829,11 @@ body:has(.as-console--academy),
   background: #fbfaf7;
 }
 
+.as-console--academy .as-console__loader-cartridge {
+  fill: var(--color-gold);
+  filter: none;
+}
+
 .as-console--academy .as-console__main {
   background: #fbfaf7;
   color: #1a1a18;

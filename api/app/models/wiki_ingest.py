@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-EntryKind = Literal["term", "list"]
+EntryKind = Literal["term", "list", "elo"]
 Importance = Literal["essential", "supporting", "contextual"]
 Resolution = Literal["new", "merge", "conflict"]
 EvidenceStatus = Literal["linked", "weak", "unlinked"]
@@ -53,6 +53,8 @@ class WikiIngestEntry(BaseModel):
     importance: Importance = "supporting"
     prerequisite_labels: list[str] = Field(default_factory=list)
     note_excerpt: str = ""
+    elo_reference: str | None = None
+    elo_index: int | None = None
 
     canonical_slug: str = ""
     resolution: Resolution = "new"

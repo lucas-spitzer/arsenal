@@ -3,7 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 AssistantMode = Literal["discussion", "scenario"]
-DiscussionSubmode = Literal["socratic", "euclidean"]
+DiscussionSubmode = Literal["socratic", "euclidean", "tbs"]
 
 
 class AssistantMessage(BaseModel):
@@ -73,7 +73,7 @@ class DiscussionThreadDetailResponse(DiscussionThreadResponse):
 
 class CreateDiscussionThreadRequest(BaseModel):
     title: str
-    submode: DiscussionSubmode = "socratic"
+    submode: DiscussionSubmode = "tbs"
     source_id: str | None = None
     # Optional assistant-authored opener persisted as the first message.
     seed_prompt: str | None = None

@@ -9,6 +9,7 @@ from typing import Any
 from app.config import get_settings
 from app.intellex.wiki_candidates import (
     WikiCandidate,
+    canonical_kind,
     entry_embedding_text,
     normalize_items,
     promote_candidates,
@@ -237,6 +238,7 @@ class StructureWikiNotesStageExecutor:
             )
 
             existing = self.db.list_wiki_entries_for_workspace(workspace_id)
+            section_title = str(batch.get("title") or "").strip()
             candidates = [
                 _entry_to_candidate(
                     entry,
@@ -245,6 +247,7 @@ class StructureWikiNotesStageExecutor:
                     stage_run_id=stage_run_id,
                     source_id=source_id,
                     chapter=chapter if isinstance(chapter, dict) else {},
+                    section_title=section_title,
                 )
                 for entry in entries
             ]
@@ -371,16 +374,24 @@ def _parse_entries(raw_entries: list[Any]) -> list[WikiIngestEntry]:
         label = str(raw.get("label") or "").strip()
         definition = str(raw.get("definition") or "").strip()
         items = normalize_items(raw.get("items"))
-        kind = "list" if str(raw.get("entry_kind") or "").strip().lower() == "list" else "term"
-        if not label or (kind == "term" and not definition) or (kind == "list" and not definition and not items):
+        kind = canonical_kind(str(raw.get("entry_kind") or "term"))
+        if not label:
+            continue
+        if kind == "list":
+            if not definition and not items:
+                continue
+        elif not definition:
             continue
         importance = str(raw.get("importance") or "").strip().lower()
         significance = str(raw.get("significance") or "").strip() or None
         category = str(raw.get("category") or "").strip() or None
+        raw_index = raw.get("elo_index")
+        elo_index = raw_index if isinstance(raw_index, int) and not isinstance(raw_index, bool) else None
+        elo_reference = str(raw.get("elo_reference") or "").strip() or None
         entries.append(
             WikiIngestEntry(
                 index=len(entries),
-                label=label[:120],
+                label=label if kind == "elo" else label[:120],
                 entry_kind=kind,
                 definition=definition,
                 significance=significance,
@@ -393,6 +404,8 @@ def _parse_entries(raw_entries: list[Any]) -> list[WikiIngestEntry]:
                     str(item) for item in raw.get("prerequisite_labels") or [] if str(item).strip()
                 ],
                 note_excerpt=str(raw.get("note_excerpt") or "")[:240],
+                elo_reference=elo_reference,
+                elo_index=elo_index,
             ),
         )
     return entries
@@ -470,6 +483,7 @@ def _entry_to_candidate(
     stage_run_id: str,
     source_id: str | None,
     chapter: dict[str, Any],
+    section_title: str = "",
 ) -> WikiCandidate:
     evidence: list[dict[str, Any]] = []
     if source_id:
@@ -496,6 +510,12 @@ def _entry_to_candidate(
         origin["chapter_id"] = chapter["chapter_id"]
     if chapter.get("sequence_index") is not None:
         origin["chapter_sequence_index"] = chapter["sequence_index"]
+    if entry.elo_reference:
+        origin["elo_reference"] = entry.elo_reference
+    if entry.elo_index is not None:
+        origin["elo_index"] = entry.elo_index
+    if entry.entry_kind == "elo" and section_title:
+        origin["section_title"] = section_title
     return WikiCandidate(
         label=entry.label,
         definition=entry.definition,

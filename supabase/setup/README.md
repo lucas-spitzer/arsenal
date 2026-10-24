@@ -94,6 +94,8 @@ Run these only on databases that already have a Foundry schema and need a target
 | `alter-drop-artifacts-bucket.sql` | Operator note only (SQL no-op). Supabase blocks dropping `storage.buckets` / `storage.objects` from SQL. After migrating objects into the `sources` bucket, purge the legacy `artifacts` bucket via the Storage API or Dashboard. |
 | `alter-discussion-threads.sql` | DB was created before persisted discussion threads. Adds `discussion_threads` and `discussion_messages` with RLS + role revokes. Idempotent. |
 | `alter-platoon-access.sql` | DB was created before admin and student access. Constrains `approved_users.role` to `admin` or `student` (existing `owner` rows become `admin`) and adds `discussion_threads.user_id`. |
+| `alter-discussion-tbs.sql` | DB was created before the TBS discussion instruction. Allows `discussion_threads.submode` of `tbs` and defaults new threads to it. |
+| `alter-wiki-entry-kind-elo.sql` | DB was created before Enabling Learning Objectives. Allows `wiki_entries.entry_kind` of `elo`. |
 | `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. |
 | `../maintenance/delete-production-run.sql` | Operator utility. Deletes one production run and the rows it created. Refuses Study Material runs. Storage files cannot be deleted from SQL. |
 | `../maintenance/delete-study-material-run.sql` | Operator utility. Deletes one Study Material production run, its material, components, versions, artifacts, and stage runs. Storage files cannot be deleted from SQL. |

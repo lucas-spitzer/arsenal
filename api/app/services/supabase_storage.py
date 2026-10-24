@@ -126,7 +126,11 @@ class SupabaseStorageClient:
         bucket: str,
         path: str,
         expires_in: int = 3600,
+        download_name: str | None = None,
     ) -> str:
+        body: dict[str, object] = {"expiresIn": expires_in}
+        if download_name:
+            body["download"] = download_name
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.post(
@@ -134,7 +138,7 @@ class SupabaseStorageClient:
                     headers={
                         **self._headers(content_type="application/json"),
                     },
-                    json={"expiresIn": expires_in},
+                    json=body,
                 )
         except httpx.HTTPError as exc:
             raise SupabaseStorageError("Supabase Storage could not be reached.") from exc

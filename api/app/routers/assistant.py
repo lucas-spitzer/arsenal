@@ -2,6 +2,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.access import is_admin
 from app.dependencies.auth import require_approved_user
 from app.dependencies.services import get_assistant_service, get_discussion_repository
 from app.dependencies.workspace import require_workspace
@@ -97,7 +98,7 @@ async def create_discussion_thread(
             "workspace_id": workspace.id,
             "user_id": user.id,
             "title": title,
-            "submode": request.submode,
+            "submode": request.submode if is_admin(user) else "tbs",
             "source_id": request.source_id,
         }
     )
@@ -146,6 +147,11 @@ async def update_discussion_thread(
     if request.title is not None and request.title.strip():
         payload["title"] = request.title.strip()
     if request.submode is not None:
+        if not is_admin(user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Discussion style is limited to the Academics officer.",
+            )
         payload["submode"] = request.submode
 
     if not payload:
@@ -207,7 +213,7 @@ async def send_discussion_message(
 
     chat_request = AssistantChatRequest(
         mode="discussion",
-        submode=thread["submode"],
+        submode=thread["submode"] if is_admin(user) else "tbs",
         source_ids=[thread["source_id"]] if thread.get("source_id") else None,
         messages=[
             AssistantMessage(role=row["role"], content=row["content"])

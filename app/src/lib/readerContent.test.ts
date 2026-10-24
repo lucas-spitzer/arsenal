@@ -125,6 +125,17 @@ describe('resolveReaderSelection', () => {
     const resolved = resolveReaderSelection(wordBlocks, [tempo.global], termByWord)
     expect(resolved!.entryId).toBe('e1')
   })
+
+  it('does not link an ELO whose text appears in the book', () => {
+    const { wordBlocks } = buildNarration(blocks)
+    const entries = [
+      { id: 'elo', preferred_label: 'tempo', aliases: [] as string[], status: 'canonical', entry_kind: 'elo' },
+    ]
+    const termByWord = matchWikiTerms(wordBlocks, entries)
+    const tempo = wordBlocks[2].words.find((word) => word.text === 'tempo')
+    expect(tempo).toBeTruthy()
+    expect(termByWord.has(tempo!.global)).toBe(false)
+  })
 })
 
 describe('endsSentence', () => {

@@ -271,6 +271,42 @@ def test_structure_imports_json_entries_without_calling_the_model(monkeypatch) -
     assert db.stage_runs[stage_run_id]["output"]["structured_json"] is True
 
 
+def test_structure_imports_a_long_elo_without_calling_the_model(monkeypatch) -> None:
+    prompt = (
+        "Explain the moral and professional obligations reposed in a USMC officer by the Commission, "
+        "including the grant of authority and the duty of continuous study."
+    )
+    assert len(prompt) > 120
+    notes = json.dumps(
+        {
+            "elos": [{"elo": prompt, "response": "A commission is a grant of authority."}],
+            "terms": [
+                {
+                    "term": "Special Trust and Confidence",
+                    "definition": "The presumption of character that underwrites command.",
+                    "elo_reference": prompt,
+                },
+            ],
+        },
+    )
+    db = FakeWikiWorkerDb(_batch(raw_notes=notes, title="Chapter 1 - Armed Forces Officer"))
+
+    def fail_if_called(_action: str):
+        raise AssertionError("structured JSON must not call the model")
+
+    monkeypatch.setattr("app.worker.wiki_knowledge_executors.get_llm_client", fail_if_called)
+    executor = StructureWikiNotesStageExecutor(db=db)  # type: ignore[arg-type]
+    executor.run(production_run_id="run-1", workspace_id="ws-1", source_id="src-1")
+
+    labels = {row["preferred_label"]: row for row in db.wiki_rows.values()}
+    elo = labels[prompt]
+    assert elo["entry_kind"] == "elo"
+    assert elo["origin"]["section_title"] == "Chapter 1 - Armed Forces Officer"
+    assert elo["origin"]["elo_index"] == 0
+    assert elo["origin"]["batch_id"] == "batch-1"
+    assert labels["Special Trust and Confidence"]["origin"]["elo_reference"] == prompt
+
+
 def test_structure_failure_marks_batch_and_stage_failed(monkeypatch) -> None:
     db = FakeWikiWorkerDb(_batch(raw_notes=""))
     executor = StructureWikiNotesStageExecutor(db=db)  # type: ignore[arg-type]

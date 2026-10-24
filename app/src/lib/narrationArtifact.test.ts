@@ -4,7 +4,11 @@ vi.mock('../features/auth/authService', () => ({
   getAccessToken: async () => null,
 }))
 
-import { artifactLibraryCard, isIncompleteNarrationArtifact } from './academyOutputs'
+import {
+  artifactLibraryCard,
+  isIncompleteNarrationArtifact,
+  narrationDownloadState,
+} from './academyOutputs'
 import {
   collapseDuplicateNarrationArtifacts,
   narrationArtifactStatusLabel,
@@ -135,6 +139,15 @@ describe('narration artifact progress', () => {
     expect(
       collapseDuplicateNarrationArtifacts([google, speechify]).map((row) => row.id),
     ).toEqual(['google', 'speechify'])
+  })
+})
+
+describe('narration download state', () => {
+  it('stays absent until a combined file or a prepare job exists', () => {
+    expect(narrationDownloadState({})).toBe('absent')
+    expect(narrationDownloadState({ combined_audio_status: 'preparing' })).toBe('preparing')
+    expect(narrationDownloadState({ combined_audio_status: 'failed' })).toBe('failed')
+    expect(narrationDownloadState({ combined_audio_path: 'audio/book.mp3' })).toBe('ready')
   })
 })
 

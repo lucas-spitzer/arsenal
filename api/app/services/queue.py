@@ -54,6 +54,16 @@ def enqueue_knowledge_run(settings: Settings, production_run_id: str, job: str) 
     return queued.id
 
 
+def enqueue_narration_combine(settings: Settings, artifact_id: str) -> str:
+    queue = get_task_queue(settings)
+    job = queue.enqueue(
+        "app.worker.jobs.combine_narration_audio",
+        artifact_id,
+        job_timeout=settings.production_run_job_timeout,
+    )
+    return job.id
+
+
 def enqueue_production_run(settings: Settings, production_run_id: str) -> str:
     queue = get_task_queue(settings)
     job = queue.enqueue(

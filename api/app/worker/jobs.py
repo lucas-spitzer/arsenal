@@ -36,6 +36,15 @@ def draft_knowledge(production_run_id: str) -> dict[str, Any]:
     return KnowledgeRunner().draft(production_run_id)
 
 
+def combine_narration_audio(artifact_id: str) -> dict[str, Any]:
+    """Join a narration's clips into one MP3 for library download."""
+    from app.services.narration_combine import combine_narration_artifact
+    from app.worker.db import WorkerDatabase
+    from app.worker.storage import WorkerStorage
+
+    return combine_narration_artifact(WorkerDatabase(), WorkerStorage(), artifact_id)
+
+
 def attach_knowledge_visuals(production_run_id: str) -> dict[str, Any]:
     """Copy uploaded images onto the study items for a knowledge project."""
     from app.worker.knowledge_runner import KnowledgeRunner

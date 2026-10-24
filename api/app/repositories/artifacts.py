@@ -88,5 +88,13 @@ class ArtifactRepository:
             },
         )
 
+    async def update(self, artifact_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        rows = await self.db.update(
+            "artifacts",
+            filters={"id": f"eq.{artifact_id}"},
+            payload=payload,
+        )
+        return rows[0] if rows else None
+
     async def delete(self, artifact_id: str) -> None:
         await self.db.delete("artifacts", filters={"id": f"eq.{artifact_id}"})

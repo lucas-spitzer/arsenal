@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -22,5 +22,6 @@ class ArtifactResponse(BaseModel):
 class ArtifactDownloadResponse(BaseModel):
     artifact_id: str
     filename: str
-    download_url: str
+    download_url: str | None = None
     expires_in: int
+    status: Literal["ready", "preparing"] = "ready"

@@ -1,5 +1,7 @@
 import { MessageCircle, MessagesSquare, Plus, Send, Trash2, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { isAdminAccess } from '../../features/auth/access'
+import { useAuth } from '../../features/auth/authContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import {
   createThread,
@@ -15,19 +17,13 @@ import {
 import { ChatRichText } from './ChatRichText'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { useOutputs } from '../../lib/academyOutputs'
+import { discussionSections } from '../../lib/discussionPrompts'
 import {
   StudyHead,
   StudyPanel,
   StudySourceReference,
 } from './StudySessionChrome'
 import { useStudyFullscreen } from './useStudyFullscreen'
-
-type SuggestedPrompt = {
-  key: string
-  source_id: string | null
-  title: string
-  prompt: string
-}
 
 const DEFAULT_SEED_PROMPT =
   'Ask any question and receive thought-provoking responses with canonical references to the wiki.'
@@ -38,23 +34,18 @@ const DEFAULT_SEED_PROMPT =
    prompt. */
 
 export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?: string | null }) {
+  const { approvedUser } = useAuth()
   const { activeWorkspace } = useWorkspace()
+  const canChooseStyle = isAdminAccess(approvedUser?.role)
   const { wikiEntries } = useWorkspaceData()
   const { sources } = useOutputs()
   const { fullscreen, toggle } = useStudyFullscreen()
 
-  const suggestions = useMemo<SuggestedPrompt[]>(() => {
-    return wikiEntries
-      .filter((entry) => entry.status === 'canonical')
-      .map((entry) => ({
-        key: entry.id,
-        source_id: entry.evidence.find((evidence) => evidence.source_id)?.source_id ?? null,
-        title: `Explain ${entry.preferred_label}.`,
-        prompt: `Explain the concept of ${entry.preferred_label} and why it matters. Ground your answer in the source.`,
-      }))
-      .filter((prompt) => !initialSource || prompt.source_id === initialSource)
-      .sort((a, b) => a.title.localeCompare(b.title))
-  }, [wikiEntries, initialSource])
+  const sections = useMemo(
+    () => discussionSections(wikiEntries, initialSource),
+    [wikiEntries, initialSource],
+  )
+  const prompts = useMemo(() => sections.flatMap((section) => section.prompts), [sections])
 
   const [threads, setThreads] = useState<DiscussionThread[]>([])
   const [threadsLoaded, setThreadsLoaded] = useState(false)
@@ -168,10 +159,10 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
     try {
       const detail = await createThread(workspaceId, {
         title: options.title,
-        submode: activeThread?.submode ?? 'socratic',
+        submode: canChooseStyle ? (activeThread?.submode ?? 'tbs') : 'tbs',
         source_id: options.sourceId ?? null,
-        // Suggested starters are the student's question. seed_prompt is an
-        // assistant opener, so only the blank-thread welcome uses it.
+        // An ELO is the student's question. seed_prompt is an assistant opener,
+        // so only the blank-thread welcome uses it.
         seed_prompt: studentPrompt ? null : DEFAULT_SEED_PROMPT,
       })
       createdId = detail.id
@@ -224,7 +215,7 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
     await submitMessage(activeThread.id, text)
   }
 
-  const submode = activeThread?.submode ?? 'socratic'
+  const submode = canChooseStyle ? (activeThread?.submode ?? 'tbs') : 'tbs'
   const sourceName = activeThread?.source_id
     ? sources.find((source) => source.id === activeThread.source_id)?.name ?? 'Unassigned'
     : null
@@ -259,8 +250,16 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
           </>
         }
         center={
-          activeThread ? (
+          activeThread && canChooseStyle ? (
             <div className="disc__seg" role="group" aria-label="Discussion style">
+              <button
+                type="button"
+                className={`disc__seg-btn${submode === 'tbs' ? ' is-active' : ''}`}
+                onClick={() => setSubmode('tbs')}
+                aria-pressed={submode === 'tbs'}
+              >
+                TBS
+              </button>
               <button
                 type="button"
                 className={`disc__seg-btn${submode === 'socratic' ? ' is-active' : ''}`}
@@ -320,7 +319,7 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
                 className="chat__input"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder={submode === 'socratic' ? 'Share your thinking…' : 'Ask a question…'}
+                placeholder={messagePlaceholder(submode)}
                 aria-label="Your message"
                 disabled={sending}
               />
@@ -335,35 +334,38 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
               <p className="disc__sub">Loading conversations…</p>
             ) : (
               <>
-                <div className="disc__label">
-                  <h3>Suggested starters</h3>
-                  <span className="disc__label-line" aria-hidden />
-                </div>
-                {suggestions.length > 0 ? (
-                  <div className="disc__grid">
-                    {suggestions.slice(0, 8).map((suggestion) => (
-                      <button
-                        key={suggestion.key}
-                        type="button"
-                        className="disc__prompt"
-                        disabled={creating}
-                        onClick={() =>
-                          void startThread({
-                            title: suggestion.title,
-                            seedPrompt: suggestion.prompt,
-                            sourceId: suggestion.source_id,
-                          })
-                        }
-                      >
-                        <MessageCircle size={16} aria-hidden />
-                        {suggestion.title}
-                      </button>
-                    ))}
-                  </div>
+                {sections.length > 0 ? (
+                  sections.map((section) => (
+                    <Fragment key={section.key}>
+                      <div className="disc__label">
+                        <h3>{section.title}</h3>
+                        <span className="disc__label-line" aria-hidden />
+                      </div>
+                      <div className="disc__grid">
+                        {section.prompts.map((prompt) => (
+                          <button
+                            key={prompt.key}
+                            type="button"
+                            className="disc__prompt"
+                            disabled={creating}
+                            onClick={() =>
+                              void startThread({
+                                title: prompt.title,
+                                seedPrompt: prompt.prompt,
+                                sourceId: prompt.sourceId,
+                              })
+                            }
+                          >
+                            <MessageCircle size={16} aria-hidden />
+                            {prompt.title}
+                          </button>
+                        ))}
+                      </div>
+                    </Fragment>
+                  ))
                 ) : (
                   <p className="disc__sub">
-                    Starters are generated from the knowledge base. Ingest a source to see
-                    suggestions, or begin your own conversation below.
+                    ELOs from a knowledge upload appear here. Begin your own conversation below.
                   </p>
                 )}
 
@@ -469,24 +471,24 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
                 </div>
               )}
 
-              {suggestions.length > 0 && (
+              {prompts.length > 0 && (
                 <div className="disc-threads__suggestions">
                   <span className="disc-threads__section-label">Suggested topics</span>
-                  {suggestions.slice(0, 8).map((suggestion) => (
+                  {prompts.map((prompt) => (
                     <button
-                      key={suggestion.key}
+                      key={prompt.key}
                       type="button"
                       className="disc-threads__suggestion"
                       disabled={creating}
                       onClick={() =>
                         void startThread({
-                          title: suggestion.title,
-                          seedPrompt: suggestion.prompt,
-                          sourceId: suggestion.source_id,
+                          title: prompt.title,
+                          seedPrompt: prompt.prompt,
+                          sourceId: prompt.sourceId,
                         })
                       }
                     >
-                      {suggestion.title}
+                      {prompt.title}
                     </button>
                   ))}
                 </div>
@@ -501,6 +503,21 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
       )}
     </section>
   )
+}
+
+function messagePlaceholder(submode: DiscussionSubmode): string {
+  switch (submode) {
+    case 'tbs':
+      return 'Ask about a concept…'
+    case 'socratic':
+      return 'Share your thinking…'
+    case 'euclidean':
+      return 'Ask a question…'
+    default: {
+      const exhaustive: never = submode
+      return exhaustive
+    }
+  }
 }
 
 function formatRelativeTime(iso: string): string {

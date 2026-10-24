@@ -252,6 +252,8 @@ class KnowledgeProjectService:
             saved = await self._write_wiki_entries(
                 workspace_id=str(project["workspace_id"]),
                 source_id=str(source["id"]),
+                project_id=str(project["id"]),
+                section_title=str(project.get("title") or "").strip(),
                 notes=notes,
             )
             await self.projects.insert_plans(
@@ -278,10 +280,17 @@ class KnowledgeProjectService:
         *,
         workspace_id: str,
         source_id: str,
+        project_id: str,
+        section_title: str,
         notes: StructuredNotes,
     ) -> list[dict[str, Any]]:
         existing = await self.wiki_entries.list_for_workspace(workspace_id, status="canonical", limit=1000)
-        candidates = _candidates(notes, source_id)
+        candidates = _candidates(
+            notes,
+            source_id,
+            knowledge_project_id=project_id,
+            section_title=section_title,
+        )
         inserts, updates, conflicted = promote_candidates(
             workspace_id=workspace_id,
             candidates=candidates,
@@ -1290,14 +1299,30 @@ def _structured_upload(
     return text, safe_name
 
 
-def _candidates(notes: StructuredNotes, source_id: str) -> list[WikiCandidate]:
+def _candidates(
+    notes: StructuredNotes,
+    source_id: str,
+    *,
+    knowledge_project_id: str,
+    section_title: str,
+) -> list[WikiCandidate]:
     evidence = [{"source_id": source_id}]
-    origin = {"source": "structured_notes"}
     candidates: list[WikiCandidate] = []
     for entry in notes.entries:
         importance = str(entry.get("importance") or "supporting")
         if importance not in {"essential", "supporting", "contextual"}:
             importance = "supporting"
+        origin: dict[str, Any] = {
+            "source": "structured_notes",
+            "knowledge_project_id": knowledge_project_id,
+            "section_title": section_title,
+        }
+        elo_index = entry.get("elo_index")
+        if isinstance(elo_index, int) and not isinstance(elo_index, bool):
+            origin["elo_index"] = elo_index
+        elo_reference = str(entry.get("elo_reference") or "").strip()
+        if elo_reference:
+            origin["elo_reference"] = elo_reference
         candidates.append(
             WikiCandidate(
                 label=str(entry["label"]),

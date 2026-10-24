@@ -362,6 +362,7 @@ class NarrationStageExecutor:
             if artifact_file:
                 output["files"] = [artifact_file]
                 promoted["artifact_ids"] = [artifact_file["artifact_id"]]
+                self._combine_book_audio(str(artifact_file["artifact_id"]))
             self.db.update_stage_run(
                 stage_run_id,
                 {
@@ -407,6 +408,18 @@ class NarrationStageExecutor:
                 )
             self.db.update_stage_run(stage_run_id, fail_payload)
             raise
+
+    def _combine_book_audio(self, artifact_id: str) -> None:
+        """Build the downloadable MP3. A failure leaves the narration published."""
+        from app.services.narration_combine import combine_narration_artifact
+
+        try:
+            combine_narration_artifact(self.db, self.storage, artifact_id)
+        except Exception:
+            logger.exception(
+                "Could not build the combined MP3 for narration artifact %s",
+                artifact_id,
+            )
 
     def _publish_progress(
         self,
@@ -783,9 +796,11 @@ class NarrationStageExecutor:
         )
         keep = existing_rows[0] if existing_rows else None
         generated_at = now
+        previous_manifest: dict[str, Any] = {}
         if keep:
-            previous_manifest = keep.get("manifest") or {}
-            if isinstance(previous_manifest, dict):
+            raw_manifest = keep.get("manifest") or {}
+            if isinstance(raw_manifest, dict):
+                previous_manifest = raw_manifest
                 previous_generated = str(previous_manifest.get("generated_at") or "")
                 if previous_generated:
                     generated_at = previous_generated
@@ -813,6 +828,28 @@ class NarrationStageExecutor:
             "utf-8"
         )
         storage_path = downloadable_artifact_path(source, "narration_audio")
+        db_manifest: dict[str, Any] = {
+            "voice_id": self.client.voice_id,
+            "model_id": self.client.model_id,
+            "status": status,
+            "generated_at": generated_at,
+            "updated_at": now,
+            "segment_count": segment_total,
+            "clip_count": clip_count,
+            "clips_total": resolved_clips_total,
+            "chapter_count": len(manifest_chapters),
+            "chapter_titles": [c["title"] for c in manifest_chapters],
+            "total_duration_seconds": round(total_duration, 3),
+        }
+        # Keep the clip-set hash so an unchanged republish can reuse book.mp3.
+        # The path stays off the row until combine confirms the file.
+        if complete:
+            previous_hash = previous_manifest.get("combined_audio_hash")
+            previous_name = previous_manifest.get("combined_audio_filename")
+            if isinstance(previous_hash, str) and previous_hash:
+                db_manifest["combined_audio_hash"] = previous_hash
+            if isinstance(previous_name, str) and previous_name:
+                db_manifest["combined_audio_filename"] = previous_name
         payload = {
             "workspace_id": workspace_id,
             "source_id": source["id"],
@@ -822,19 +859,7 @@ class NarrationStageExecutor:
             "filename": filename,
             "storage_path": storage_path,
             "file_size_bytes": len(manifest_bytes),
-            "manifest": {
-                "voice_id": self.client.voice_id,
-                "model_id": self.client.model_id,
-                "status": status,
-                "generated_at": generated_at,
-                "updated_at": now,
-                "segment_count": segment_total,
-                "clip_count": clip_count,
-                "clips_total": resolved_clips_total,
-                "chapter_count": len(manifest_chapters),
-                "chapter_titles": [c["title"] for c in manifest_chapters],
-                "total_duration_seconds": round(total_duration, 3),
-            },
+            "manifest": db_manifest,
             "origin": {
                 "stage_run_id": stage_run_id,
                 "stage_id": self.STAGE_ID,

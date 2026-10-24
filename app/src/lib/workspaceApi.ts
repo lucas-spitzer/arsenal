@@ -269,12 +269,18 @@ export async function uploadArtifact(workspaceId: string, file: File): Promise<A
   return uploadMultipart<Artifact>(`/workspaces/${workspaceId}/artifacts`, file)
 }
 
+export interface ArtifactDownloadResult {
+  artifact_id: string
+  filename: string
+  download_url: string | null
+  expires_in: number
+  status: 'ready' | 'preparing'
+}
+
 export async function getArtifactDownloadUrl(
   artifactId: string,
-): Promise<{ download_url: string }> {
-  return apiRequest<{ download_url: string; expires_in: number }>(
-    `/artifacts/${artifactId}/download`,
-  )
+): Promise<ArtifactDownloadResult> {
+  return apiRequest<ArtifactDownloadResult>(`/artifacts/${artifactId}/download`)
 }
 
 export interface KnowledgeRunTitle {

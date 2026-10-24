@@ -261,6 +261,7 @@ export type WikiTermEntry = {
   preferred_label: string
   aliases: string[]
   status?: string
+  entry_kind?: string
 }
 
 function normalizeToken(raw: string): string {
@@ -277,6 +278,7 @@ export function matchWikiTerms(
   const byFirstToken = new Map<string, Pattern[]>()
 
   for (const entry of entries) {
+    if (entry.entry_kind === 'elo') continue
     if (entry.status && entry.status !== 'canonical') continue
     for (const label of [entry.preferred_label, ...entry.aliases]) {
       const tokens = label.split(/\s+/).map(normalizeToken).filter(Boolean)

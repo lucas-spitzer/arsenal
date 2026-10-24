@@ -77,3 +77,66 @@ def test_entries_array_still_imports() -> None:
     assert notes is not None
     assert notes.entries[0]["entry_kind"] == "term"
     assert notes.entries[0]["significance"] == "A competitive dynamic."
+
+
+def test_chapter_elos_stay_a_separate_kind() -> None:
+    commission = "Explain the moral and professional obligations reposed in a USMC officer by the Commission."
+    oath = "Explain the relationship between the Officer Oath, public trust, and the concept of unlimited liability."
+    trust = "Identify the Marine Corps doctrine on Special Trust and Confidence and the officer's obligation under Paragraph 1100."
+    notes = parse_structured_notes(
+        json.dumps(
+            {
+                "metadata": {"document_title": "The Armed Forces Officer - Chapter 1"},
+                "elos": [
+                    {"elo": commission, "response": "A commission is a grant of authority."},
+                    {"elo": oath, "response": "The oath commits the officer to unlimited liability."},
+                    {"elo": trust, "response": "Paragraph 1100 defines special trust."},
+                ],
+                "terms": [
+                    {
+                        "term": "Special Trust and Confidence",
+                        "elo_reference": commission,
+                        "definition": "The presumption of character that underwrites command.",
+                    },
+                ],
+                "key_lists": [
+                    {
+                        "concept": "The Four Commissioning Virtues",
+                        "elo_reference": commission,
+                        "overview": "The qualities attested in every commission.",
+                        "items": [{"name": "Patriotism", "details": "Devotion to the nation."}],
+                    },
+                ],
+            },
+        ),
+    )
+    assert notes is not None
+
+    elos = [entry for entry in notes.entries if entry["entry_kind"] == "elo"]
+    terms = [entry for entry in notes.entries if entry["entry_kind"] == "term"]
+    lists = [entry for entry in notes.entries if entry["entry_kind"] == "list"]
+    assert [entry["label"] for entry in elos] == [commission, oath, trust]
+    assert [entry["elo_index"] for entry in elos] == [0, 1, 2]
+    assert elos[0]["definition"] == "A commission is a grant of authority."
+    assert terms[0]["elo_reference"] == commission
+    assert lists[0]["elo_reference"] == commission
+
+    candidates = [
+        WikiCandidate(
+            label=entry["label"],
+            definition=entry["definition"],
+            entry_kind=entry["entry_kind"],
+        )
+        for entry in notes.entries
+    ]
+    inserts, updates, conflicted = promote_candidates(
+        workspace_id="ws-1",
+        candidates=candidates,
+        existing_entries=[],
+    )
+    assert updates == []
+    assert conflicted == []
+    promoted = {row["preferred_label"]: row for row in inserts}
+    assert promoted[commission]["entry_kind"] == "elo"
+    assert promoted["Special Trust and Confidence"]["entry_kind"] == "term"
+    assert promoted["The Four Commissioning Virtues"]["entry_kind"] == "list"

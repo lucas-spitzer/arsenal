@@ -20,6 +20,8 @@ def flashcard_plan_rows(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for entry in entries:
+        if str(entry.get("entry_kind") or "") == "elo":
+            continue
         rows.append(
             {
                 "knowledge_project_id": project_id,

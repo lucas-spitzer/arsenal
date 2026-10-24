@@ -1,7 +1,7 @@
 import { apiRequest, apiRequestVoid } from './apiClient'
 
 export type AssistantMode = 'discussion' | 'scenario'
-export type DiscussionSubmode = 'socratic' | 'euclidean'
+export type DiscussionSubmode = 'socratic' | 'euclidean' | 'tbs'
 
 export interface AssistantMessage {
   role: 'user' | 'assistant'

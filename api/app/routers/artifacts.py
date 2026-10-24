@@ -16,6 +16,11 @@ from app.models.auth import CurrentUser
 from app.models.workspace import WorkspaceResponse
 from app.repositories.artifacts import ArtifactRepository
 from app.repositories.workspaces import WorkspaceRepository
+from app.services.narration_combine import (
+    narration_download_filename,
+    narration_download_state,
+)
+from app.services.queue import enqueue_narration_combine
 from app.services.supabase_storage import SupabaseStorageClient
 
 router = APIRouter(tags=["artifacts"])
@@ -96,6 +101,15 @@ async def download_artifact(
             detail="Artifact not found.",
         )
 
+    if row.get("artifact_type") == "narration_audio":
+        return await _narration_download(
+            artifact_id,
+            row,
+            settings=settings,
+            artifacts=artifacts,
+            storage=storage,
+        )
+
     download_url = await storage.create_signed_url(
         bucket=settings.sources_bucket,
         path=row["storage_path"],
@@ -107,4 +121,65 @@ async def download_artifact(
         filename=row["filename"],
         download_url=download_url,
         expires_in=settings.signed_url_expires_seconds,
+        status="ready",
+    )
+
+
+async def _narration_download(
+    artifact_id: str,
+    row: dict[str, Any],
+    *,
+    settings: Settings,
+    artifacts: ArtifactRepository,
+    storage: SupabaseStorageClient,
+) -> ArtifactDownloadResponse:
+    manifest = row.get("manifest") or {}
+    if not isinstance(manifest, dict):
+        manifest = {}
+    if str(manifest.get("status") or "") == "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Narration is still being generated.",
+        )
+
+    state = narration_download_state(manifest)
+    filename = narration_download_filename(manifest)
+    if state == "ready":
+        download_url = await storage.create_signed_url(
+            bucket=settings.sources_bucket,
+            path=str(manifest["combined_audio_path"]),
+            expires_in=settings.signed_url_expires_seconds,
+            download_name=filename,
+        )
+        return ArtifactDownloadResponse(
+            artifact_id=artifact_id,
+            filename=filename,
+            download_url=download_url,
+            expires_in=settings.signed_url_expires_seconds,
+            status="ready",
+        )
+
+    if state == "missing":
+        updated = dict(manifest)
+        updated["combined_audio_status"] = "preparing"
+        updated.pop("combined_audio_path", None)
+        updated.pop("combined_audio_error", None)
+        await artifacts.update(artifact_id, {"manifest": updated})
+        try:
+            enqueue_narration_combine(settings, artifact_id)
+        except Exception as exc:
+            updated["combined_audio_status"] = "failed"
+            updated["combined_audio_error"] = str(exc)
+            await artifacts.update(artifact_id, {"manifest": updated})
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not start preparing the audio file.",
+            ) from exc
+
+    return ArtifactDownloadResponse(
+        artifact_id=artifact_id,
+        filename=filename,
+        download_url=None,
+        expires_in=settings.signed_url_expires_seconds,
+        status="preparing",
     )

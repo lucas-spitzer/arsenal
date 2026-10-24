@@ -142,8 +142,14 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
     [productionRuns],
   )
 
+  const narrationPreparing = useMemo(
+    () =>
+      artifacts.some((artifact) => artifact.manifest.combined_audio_status === 'preparing'),
+    [artifacts],
+  )
+
   useEffect(() => {
-    if (!workspaceId || activeRunCount === 0) {
+    if (!workspaceId || (activeRunCount === 0 && !narrationPreparing)) {
       return
     }
 
@@ -152,7 +158,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
     }, POLL_INTERVAL_MS)
 
     return () => window.clearInterval(intervalId)
-  }, [workspaceId, activeRunCount, refresh])
+  }, [workspaceId, activeRunCount, narrationPreparing, refresh])
 
   const uploadSource = useCallback(
     async (file: File) => {
@@ -223,8 +229,39 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
   )
 
   const downloadArtifact = useCallback(async (artifactId: string) => {
-    const { download_url } = await getArtifactDownloadUrl(artifactId)
-    window.open(download_url, '_blank', 'noopener,noreferrer')
+    try {
+      const result = await getArtifactDownloadUrl(artifactId)
+      if (result.status === 'preparing' || !result.download_url) {
+        setArtifacts((current) =>
+          current.map((artifact) =>
+            artifact.id === artifactId
+              ? {
+                  ...artifact,
+                  manifest: { ...artifact.manifest, combined_audio_status: 'preparing' },
+                }
+              : artifact,
+          ),
+        )
+        return
+      }
+      window.open(result.download_url, '_blank', 'noopener,noreferrer')
+    } catch (downloadError) {
+      setArtifacts((current) =>
+        current.map((artifact) =>
+          artifact.id === artifactId && artifact.artifact_type === 'narration_audio'
+            ? {
+                ...artifact,
+                manifest: { ...artifact.manifest, combined_audio_status: 'failed' },
+              }
+            : artifact,
+        ),
+      )
+      setError(
+        downloadError instanceof Error
+          ? downloadError.message
+          : 'Could not download that file.',
+      )
+    }
   }, [])
 
   const addWikiEntry = useCallback((entry: WikiEntry) => {

@@ -7,6 +7,7 @@ import { sourceDisplayName } from './sourceDisplay'
 import type { Artifact, KnowledgeRunTitle, Source, WikiEntry } from './workspaceApi'
 
 export type OutputKind = 'audio' | 'book' | 'artifact' | 'material' | 'flashcard' | 'question' | 'scenario' | 'wiki'
+export type NarrationDownloadState = 'ready' | 'preparing' | 'failed' | 'absent'
 export type OutputType = 'all' | OutputKind
 export type OutputSort = 'source' | 'newest' | 'difficulty' | 'type'
 
@@ -27,6 +28,8 @@ export interface OutputItem {
   isAudio: boolean
   isEbook: boolean
   isNarration: boolean
+  /** Narration MP3 readiness. Null for every other library item. */
+  narrationDownload: NarrationDownloadState | null
   /** Knowledge run this batch belongs to. Study opens only that run. */
   projectId: string | null
   /** Member text for a grouped card. Included in Library search only. */
@@ -126,6 +129,17 @@ export function artifactLibraryCard(artifact: Pick<
   return { chipLabel, title, isAudio, isEbook, isStudyMaterial, isNarration }
 }
 
+export function narrationDownloadState(
+  manifest: Record<string, unknown>,
+): NarrationDownloadState {
+  const status = manifest.combined_audio_status
+  const path = manifest.combined_audio_path
+  if (status === 'preparing') return 'preparing'
+  if (status === 'failed') return 'failed'
+  if (typeof path === 'string' && path.length > 0) return 'ready'
+  return 'absent'
+}
+
 export function isStudyMaterialArtifact(artifact: Pick<Artifact, 'artifact_type'>): boolean {
   return artifact.artifact_type === 'study_material'
 }
@@ -220,6 +234,7 @@ export function wikiEntriesToOutputItems(
       isAudio: false,
       isEbook: false,
       isNarration: false,
+      narrationDownload: null,
       projectId: null,
       searchText: entries.map((entry) => entry.preferred_label).join(' '),
     }
@@ -289,6 +304,7 @@ export function knowledgeRunOutputItems<T extends KnowledgeRecord>(
       isAudio: false,
       isEbook: false,
       isNarration: false,
+      narrationDownload: null,
       searchText: batch.map(searchOf).join(' '),
     } satisfies OutputItem
   })
@@ -309,6 +325,7 @@ export function knowledgeRunOutputItems<T extends KnowledgeRecord>(
       isAudio: false,
       isEbook: false,
       isNarration: false,
+      narrationDownload: null,
     } satisfies OutputItem
   })
 
@@ -383,6 +400,7 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
           isAudio: card.isAudio,
           isEbook: card.isEbook,
           isNarration: card.isNarration,
+          narrationDownload: card.isNarration ? narrationDownloadState(a.manifest) : null,
           projectId: null,
         }
       }),
