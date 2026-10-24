@@ -7,8 +7,9 @@ failure so a bad run stops loudly instead of shipping a broken EPUB.
 
 Checks (by re-reading the PDF text layer with PyMuPDF):
   1. Every chapter/section title appears on or near its recorded page.
-     A long heading may differ by one letter in a single word. That
-     spelling is replaced with the PDF's.
+     A long heading may differ by one letter in a single word. A shorter
+     heading may differ by one repeated letter ("EQUIPING" / "EQUIPPING").
+     That spelling is replaced with the PDF's.
   2. No known front/back-matter label (FOREWORD, NOTES, GLOSSARY, INDEX...)
      survives as a chapter or section.
   3. The body carries real text.
@@ -33,7 +34,8 @@ _FRONT_BACK_LABELS = re.compile(
 # LlamaParse page numbers and the PDF's own page indices can drift by a page.
 PAGE_SLACK = 2
 # One substituted letter is a parser typo ("Roughhead" / "Roughead").
-# Shorter headings stay exact so a changed chapter number still fails.
+# Headings shorter than four words stay exact, except a single repeated
+# letter ("EQUIPING" / "EQUIPPING"), so a changed chapter number still fails.
 _MIN_TOKENS_FOR_TYPO = 4
 _MIN_TYPO_TOKEN_LEN = 6
 _SUP_TAG_RE = re.compile(r"<sup>.*?</sup>", re.IGNORECASE | re.DOTALL)
@@ -107,19 +109,49 @@ def _edit_distance(left: str, right: str, limit: int = 1) -> int:
     return previous[-1]
 
 
+def _correctable_word(left: str, right: str) -> bool:
+    return (
+        left != right
+        and not left.isdigit()
+        and not right.isdigit()
+        and len(left) >= _MIN_TYPO_TOKEN_LEN
+        and len(right) >= _MIN_TYPO_TOKEN_LEN
+    )
+
+
 def _one_letter_off(left: str, right: str) -> bool:
-    if left == right or left.isdigit() or right.isdigit():
-        return False
-    if len(left) < _MIN_TYPO_TOKEN_LEN or len(right) < _MIN_TYPO_TOKEN_LEN:
+    if not _correctable_word(left, right):
         return False
     return _edit_distance(left, right) <= 1
 
 
+def _repeated_letter_typo(left: str, right: str) -> bool:
+    """True when the words differ by one letter that repeats its neighbor.
+
+    "equiping" / "equipping" is a dropped double letter. A different word
+    ("friction" / "fiction") is not.
+    """
+    if not _correctable_word(left, right) or abs(len(left) - len(right)) != 1:
+        return False
+    shorter, longer = (left, right) if len(left) < len(right) else (right, left)
+    for index in range(len(longer)):
+        if shorter != longer[:index] + longer[index + 1:]:
+            continue
+        return (
+            (index > 0 and longer[index - 1] == longer[index])
+            or (index + 1 < len(longer) and longer[index + 1] == longer[index])
+        )
+    return False
+
+
 def _typo_window(needle_tokens: list[str], haystack_tokens: list[str]) -> list[str] | None:
     """Return the haystack tokens aligned to the title, if only one word is a typo."""
-    if len(needle_tokens) < _MIN_TOKENS_FOR_TYPO:
+    if not needle_tokens:
         return None
+    short_heading = len(needle_tokens) < _MIN_TOKENS_FOR_TYPO
+    typo = _repeated_letter_typo if short_heading else _one_letter_off
     width = len(needle_tokens)
+    found: list[str] | None = None
     for start in range(0, len(haystack_tokens) - width + 1):
         window = haystack_tokens[start:start + width]
         mismatches = [
@@ -127,9 +159,14 @@ def _typo_window(needle_tokens: list[str], haystack_tokens: list[str]) -> list[s
             for left, right in zip(needle_tokens, window, strict=True)
             if left != right
         ]
-        if len(mismatches) == 1 and _one_letter_off(*mismatches[0]):
+        if len(mismatches) != 1 or not typo(*mismatches[0]):
+            continue
+        if not short_heading:
             return window
-    return None
+        if found is not None and found != window:
+            return None
+        found = window
+    return found
 
 
 def _contains_title(needle: str, haystack: str) -> bool:

@@ -1436,6 +1436,59 @@ def test_validate_keeps_pdf_spelling_when_a_long_heading_has_one_typo() -> None:
     }]
 
 
+def test_validate_keeps_pdf_spelling_when_a_short_heading_drops_a_doubled_letter() -> None:
+    book = Book(chapters=[
+        Chapter(
+            title="Chapter 4 The Conduct of War",
+            page=1,
+            intro=[Paragraph(md="War requires people and equipment.", page=1)] * 3,
+            sections=[Section(title="EQUIPING", page=1, body=[])],
+        ),
+    ])
+    pdf = _pdf_with_pages(["Chapter 4 The Conduct of War\nEQUIPPING"])
+
+    report = validate_against_pdf(book, pdf)
+
+    assert report["valid"] is True
+    assert book.chapters[0].sections[0].title == "EQUIPPING"
+    assert report["title_corrections"] == [{
+        "kind": "section",
+        "page": 1,
+        "from": "EQUIPING",
+        "to": "EQUIPPING",
+    }]
+
+
+def test_validate_rejects_a_short_heading_that_is_a_different_word() -> None:
+    book = Book(chapters=[
+        Chapter(
+            title="Chapter 1 The Nature of War",
+            page=1,
+            intro=[Paragraph(md="War is a violent clash of interests.", page=1)] * 3,
+            sections=[Section(title="FRICTION", page=1, body=[])],
+        ),
+    ])
+    pdf = _pdf_with_pages(["Chapter 1 The Nature of War\nFICTION"])
+
+    with pytest.raises(StructureValidationError, match="FRICTION"):
+        validate_against_pdf(book, pdf)
+
+
+def test_validate_rejects_an_ambiguous_doubled_letter_heading() -> None:
+    book = Book(chapters=[
+        Chapter(
+            title="Chapter 4 The Conduct of War",
+            page=1,
+            intro=[Paragraph(md="War requires people and equipment.", page=1)] * 3,
+            sections=[Section(title="EQUIPING", page=1, body=[])],
+        ),
+    ])
+    pdf = _pdf_with_pages(["Chapter 4 The Conduct of War\nEQUIPPING\nEQQUIPING"])
+
+    with pytest.raises(StructureValidationError, match="EQUIPING"):
+        validate_against_pdf(book, pdf)
+
+
 def test_validate_rejects_a_changed_chapter_number() -> None:
     book = Book(chapters=[
         Chapter(
