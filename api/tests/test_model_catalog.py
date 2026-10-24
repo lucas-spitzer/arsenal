@@ -25,7 +25,7 @@ def test_catalog_contains_only_selected_models() -> None:
     assert catalog_ids == {
         "claude-opus-5-5",
         "claude-sonnet-5-5",
-        "claude-haiku-4-5-20251001",
+        "claude-haiku-5-5",
         "gpt-6-astra",
         "gpt-6.1-sol",
         "gpt-6-luna",
@@ -51,7 +51,7 @@ def test_get_catalog_model_exact_and_prefix() -> None:
 
 
 def test_catalog_list_price_known_and_unknown() -> None:
-    assert catalog_list_price("claude-haiku-4-5-20251001") == (1.00, 5.00)
+    assert catalog_list_price("claude-haiku-5-5") == (0.10, 0.50)
     assert catalog_list_price("gemini-3.8-flash") == (0.75, 3.75)
     assert catalog_list_price("gemini-3.1-pro-preview") == (2.00, 12.00)
     # A model absent from the catalog has no list price.
@@ -117,6 +117,6 @@ def test_build_model_catalog_response_serializes_all_entries() -> None:
     response = build_model_catalog_response()
 
     assert len(response.models) == len(MODEL_CATALOG)
-    haiku = next(m for m in response.models if m.model == "claude-haiku-4-5-20251001")
-    assert haiku.reasoning_modes == ["budget"]
+    haiku = next(m for m in response.models if m.model == "claude-haiku-5-5")
+    assert haiku.reasoning_modes == ["adaptive"]
     assert haiku.supports_reasoning is True

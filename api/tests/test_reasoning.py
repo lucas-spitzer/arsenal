@@ -40,7 +40,7 @@ def test_overrides_from_rows_carries_reasoning() -> None:
         {
             "stage_action": "wiki_structuring",
             "provider": "anthropic",
-            "model": "claude-haiku-4-5-20251001",
+            "model": "claude-haiku-5-5",
             "reasoning_effort": None,
             "reasoning_tokens": 8000,
         },
@@ -65,6 +65,7 @@ def test_supports_adaptive_by_family() -> None:
     assert _supports_adaptive("claude-sonnet-5-5")
     assert _supports_adaptive("claude-opus-4-8")
     assert _supports_adaptive("claude-sonnet-4-6")
+    assert _supports_adaptive("claude-haiku-5-5")
     assert not _supports_adaptive("claude-haiku-4-5-20251001")
 
 
