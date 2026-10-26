@@ -63,10 +63,13 @@ def test_tts_catalog_ships_simba_eleven_sonic_and_gemini() -> None:
     assert flash.capability_tier == 3
     assert flash.provider == "google"
     assert flash.display_name == "Gemini 3.8 Flash TTS"
-    assert [voice.display_name for voice in flash.voices] == ["Kore", "Sadaltager"]
+    assert flash.default_voice_id == "Charon"
+    assert [voice.display_name for voice in flash.voices] == ["Charon", "Algenib"]
     assert lite is not None and lite.price_per_million == 12.0
     assert lite.capability_tier == 2
     assert lite.display_name == "Gemini 3.8 Flash-Lite TTS"
+    assert lite.default_voice_id == "Charon"
+    assert [voice.display_name for voice in lite.voices] == ["Charon", "Algenib"]
     assert get_tts_catalog_model("simba-3.0") is None
     assert get_tts_catalog_model("eleven_multilingual_v2") is None
 

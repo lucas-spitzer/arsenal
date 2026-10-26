@@ -23,8 +23,8 @@ from app.tts_defaults import (
 ELEVENLABS_DEFAULT_VOICE_ID = "4YYIPFl9wE5c4L2eu2Gb"
 CARTESIA_DEFAULT_VOICE_ID = "4df027cb-2920-4a1f-8c34-f21529d5c3fe"
 CARTESIA_JAMESON_VOICE_ID = "a5136bf9-224c-4d76-b823-52bd5efcffcc"
-GEMINI_DEFAULT_VOICE_ID = "Sadaltager"
-GEMINI_SADALTAGER_VOICE_ID = "Sadaltager"
+GEMINI_DEFAULT_VOICE_ID = "Charon"
+GEMINI_ALGENIB_VOICE_ID = "Algenib"
 
 # Speechify Starter / PAYG list: $10 / 1M characters.
 # https://speechify.ai/pricing — Scale is $6/1M, Pro $8/1M.
@@ -120,8 +120,8 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         display_name="Gemini 3.8 Flash TTS",
         default_voice_id=GEMINI_DEFAULT_VOICE_ID,
         voices=_voices(
-            ("Kore", "Kore"),
-            (GEMINI_SADALTAGER_VOICE_ID, "Sadaltager"),
+            (GEMINI_DEFAULT_VOICE_ID, "Charon"),
+            (GEMINI_ALGENIB_VOICE_ID, "Algenib"),
         ),
         price_per_million=GEMINI_38_FLASH_TTS_LIST_PRICE_PER_MILLION,
         capability_tier=3,
@@ -132,8 +132,8 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         display_name="Gemini 3.8 Flash-Lite TTS",
         default_voice_id=GEMINI_DEFAULT_VOICE_ID,
         voices=_voices(
-            ("Kore", "Kore"),
-            (GEMINI_SADALTAGER_VOICE_ID, "Sadaltager"),
+            (GEMINI_DEFAULT_VOICE_ID, "Charon"),
+            (GEMINI_ALGENIB_VOICE_ID, "Algenib"),
         ),
         price_per_million=GEMINI_38_FLASH_LITE_TTS_LIST_PRICE_PER_MILLION,
         capability_tier=2,
