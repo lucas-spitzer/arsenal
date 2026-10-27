@@ -36,6 +36,20 @@ export interface OutputItem {
   searchText?: string
 }
 
+// Same study-guide kinds the student Academy rail hides. Books, audio, study material, and wiki stay.
+export const studentHiddenLibraryKinds = ['flashcard', 'question', 'scenario'] as const satisfies readonly OutputKind[]
+
+const studentHiddenLibraryKindSet = new Set<OutputKind>(studentHiddenLibraryKinds)
+
+export function libraryItemsForRole<T extends { kind: OutputKind }>(items: T[], isAdmin: boolean): T[] {
+  if (isAdmin) return items
+  return items.filter((item) => !studentHiddenLibraryKindSet.has(item.kind))
+}
+
+export function isStudentHiddenLibraryKind(kind: OutputKind): boolean {
+  return studentHiddenLibraryKindSet.has(kind)
+}
+
 export function isIncompleteNarrationArtifact(artifact: {
   artifact_type: string
   manifest: Record<string, unknown>

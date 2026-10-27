@@ -5,6 +5,8 @@ anthropic
 google-genai
 ebooklib
 pymupdf
+python-pptx
+python-docx
 pillow
 python-dotenv
 python-multipart

@@ -3268,6 +3268,380 @@
 }
 
 /* ===========================================================================
+   Academy calendar — Academics schedule (week grid + agenda list).
+   Kind colors always pair with an icon and a text chip.
+   =========================================================================== */
+
+.cal__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.cal__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.cal__nav-btn,
+.cal__nav-today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.cal__nav-btn {
+  width: 34px;
+}
+
+.cal__nav-today {
+  padding: 0 var(--space-4);
+  border-color: var(--color-scarlet);
+  color: var(--color-scarlet);
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.cal__nav-btn:hover {
+  border-color: var(--color-scarlet);
+  color: var(--color-scarlet);
+}
+
+.cal__nav-today:hover:not(:disabled) {
+  background: var(--color-scarlet);
+  color: var(--text-inverse);
+}
+
+.cal__nav-today:disabled {
+  border-color: var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.cal__range {
+  margin: 0 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* --- Kind chips ----------------------------------------------------------- */
+
+.cal__kind {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cal__kind.cal__kind--class { background: #e0e7ea; color: #13384a; }
+.cal__kind.cal__kind--prac { background: #efeadd; color: #5b4f2f; }
+.cal__kind.cal__kind--eval { background: var(--color-dark-scarlet); color: #fff; }
+.cal__kind.cal__kind--due { background: transparent; border-color: var(--color-scarlet); color: var(--color-scarlet); }
+
+/* --- Week grid ------------------------------------------------------------ */
+
+.cal__week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+
+.cal__day {
+  display: flex;
+  flex-direction: column;
+  min-height: 340px;
+  min-width: 0;
+  border-top: 4px solid transparent;
+}
+
+.cal__day + .cal__day {
+  border-left: 1px solid var(--border-subtle);
+}
+
+.cal__day.is-today {
+  border-top-color: var(--color-scarlet);
+  background: rgba(148, 0, 0, 0.03);
+}
+
+.cal__day-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  column-gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.cal__day-name {
+  grid-column: 1 / -1;
+  color: var(--color-gold);
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.cal__day-num {
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.cal__day.is-today .cal__day-num {
+  color: var(--color-scarlet);
+}
+
+.cal__day-tag {
+  padding: 2px 7px;
+  background: var(--color-scarlet);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cal__day-count {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cal__day-empty {
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.cal__day.is-past .cal__day-head,
+.cal__day.is-past .cal__events {
+  opacity: 0.62;
+}
+
+.cal__events {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3) var(--space-2);
+  list-style: none;
+}
+
+.cal__event {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--cal-kind, var(--color-navy));
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.cal__event.cal__kind--class,
+.cal__row.cal__kind--class { --cal-kind: var(--color-navy); }
+.cal__event.cal__kind--prac,
+.cal__row.cal__kind--prac { --cal-kind: var(--color-gold); }
+.cal__event.cal__kind--eval,
+.cal__row.cal__kind--eval { --cal-kind: var(--color-dark-scarlet); }
+.cal__event.cal__kind--due,
+.cal__row.cal__kind--due { --cal-kind: var(--color-scarlet); }
+
+.cal__event-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.cal__event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--space-3);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.cal__event-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cal__event-meta svg {
+  flex-shrink: 0;
+  color: var(--color-gold);
+}
+
+.cal__event-notes {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* --- Agenda --------------------------------------------------------------- */
+
+.cal__agenda-day .lib__band {
+  margin-top: var(--space-2);
+}
+
+.cal__agenda-day.is-past {
+  opacity: 0.62;
+}
+
+.cal__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.cal__row {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--cal-kind, var(--color-navy));
+  background: var(--surface);
+}
+
+.cal__row-time {
+  color: var(--color-navy);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.cal__row.cal__kind--due .cal__row-time {
+  color: var(--color-scarlet);
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cal__row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cal__row-body .cal__event-title {
+  font-size: 1rem;
+}
+
+@media (max-width: 980px) {
+  .cal__week {
+    grid-template-columns: 1fr;
+  }
+
+  .cal__day {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    min-height: 0;
+    border-top: 0;
+    border-left: 4px solid transparent;
+  }
+
+  .cal__day + .cal__day {
+    border-left: 4px solid transparent;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .cal__day.is-today {
+    border-left-color: var(--color-scarlet);
+  }
+
+  .cal__day-head {
+    align-content: start;
+    grid-template-columns: 1fr;
+    row-gap: 2px;
+    border-bottom: 0;
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .cal__day-count {
+    display: none;
+  }
+
+  .cal__day-tag {
+    justify-self: start;
+  }
+
+  .cal__day-empty {
+    align-self: center;
+  }
+}
+
+@media (max-width: 720px) {
+  .cal__range {
+    flex-basis: 100%;
+    margin: var(--space-2) 0 0;
+    font-size: 1rem;
+  }
+
+  .cal__nav {
+    flex-wrap: wrap;
+  }
+
+  .cal__row {
+    grid-template-columns: 1fr auto;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .cal__row-body {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+/* ===========================================================================
    Academy wiki — light catalog/editor opened from Library
    =========================================================================== */
 
@@ -3611,3 +3985,351 @@
   }
 }
 
+
+/* ===========================================================================
+   ELO tab (TBS classes, their ELOs, and lecture materials)
+   =========================================================================== */
+
+.elo__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.elo__search {
+  max-width: 520px;
+}
+
+.elo__search-clear {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.elo__search-clear:hover {
+  color: var(--color-scarlet);
+}
+
+.elo__expand {
+  height: 36px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.elo__expand:hover:not(:disabled) {
+  border-color: var(--color-scarlet);
+  color: var(--color-scarlet);
+}
+
+.elo__result-count {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.elo__classes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.elo__class {
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--color-navy);
+  background: var(--surface);
+  scroll-margin-top: var(--space-5);
+}
+
+.elo__class.is-open {
+  border-left-color: var(--color-scarlet);
+}
+
+.elo__class.is-focused {
+  box-shadow: 0 0 0 2px var(--color-gold);
+}
+
+.elo__class-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+}
+
+.elo__class-toggle {
+  flex: 1 1 260px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.elo__class-toggle:disabled {
+  cursor: default;
+}
+
+.elo__chev {
+  flex: none;
+  color: var(--color-gold);
+  transition: transform 120ms ease;
+}
+
+.elo__class.is-open .elo__chev {
+  transform: rotate(90deg);
+}
+
+.elo__class-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.elo__class-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-gold);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.elo__class-files {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.elo__discuss {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-scarlet);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--color-scarlet);
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.elo__discuss:hover:not(:disabled) {
+  background: var(--color-scarlet);
+  color: var(--text-inverse);
+}
+
+.elo__discuss:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.elo__class-body {
+  padding: 0 var(--space-4) var(--space-4) calc(var(--space-4) + 22px);
+}
+
+.elo__section-label {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--color-gray);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.elo__materials {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-3);
+}
+
+.elo__materials-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.elo__material {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.elo__material:hover:not(:disabled) {
+  border-color: var(--color-navy);
+  color: var(--color-navy);
+}
+
+.elo__material:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.elo__material.is-highlighted {
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 2px rgba(132, 117, 78, 0.3);
+}
+
+.elo__material-type {
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: #e0e7ea;
+  color: #13384a;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.elo__material-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.elo__material-size {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.elo__materials-empty,
+.elo__filtered {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.elo__filtered {
+  margin-bottom: var(--space-2);
+}
+
+.elo__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.elo__item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.elo__item + .elo__item {
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.elo__num {
+  color: var(--color-scarlet);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.elo__text {
+  margin: 0;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.elo__text mark,
+.elo__class-title mark,
+.elo__code mark {
+  background: rgba(132, 117, 78, 0.3);
+  color: inherit;
+}
+
+.elo__tags {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.elo__code {
+  padding: 2px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--color-navy);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.elo__async {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: #efeadd;
+  color: #5b4f2f;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .elo__item {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .elo__tags {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .elo__class-body {
+    padding-left: var(--space-4);
+  }
+}

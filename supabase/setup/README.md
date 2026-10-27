@@ -96,6 +96,10 @@ Run these only on databases that already have a Foundry schema and need a target
 | `alter-platoon-access.sql` | DB was created before admin and student access. Constrains `approved_users.role` to `admin` or `student` (existing `owner` rows become `admin`) and adds `discussion_threads.user_id`. |
 | `alter-discussion-tbs.sql` | DB was created before the TBS discussion instruction. Allows `discussion_threads.submode` of `tbs` and defaults new threads to it. |
 | `alter-wiki-entry-kind-elo.sql` | DB was created before Enabling Learning Objectives. Allows `wiki_entries.entry_kind` of `elo`. |
+| `alter-calendar-events.sql` | DB was created before the Academics calendar. Adds `calendar_events` with RLS + role revokes. Idempotent. |
+| `alter-lessons.sql` | DB was created before the Academy ELO tab. Adds `lessons`, `lesson_objectives`, `lesson_resources`, `lesson_chunks`, `match_lesson_chunks`, `discussion_threads.lesson_id`, and the private `lesson-files` bucket, with RLS + role revokes. Idempotent. |
+| `seed-lessons-tbs.sql` | Operator seed. Inserts the TBS classes and their ELOs into the platoon workspace ("The Basic School"). Skips classes that already exist. Run after `alter-lessons.sql`, then press **Re-index all** on Foundry ELO so Discussions can search them. |
+| `seed-calendar-week-2026-10-25.sql` | Operator seed. Inserts the week of Sun Oct 25 – Fri Oct 30, 2026 into the platoon workspace ("The Basic School"). Skips rows that already exist. Run after the calendar table exists. |
 | `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. |
 | `../maintenance/delete-production-run.sql` | Operator utility. Deletes one production run and the rows it created. Refuses Study Material runs. Storage files cannot be deleted from SQL. |
 | `../maintenance/delete-study-material-run.sql` | Operator utility. Deletes one Study Material production run, its material, components, versions, artifacts, and stage runs. Storage files cannot be deleted from SQL. |
@@ -154,6 +158,13 @@ Supabase forbids `DELETE` on `storage.objects` from SQL. After a successful row 
 
 ```bash
 supabase db execute --file supabase/maintenance/delete-source.sql
+```
+
+### Academics calendar
+
+```bash
+supabase db execute --file supabase/setup/alter-calendar-events.sql
+supabase db execute --file supabase/setup/seed-calendar-week-2026-10-25.sql
 ```
 
 ### Wiki file-ingest columns
@@ -275,6 +286,17 @@ cd api && python -m scripts.publish_narration_artifacts
 ### Assistant
 
 - `discussion_threads`, `discussion_messages` — persisted Discussions conversations
+
+### Academics calendar
+
+- `calendar_events` — per-workspace deadlines, classes, prac apps, and evaluations (`event_date`, optional `start_time` / `end_time`, `location`, `notes`). Admins edit them in Foundry CAL; everyone reads them in Academy CAL.
+
+### Academy ELO tab
+
+- `lessons` — one row per TBS class (`title`, `sort_order`, `notes`).
+- `lesson_objectives` — the class's ordered ELOs (`text`, `code` such as `MCS-MED-1001a`, `is_async`).
+- `lesson_resources` — downloadable files in the `lesson-files` bucket or https links (MarineNet). Files carry `index_status` / `index_error` for Discussions search.
+- `lesson_chunks` — extracted, embedded text from ELOs and lesson files. Searched by `match_lesson_chunks` alongside `ndr_segments` and `wiki_entries`. Not related to `wiki_entries` rows with `entry_kind = 'elo'`.
 
 ### Seeded stages
 

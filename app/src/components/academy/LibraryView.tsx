@@ -1,13 +1,18 @@
 import { BookMarked, BookOpen, Download, FileText, Headphones, HelpCircle, Layers, Lightbulb, Star } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { isAdminAccess } from '../../features/auth/access'
+import { useAuth } from '../../features/auth/authContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { isFocused, useLibraryFocus, type LibraryFocusState } from '../../lib/libraryFocus'
 import {
   filterOutputs,
+  libraryItemsForRole,
+  isStudentHiddenLibraryKind,
   outputChipLabel,
   sortOutputs,
+  studentHiddenLibraryKinds,
   useOutputs,
   type OutputItem,
   type OutputSort,
@@ -60,7 +65,17 @@ export function LibraryView({
 }: {
   onOpen: (page: AcademyPage, scope: AcademyScope) => void
 }) {
-  const { items, sources } = useOutputs()
+  const { items: catalogItems, sources: catalogSources } = useOutputs()
+  const { approvedUser } = useAuth()
+  const isAdmin = isAdminAccess(approvedUser?.role)
+  const items = useMemo(
+    () => libraryItemsForRole(catalogItems, isAdmin),
+    [catalogItems, isAdmin],
+  )
+  const sources = useMemo(() => {
+    const ids = new Set(items.flatMap((item) => (item.sourceId ? [item.sourceId] : [])))
+    return catalogSources.filter((source) => ids.has(source.id))
+  }, [catalogSources, items])
   const { downloadArtifact, error, isLoading } = useWorkspaceData()
   const { activeWorkspace } = useWorkspace()
   const { focus, toggleFocus } = useLibraryFocus(activeWorkspace?.id ?? null)
@@ -70,15 +85,21 @@ export function LibraryView({
   const [type, setType] = useState<OutputType>('all')
   const [sourceId, setSourceId] = useState<string | null>(null)
   const [sort, setSort] = useState<OutputSort>('source')
+  const visibleType =
+    !isAdmin && type !== 'all' && isStudentHiddenLibraryKind(type) ? 'all' : type
+  const visibleSourceId = sourceId && sources.some((source) => source.id === sourceId) ? sourceId : null
 
   const filtered = useMemo(() => {
-    const sorted = sortOutputs(filterOutputs(items, { search, type, sourceId }), sort)
+    const sorted = sortOutputs(
+      filterOutputs(items, { search, type: visibleType, sourceId: visibleSourceId }),
+      sort,
+    )
     // Focused items float to the front, keeping their relative sort order.
     return [
       ...sorted.filter((item) => isFocused(focus, item)),
       ...sorted.filter((item) => !isFocused(focus, item)),
     ]
-  }, [items, search, type, sourceId, sort, focus])
+  }, [items, search, visibleType, visibleSourceId, sort, focus])
 
   const groups = useMemo(() => {
     if (sort !== 'source') return null
@@ -126,7 +147,11 @@ export function LibraryView({
       <StudyHead
         eyebrow="Workspace catalog"
         title="Library"
-        description="Search, filter, and open every book, audio file, study material, wiki entry, flashcard, question, and scenario in this workspace."
+        description={
+          isAdmin
+            ? 'Search, filter, and open every book, audio file, study material, wiki entry, flashcard, question, and scenario in this workspace.'
+            : 'Search, filter, and open the books, audio, study material, and wiki entries in this workspace.'
+        }
         stats={[
           { value: filtered.length, label: 'outputs' },
           { value: sources.length, label: 'sources' },
@@ -136,14 +161,19 @@ export function LibraryView({
       <OutputFilterBar
         search={search}
         onSearch={setSearch}
-        type={type}
+        type={visibleType}
         onType={setType}
-        sourceId={sourceId}
+        sourceId={visibleSourceId}
         onSource={setSourceId}
         sort={sort}
         onSort={setSort}
         sources={sources}
-        searchPlaceholder="Search flashcards, questions, scenarios, wiki, books, audio, study material…"
+        hiddenTypes={isAdmin ? undefined : studentHiddenLibraryKinds}
+        searchPlaceholder={
+          isAdmin
+            ? 'Search flashcards, questions, scenarios, wiki, books, audio, study material…'
+            : 'Search books, audio, study material, and wiki entries…'
+        }
       />
 
       {isLoading && items.length === 0 ? (

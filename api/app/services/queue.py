@@ -74,6 +74,26 @@ def enqueue_production_run(settings: Settings, production_run_id: str) -> str:
     return job.id
 
 
+def enqueue_lesson_resource_index(settings: Settings, resource_id: str) -> str:
+    queue = get_task_queue(settings)
+    job = queue.enqueue(
+        "app.worker.jobs.index_lesson_resource",
+        resource_id,
+        job_timeout="15m",
+    )
+    return job.id
+
+
+def enqueue_lesson_objectives_index(settings: Settings, lesson_id: str) -> str:
+    queue = get_task_queue(settings)
+    job = queue.enqueue(
+        "app.worker.jobs.index_lesson_objectives",
+        lesson_id,
+        job_timeout="5m",
+    )
+    return job.id
+
+
 def cancel_queued_jobs_for_run(settings: Settings, production_run_id: str) -> None:
     """Drop queued jobs whose first argument is this production run.
 

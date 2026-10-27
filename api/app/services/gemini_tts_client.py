@@ -63,7 +63,15 @@ def _inline_audio(response: Any) -> tuple[bytes, str]:
                 return data, mime
             if isinstance(data, str) and data:
                 return base64.b64decode(data), mime
-    raise GeminiTtsError("Gemini TTS response missing audio inline data.")
+    reasons = [
+        str(getattr(candidate, "finish_reason", "") or "")
+        for candidate in candidates
+        if getattr(candidate, "finish_reason", None)
+    ]
+    detail = f" (finish_reason={', '.join(reasons)})" if reasons else ""
+    raise GeminiTtsError(
+        f"Gemini TTS response missing audio inline data{detail}."
+    )
 
 
 def _wav_duration_seconds(wav: bytes) -> float:

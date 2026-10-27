@@ -5,8 +5,10 @@ from fastapi import Depends
 from app.config import Settings, get_settings
 from app.repositories.artifacts import ArtifactRepository
 from app.repositories.assessments import AssessmentRepository
+from app.repositories.calendar_events import CalendarEventRepository
 from app.repositories.discussions import DiscussionRepository
 from app.repositories.document_chapters import DocumentChapterRepository
+from app.repositories.lessons import LessonRepository
 from app.repositories.narration_segments import NarrationSegmentRepository
 from app.repositories.ndr_segments import NdrSegmentRepository
 from app.repositories.production_runs import ProductionRunRepository
@@ -22,6 +24,7 @@ from app.repositories.wiki_ingest_batches import WikiIngestBatchRepository
 from app.repositories.workspaces import WorkspaceRepository
 from app.services.assistant import AssistantService
 from app.services.knowledge_projects import KnowledgeProjectService
+from app.services.lesson_index_queue import LessonIndexQueue
 from app.services.retrieval import RetrievalService
 from app.services.supabase_rest import SupabaseRestClient
 from app.services.supabase_storage import SupabaseStorageClient
@@ -139,6 +142,7 @@ def get_retrieval_service(
         threshold=settings.assistant.match_threshold,
         segment_count=settings.assistant.segment_count,
         wiki_count=settings.assistant.wiki_count,
+        lesson_count=settings.assistant.lesson_count,
     )
 
 
@@ -182,6 +186,24 @@ def get_discussion_repository(
     db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
 ) -> DiscussionRepository:
     return DiscussionRepository(db)
+
+
+def get_calendar_event_repository(
+    db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
+) -> CalendarEventRepository:
+    return CalendarEventRepository(db)
+
+
+def get_lesson_repository(
+    db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
+) -> LessonRepository:
+    return LessonRepository(db)
+
+
+def get_lesson_index_queue(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> LessonIndexQueue:
+    return LessonIndexQueue(settings)
 
 
 def get_assistant_service(

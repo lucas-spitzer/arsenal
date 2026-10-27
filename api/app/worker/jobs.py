@@ -45,6 +45,25 @@ def combine_narration_audio(artifact_id: str) -> dict[str, Any]:
     return combine_narration_artifact(WorkerDatabase(), WorkerStorage(), artifact_id)
 
 
+def _lesson_indexer() -> Any:
+    from app.config import get_settings
+    from app.worker.db import WorkerDatabase
+    from app.worker.lesson_index import LessonIndexer
+    from app.worker.storage import WorkerStorage
+
+    return LessonIndexer(WorkerDatabase(), WorkerStorage(), bucket=get_settings().lessons_bucket)
+
+
+def index_lesson_resource(resource_id: str) -> dict[str, Any]:
+    """Extract, chunk, and embed one Academy ELO lesson file for Discussions."""
+    return _lesson_indexer().index_resource(resource_id)
+
+
+def index_lesson_objectives(lesson_id: str) -> dict[str, Any]:
+    """Embed a class's ELOs for Discussions."""
+    return _lesson_indexer().index_objectives(lesson_id)
+
+
 def attach_knowledge_visuals(production_run_id: str) -> dict[str, Any]:
     """Copy uploaded images onto the study items for a knowledge project."""
     from app.worker.knowledge_runner import KnowledgeRunner

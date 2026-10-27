@@ -787,6 +787,139 @@ create index discussion_messages_thread_id_idx
 on public.discussion_messages (thread_id, created_at);
 
 -- ---------------------------------------------------------------------------
+-- Calendar events (Academics schedule: deadlines, classes, prac apps)
+-- ---------------------------------------------------------------------------
+
+create table public.calendar_events (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  title text not null,
+  kind text not null default 'class',
+  event_date date not null,
+  start_time time,
+  end_time time,
+  location text,
+  notes text,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint calendar_events_kind_check
+    check (kind in ('deadline', 'class', 'prac_app', 'evaluation')),
+  constraint calendar_events_time_order_check
+    check (start_time is null or end_time is null or end_time >= start_time)
+);
+
+create index calendar_events_workspace_date_idx
+on public.calendar_events (workspace_id, event_date);
+
+create trigger calendar_events_set_updated_at
+before update on public.calendar_events
+for each row
+execute function public.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- Lessons (Academy ELO tab: TBS classes, their ELOs, and downloadable
+-- materials). Separate from wiki_entries 'elo' rows built by Knowledge runs.
+-- ---------------------------------------------------------------------------
+
+create table public.lessons (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  title text not null,
+  sort_order integer not null default 0,
+  notes text,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint lessons_workspace_title_key unique (workspace_id, title)
+);
+
+create index lessons_workspace_order_idx
+on public.lessons (workspace_id, sort_order);
+
+create trigger lessons_set_updated_at
+before update on public.lessons
+for each row
+execute function public.set_updated_at();
+
+create table public.lesson_objectives (
+  id uuid primary key default gen_random_uuid(),
+  lesson_id uuid not null references public.lessons (id) on delete cascade,
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  position integer not null,
+  text text not null,
+  code text,
+  is_async boolean not null default false,
+  created_at timestamptz not null default now(),
+  constraint lesson_objectives_lesson_position_key unique (lesson_id, position)
+);
+
+create index lesson_objectives_workspace_idx
+on public.lesson_objectives (workspace_id);
+
+create table public.lesson_resources (
+  id uuid primary key default gen_random_uuid(),
+  lesson_id uuid not null references public.lessons (id) on delete cascade,
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  kind text not null,
+  label text not null,
+  position integer not null default 0,
+  url text,
+  storage_path text,
+  filename text,
+  mime_type text,
+  file_size_bytes bigint,
+  index_status text not null default 'pending',
+  index_error text,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint lesson_resources_kind_check check (kind in ('file', 'link')),
+  constraint lesson_resources_shape_check check (
+    (kind = 'file' and storage_path is not null and filename is not null)
+    or (kind = 'link' and url is not null and url like 'https://%')
+  ),
+  constraint lesson_resources_index_status_check
+    check (index_status in ('pending', 'indexing', 'ready', 'failed', 'skipped'))
+);
+
+create index lesson_resources_lesson_idx
+on public.lesson_resources (lesson_id, position);
+
+create index lesson_resources_workspace_idx
+on public.lesson_resources (workspace_id);
+
+create trigger lesson_resources_set_updated_at
+before update on public.lesson_resources
+for each row
+execute function public.set_updated_at();
+
+create table public.lesson_chunks (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  lesson_id uuid not null references public.lessons (id) on delete cascade,
+  resource_id uuid references public.lesson_resources (id) on delete cascade,
+  objective_id uuid references public.lesson_objectives (id) on delete cascade,
+  kind text not null,
+  sequence_index integer not null default 0,
+  text text not null,
+  locator jsonb not null default '{}',
+  embedding extensions.vector(1536),
+  created_at timestamptz not null default now(),
+  constraint lesson_chunks_kind_check check (kind in ('objective', 'file_text'))
+);
+
+create index lesson_chunks_lesson_idx on public.lesson_chunks (lesson_id);
+create index lesson_chunks_resource_idx on public.lesson_chunks (resource_id);
+create index lesson_chunks_workspace_idx on public.lesson_chunks (workspace_id);
+create index lesson_chunks_embedding_idx
+on public.lesson_chunks using hnsw (embedding extensions.vector_cosine_ops);
+
+-- A Discussions thread can focus on one class ("Discuss this class").
+alter table public.discussion_threads
+  add column lesson_id uuid references public.lessons (id) on delete set null;
+
+-- ---------------------------------------------------------------------------
 -- RAG match helpers (service role only; tenancy via p_workspace_id)
 -- ---------------------------------------------------------------------------
 
@@ -869,5 +1002,54 @@ as $$
     and w.status = 'canonical'
     and 1 - (w.embedding <=> query_embedding) >= match_threshold
   order by w.embedding <=> query_embedding
+  limit match_count;
+$$;
+
+create or replace function public.match_lesson_chunks(
+  query_embedding extensions.vector(1536),
+  p_workspace_id uuid,
+  match_threshold double precision default 0.3,
+  match_count integer default 6,
+  p_lesson_ids uuid[] default null
+)
+returns table (
+  id uuid,
+  lesson_id uuid,
+  resource_id uuid,
+  objective_id uuid,
+  kind text,
+  sequence_index integer,
+  text text,
+  locator jsonb,
+  lesson_title text,
+  resource_label text,
+  filename text,
+  similarity double precision
+)
+language sql
+stable
+set search_path = public, extensions
+as $$
+  select
+    ch.id,
+    ch.lesson_id,
+    ch.resource_id,
+    ch.objective_id,
+    ch.kind,
+    ch.sequence_index,
+    ch.text,
+    ch.locator,
+    l.title as lesson_title,
+    r.label as resource_label,
+    r.filename,
+    1 - (ch.embedding <=> query_embedding) as similarity
+  from public.lesson_chunks ch
+  join public.lessons l on l.id = ch.lesson_id
+  left join public.lesson_resources r on r.id = ch.resource_id
+  where ch.workspace_id = p_workspace_id
+    and ch.embedding is not null
+    and (p_lesson_ids is null or ch.lesson_id = any (p_lesson_ids))
+    and 1 - (ch.embedding <=> query_embedding) >= match_threshold
+  order by ch.embedding <=> query_embedding
   limit match_count;
 $$;

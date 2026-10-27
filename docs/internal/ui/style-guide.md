@@ -227,6 +227,43 @@ Generated lesson artifacts should use:
 - Minimal background noise.
 - Consistent icon and illustration style.
 
+### Calendar and Schedules
+
+The Academics calendar appears in two places. Academy CAL (`CalendarView`, `cal__*` in `academy.css`) is the read-only schedule for the platoon. Foundry CAL (`FoundryCalendar`, `as-console__cal-*` in `foundry.css`) is where the Academics officer edits it. Both share the kind metadata in `lib/academyCalendar.ts`, so labels, icons, and modifiers stay in sync.
+
+Event kinds:
+
+| Kind | Chip text | Icon | Treatment |
+|---|---|---|---|
+| Class | `Class` | Presentation | Navy left rule; pale navy chip |
+| Practical application | `Prac app` | Compass | Gold left rule; pale gold chip |
+| Evaluation | `Eval` | ClipboardCheck | Dark scarlet left rule; dark scarlet chip, white text |
+| Deadline | `Due EOD` | AlarmClock | Scarlet left rule; scarlet outline chip |
+
+Rules:
+
+- Every event pairs its color with an icon and a text chip. Never rely on the left rule or the chip color alone.
+- Event cards and agenda rows carry a 3px left rule in the kind color. Do not add other colored borders.
+- Today gets a scarlet top rule (a left rule in the stacked layout) plus a scarlet `Today` tag. Past days stay visible at reduced opacity.
+- Weeks start on Sunday. Ranges read `Oct 25 – Oct 31, 2026`, and day headings read `Monday, Oct 26` (`en-US` short month).
+- Times are 24-hour military time with no colon (`0800`, `1330–1500`). Items without a time show no time on the card. Deadlines carry no time; agenda rows show `Due EOD` for them. Classes, prac apps, and evaluations should always have a start and end time; an untimed one shows `All day`.
+- Event dates are date-only values. Parse `YYYY-MM-DD` with `parseLocalDate`, never `new Date('YYYY-MM-DD')`, which reads the value as UTC and can move an event to the wrong day.
+- Below 980px the seven-column week grid stacks into a day list, with the date on the left and events on the right.
+- Use the `disc__seg` segmented control to switch between Week and Agenda. Week navigation uses outlined icon buttons and a scarlet outline `Today` button.
+
+### ELOs (TBS classes)
+
+The ELO tab lists each TBS class with its Enabling Learning Objectives and lecture materials. Academy ELO (`ObjectivesView`, `elo__*` in `academy.css`) is read-only for students. Foundry ELO (`FoundryObjectives`, `as-console__elo-*` in `foundry.css`) is where the Academics officer adds classes, pastes ELOs, uploads files, and adds MarineNet links. A class links straight to `/app/elo/:lessonId`, and `?resource=` highlights one material.
+
+Rules:
+
+- In code the domain is "lessons" (`lessons`, `lesson_resources`, `lesson-files` bucket). Use "ELO" only in UI copy. Do not reuse Knowledge or Wiki naming or components.
+- Class cards carry a 3px left rule: navy when collapsed, scarlet when open. A focused class from a link gets a gold ring.
+- ELO rows show a scarlet mono number, the text, and the course code as a mono outline chip. Async ELOs get a pale gold `Async` tag.
+- Materials are chips: a type label (`PDF`, `PPTX`, `Link`), the label, and the file size. Files download through a signed URL; links open in a new tab.
+- In Foundry every file shows its Discussions index status (`Queued`, `Indexing`, `Searchable`, `Index failed` with the error on hover, or `Not searchable` for types that cannot be read). Links always read `Not searchable (login required)`.
+- `Discuss this class` opens a tutor thread scoped to the class. The thread shows a class reference block with an `Open ELOs` link.
+
 ### Alerts
 
 | Type | Treatment |
@@ -330,6 +367,7 @@ Before merging UI work, verify:
 - Layout is clean, left-aligned, and structured.
 - Registry cards keep `var(--space-3)` between the last body block and the footer divider; grid cards use `.as-console__card-fill` so the footer stays bottom-aligned without extra vertical gap.
 - Icons are functional and consistent.
+- Calendar events pair the kind color with an icon and chip text, parse dates with `parseLocalDate`, and show times in 24-hour form.
 - Inline Foundry data and component loading uses `FoundryLoader`; full-page, authentication, and security loading patterns remain separate.
 - UI does not imply official Marine Corps endorsement.
 - Accessibility contrast and keyboard navigation are acceptable.

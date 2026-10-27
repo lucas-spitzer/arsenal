@@ -32,6 +32,7 @@ type Props = {
   showTypes?: boolean
   showSearch?: boolean
   searchPlaceholder?: string
+  hiddenTypes?: readonly OutputType[]
 }
 
 export function OutputFilterBar({
@@ -47,7 +48,11 @@ export function OutputFilterBar({
   showTypes = true,
   showSearch = true,
   searchPlaceholder = 'Search…',
+  hiddenTypes,
 }: Props) {
+  const typeChips = hiddenTypes
+    ? TYPE_CHIPS.filter((chip) => !hiddenTypes.includes(chip.value))
+    : TYPE_CHIPS
   return (
     <div className="lib__filter">
       <div className="lib__bar">
@@ -98,7 +103,7 @@ export function OutputFilterBar({
 
       {showTypes && onType && (
         <div className="lib__chips" role="group" aria-label="Filter by type">
-          {TYPE_CHIPS.map((chip) => {
+          {typeChips.map((chip) => {
             const Icon = chip.icon
             return (
               <button

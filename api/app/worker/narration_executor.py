@@ -17,9 +17,12 @@ and sources-bucket audio paths) — not a zip of clips.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
-from dataclasses import replace
+import re
+import wave
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -28,6 +31,7 @@ from app.artifact_paths import (
     downloadable_artifact_path,
     location_from_source,
     narration_clip_path,
+    narration_paragraph_path,
 )
 from app.services.api_pricing import cost_tts_usage
 from app.services.cartesia_client import CartesiaError
@@ -35,7 +39,8 @@ from app.config import get_settings
 from app.services.elevenlabs_client import ElevenLabsError, force_align_audio
 from app.services.gemini_tts_client import GeminiTtsError
 from app.services.speechify_client import SpeechifyError
-from app.services.tts.alignment import timing_quality
+from app.services.tts.alignment import timing_quality, tokenize_with_spans
+from app.services.tts.audio import even_word_timings
 from app.services.tts.factory import TtsClient, get_tts_client
 from app.services.tts.types import WordTiming
 from app.services.stage_run_billing import stage_run_completion_fields
@@ -111,6 +116,130 @@ def _can_skip_gemini_clip(
     return "INVALID_ARGUMENT" in message or "INTERNAL" in message or (
         "missing audio inline data" in message
     )
+
+
+def _text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _saved_paragraph(
+    row: dict[str, Any],
+    existing_rows: dict[str, dict[str, Any]],
+    model_id: str,
+) -> dict[str, Any] | None:
+    """A paragraph already spoken for this model, whatever file it landed in."""
+    existing = existing_rows.get(str(row.get("id") or ""))
+    if not existing or not existing.get("audio_path"):
+        return None
+    if str(existing.get("model_id") or "") != model_id:
+        return None
+    if existing.get("text_hash") != _text_hash(_paragraph_text(row)):
+        return None
+    return existing
+
+
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
+_CLAUSE_BOUNDARY = re.compile(r"(?<=[;,])\s+")
+_FRAGMENT_SILENCE_SECONDS = 0.4
+_SILENCE_SAMPLE_RATE = 24000
+
+
+@dataclass(frozen=True)
+class _AudioPiece:
+    audio: bytes
+    words: list[WordTiming]
+    duration_seconds: float
+    character_cost: int
+
+
+def _split_spans(text: str, boundary: re.Pattern[str]) -> list[tuple[int, int]]:
+    """Cover `text` with spans split on whitespace that follows `boundary`."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for match in boundary.finditer(text):
+        if match.start() > start:
+            spans.append((start, match.start()))
+        start = match.end()
+    if start < len(text):
+        spans.append((start, len(text)))
+    return spans
+
+
+def _divided_spans(text: str, boundary: re.Pattern[str]) -> list[tuple[int, int]] | None:
+    """Return spans only when the boundary actually cuts `text` into pieces."""
+    spans = _split_spans(text, boundary)
+    if len(spans) <= 1:
+        return None
+    return spans
+
+
+def _silence_wav(seconds: float) -> bytes:
+    frames = max(1, int(seconds * _SILENCE_SAMPLE_RATE))
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(_SILENCE_SAMPLE_RATE)
+        wav_file.writeframes(b"\x00" * (frames * 2))
+    return buffer.getvalue()
+
+
+def _concat_audio(parts: list[bytes]) -> bytes:
+    present = [part for part in parts if part]
+    if present and all(part.startswith(b"RIFF") for part in present):
+        frames: list[bytes] = []
+        params: tuple[int, int, int] | None = None
+        for part in present:
+            with wave.open(io.BytesIO(part)) as wav_file:
+                if params is None:
+                    params = (
+                        wav_file.getnchannels(),
+                        wav_file.getsampwidth(),
+                        wav_file.getframerate(),
+                    )
+                frames.append(wav_file.readframes(wav_file.getnframes()))
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav_file:
+            channels, width, rate = params or (1, 2, _SILENCE_SAMPLE_RATE)
+            wav_file.setnchannels(channels)
+            wav_file.setsampwidth(width)
+            wav_file.setframerate(rate)
+            for frame in frames:
+                wav_file.writeframes(frame)
+        return buffer.getvalue()
+    return b"".join(present)
+
+
+def _shift_words(
+    words: list[WordTiming],
+    *,
+    time_offset: float,
+    char_offset: int,
+) -> list[WordTiming]:
+    shifted: list[WordTiming] = []
+    for word in words:
+        start_char = None if word.start_char is None else word.start_char + char_offset
+        end_char = None if word.end_char is None else word.end_char + char_offset
+        shifted.append(
+            WordTiming(
+                index=word.index,
+                word=word.word,
+                start=word.start + time_offset,
+                end=word.end + time_offset,
+                start_char=start_char,
+                end_char=end_char,
+            )
+        )
+    return shifted
+
+
+def _words_covering(text: str, words: list[WordTiming], duration: float) -> list[WordTiming]:
+    expected = len(tokenize_with_spans(text))
+    if len(words) == expected and all(
+        word.start_char is not None and word.end_char is not None for word in words
+    ):
+        return words
+    return even_word_timings(text, duration)
 
 
 def pack_chapter_clips(
@@ -444,6 +573,305 @@ class NarrationStageExecutor:
         self.db.update_stage_run(stage_run_id, {"output": output})
         return output
 
+    def _silent_piece(self, text: str, char_offset: int, time_offset: float) -> _AudioPiece:
+        words = _shift_words(
+            even_word_timings(text, _FRAGMENT_SILENCE_SECONDS),
+            time_offset=time_offset,
+            char_offset=char_offset,
+        )
+        logger.warning(
+            "Gemini returned no audio for a %d-character fragment; "
+            "inserting silence so the paragraph stays aligned.",
+            len(text),
+        )
+        return _AudioPiece(
+            audio=_silence_wav(_FRAGMENT_SILENCE_SECONDS),
+            words=words,
+            duration_seconds=_FRAGMENT_SILENCE_SECONDS,
+            character_cost=0,
+        )
+
+    def _speak_divisions(
+        self,
+        text: str,
+        *,
+        char_offset: int,
+        time_offset: float,
+        depth: int,
+        narrated: int,
+        reused: int,
+    ) -> tuple[list[_AudioPiece], int]:
+        """Speak `text` in sentences, then clauses. Unspeakable pieces are silence."""
+        boundary = _SENTENCE_BOUNDARY if depth == 0 else _CLAUSE_BOUNDARY
+        spans = _divided_spans(text, boundary) if depth < 2 else None
+        if spans is None:
+            if depth < 2:
+                return self._speak_divisions(
+                    text,
+                    char_offset=char_offset,
+                    time_offset=time_offset,
+                    depth=depth + 1,
+                    narrated=narrated,
+                    reused=reused,
+                )
+            return [self._silent_piece(text, char_offset, time_offset)], 0
+
+        pieces: list[_AudioPiece] = []
+        cursor = time_offset
+        billed = 0
+        for start, end in spans:
+            fragment = text[start:end]
+            try:
+                result = self.client.synthesize_with_timestamps(fragment)
+            except GeminiTtsError as exc:
+                message = str(exc)
+                if "429" in message or "RESOURCE_EXHAUSTED" in message:
+                    raise
+                if (
+                    "missing audio inline data" not in message
+                    and not _can_skip_gemini_clip(
+                        exc, narrated=narrated, reused=reused
+                    )
+                ):
+                    raise
+                smaller, smaller_cost = self._speak_divisions(
+                    fragment,
+                    char_offset=char_offset + start,
+                    time_offset=cursor,
+                    depth=depth + 1,
+                    narrated=narrated,
+                    reused=reused,
+                )
+                pieces.extend(smaller)
+                cursor += sum(piece.duration_seconds for piece in smaller)
+                billed += smaller_cost
+                continue
+            words = _shift_words(
+                _words_covering(fragment, result.words, result.duration_seconds),
+                time_offset=cursor,
+                char_offset=char_offset + start,
+            )
+            pieces.append(
+                _AudioPiece(
+                    audio=result.audio,
+                    words=words,
+                    duration_seconds=result.duration_seconds,
+                    character_cost=result.character_cost,
+                )
+            )
+            cursor += result.duration_seconds
+            billed += result.character_cost
+        return pieces, billed
+
+    def _recover_paragraph(
+        self,
+        text: str,
+        *,
+        narrated: int,
+        reused: int,
+    ) -> _AudioPiece:
+        pieces, billed = self._speak_divisions(
+            text,
+            char_offset=0,
+            time_offset=0.0,
+            depth=0,
+            narrated=narrated,
+            reused=reused,
+        )
+        words = [
+            WordTiming(
+                index=i,
+                word=word.word,
+                start=word.start,
+                end=word.end,
+                start_char=word.start_char,
+                end_char=word.end_char,
+            )
+            for i, word in enumerate(word for piece in pieces for word in piece.words)
+        ]
+        return _AudioPiece(
+            audio=_concat_audio([piece.audio for piece in pieces]),
+            words=words,
+            duration_seconds=sum(piece.duration_seconds for piece in pieces),
+            character_cost=billed,
+        )
+
+    def _store_paragraph_audio(
+        self,
+        *,
+        workspace_id: str,
+        source: dict[str, Any],
+        source_id: str,
+        chapter: dict[str, Any],
+        chapter_id: str,
+        clip_index: int,
+        row: dict[str, Any],
+        existing_rows: dict[str, dict[str, Any]],
+        audio: bytes,
+        words: list[WordTiming],
+        duration_seconds: float,
+        character_cost: int,
+        alignment_source: str,
+        alignment_quality: dict[str, Any],
+        request_id: str | None,
+    ) -> None:
+        paragraph_words = assign_words_to_paragraphs([row], words)[0]
+        audio_path = narration_paragraph_path(
+            source,
+            getattr(self.client, "provider", "tts"),
+            self.client.model_id,
+            self.client.voice_id,
+            chapter_id,
+            clip_index,
+            str(row["id"]),
+            extension=_audio_extension(self.client),
+        )
+        self.storage.upload(
+            audio_path,
+            audio,
+            bucket=self.storage.sources_bucket,
+            content_type=getattr(self.client, "audio_content_type", "audio/mpeg"),
+        )
+        text_hash = _text_hash(_paragraph_text(row))
+        self.db.upsert_narration_segment(
+            {
+                "workspace_id": workspace_id,
+                "source_id": source_id,
+                "chapter_id": chapter.get("id"),
+                "segment_id": row["id"],
+                "provider": getattr(self.client, "provider", "tts"),
+                "voice_id": self.client.voice_id,
+                "model_id": self.client.model_id,
+                "text_hash": text_hash,
+                "audio_path": audio_path,
+                "duration_seconds": duration_seconds,
+                "words": [word.to_dict() for word in paragraph_words],
+                "alignment_source": alignment_source,
+                "alignment_quality": alignment_quality,
+                "request_id": request_id,
+                "character_count": character_cost,
+                "updated_at": utc_now_iso(),
+            }
+        )
+        existing_rows[str(row["id"])] = {
+            "audio_path": audio_path,
+            "model_id": self.client.model_id,
+            "text_hash": text_hash,
+        }
+
+    def _speak_paragraphs_separately(
+        self,
+        *,
+        workspace_id: str,
+        source: dict[str, Any],
+        source_id: str,
+        chapter: dict[str, Any],
+        chapter_id: str,
+        clip_index: int,
+        rows: list[dict[str, Any]],
+        existing_rows: dict[str, dict[str, Any]],
+        narrated: int,
+        reused: int,
+        known_failures: set[str] | None = None,
+    ) -> int:
+        """Speak a clip one paragraph at a time after the joined text returns no audio.
+
+        A paragraph that still returns no audio is spoken sentence by sentence,
+        then clause by clause. A fragment that still returns nothing becomes a
+        short silence so the paragraph's word timings stay aligned. Returns the
+        characters billed for the pieces synthesized now.
+        """
+        failed = known_failures or set()
+        billed = 0
+        for row in rows:
+            text = _paragraph_text(row)
+            result = None
+            if text not in failed:
+                try:
+                    result = self.client.synthesize_with_timestamps(text)
+                except GeminiTtsError as exc:
+                    message = str(exc)
+                    if "429" in message or "RESOURCE_EXHAUSTED" in message:
+                        raise
+                    if "missing audio inline data" not in message and not (
+                        _can_skip_gemini_clip(exc, narrated=narrated, reused=reused)
+                    ):
+                        raise
+                    if "missing audio inline data" not in message:
+                        logger.warning(
+                            "Skipping Gemini paragraph %s in source %s chapter %s "
+                            "clip %d (%d chars): %s",
+                            row.get("id"),
+                            source_id,
+                            chapter_id,
+                            clip_index,
+                            len(text),
+                            exc,
+                        )
+                        continue
+                    logger.warning(
+                        "Gemini returned no audio for paragraph %s in source %s "
+                        "chapter %s clip %d (%d chars). Speaking it in smaller pieces.",
+                        row.get("id"),
+                        source_id,
+                        chapter_id,
+                        clip_index,
+                        len(text),
+                    )
+            else:
+                logger.warning(
+                    "Gemini returned no audio for paragraph %s in source %s "
+                    "chapter %s clip %d (%d chars). Speaking it in smaller pieces.",
+                    row.get("id"),
+                    source_id,
+                    chapter_id,
+                    clip_index,
+                    len(text),
+                )
+            if result is None:
+                recovered = self._recover_paragraph(
+                    text, narrated=narrated, reused=reused
+                )
+                self._store_paragraph_audio(
+                    workspace_id=workspace_id,
+                    source=source,
+                    source_id=source_id,
+                    chapter=chapter,
+                    chapter_id=chapter_id,
+                    clip_index=clip_index,
+                    row=row,
+                    existing_rows=existing_rows,
+                    audio=recovered.audio,
+                    words=recovered.words,
+                    duration_seconds=recovered.duration_seconds,
+                    character_cost=recovered.character_cost,
+                    alignment_source="estimated",
+                    alignment_quality={},
+                    request_id=None,
+                )
+                billed += recovered.character_cost
+                continue
+
+            self._store_paragraph_audio(
+                workspace_id=workspace_id,
+                source=source,
+                source_id=source_id,
+                chapter=chapter,
+                chapter_id=chapter_id,
+                clip_index=clip_index,
+                row=row,
+                existing_rows=existing_rows,
+                audio=result.audio,
+                words=result.words,
+                duration_seconds=result.duration_seconds,
+                character_cost=result.character_cost,
+                alignment_source=result.alignment_source,
+                alignment_quality=result.alignment_quality or {},
+                request_id=result.request_id,
+            )
+            billed += result.character_cost
+        return billed
+
     def _narrate_source(
         self,
         *,
@@ -544,41 +972,91 @@ class NarrationStageExecutor:
                 clip_index,
                 extension=_audio_extension(self.client),
             )
-            clip_ids = [str(row["id"]) for row in clip_rows]
-            if clip_ids and all(
-                existing_rows.get(str(row["id"]), {}).get("audio_path") == audio_path
-                and existing_rows.get(str(row["id"]), {}).get("model_id")
-                == self.client.model_id
-                and existing_rows.get(str(row["id"]), {}).get("text_hash")
-                == hashlib.sha256(_paragraph_text(row).encode("utf-8")).hexdigest()
+            saved = [
+                _saved_paragraph(row, existing_rows, self.client.model_id)
                 for row in clip_rows
-            ):
+            ]
+            if clip_rows and all(saved):
                 reused += 1
                 previous_request_ids = []
                 output = publish()
                 continue
 
+            missing_rows = [
+                row
+                for row, found in zip(clip_rows, saved, strict=True)
+                if found is None
+            ]
             text = _joined_clip_text(clip_rows)
-            try:
-                result = self.client.synthesize_with_timestamps(
-                    text,
-                    previous_request_ids=previous_request_ids,
-                )
-            except GeminiTtsError as exc:
-                if not _can_skip_gemini_clip(
-                    exc, narrated=narrated, reused=reused
+            result = None
+            if not any(saved):
+                try:
+                    result = self.client.synthesize_with_timestamps(
+                        text,
+                        previous_request_ids=previous_request_ids,
+                    )
+                except GeminiTtsError as exc:
+                    message = str(exc)
+                    if "429" in message or "RESOURCE_EXHAUSTED" in message:
+                        raise
+                    if "missing audio inline data" in message:
+                        logger.warning(
+                            "Gemini returned no audio for source %s chapter %s "
+                            "clip %d (%d chars). Speaking its paragraphs separately.",
+                            source_id,
+                            chapter_id,
+                            clip_index,
+                            len(text),
+                        )
+                    elif not _can_skip_gemini_clip(
+                        exc, narrated=narrated, reused=reused
+                    ):
+                        raise
+                    else:
+                        logger.warning(
+                            "Skipping Gemini clip %d for source %s chapter %s "
+                            "(%d chars): %s",
+                            clip_index,
+                            source_id,
+                            chapter_id,
+                            len(text),
+                            exc,
+                        )
+                        skipped += 1
+                        previous_request_ids = []
+                        output = publish()
+                        continue
+            if result is None:
+                known_failures: set[str] = set()
+                if (
+                    not any(saved)
+                    and len(missing_rows) == 1
+                    and _paragraph_text(missing_rows[0]) == text
                 ):
-                    raise
-                logger.warning(
-                    "Skipping Gemini clip %d for source %s chapter %s "
-                    "(%d chars): %s",
-                    clip_index,
-                    source_id,
-                    chapter_id,
-                    len(text),
-                    exc,
+                    known_failures.add(text)
+                spoke = self._speak_paragraphs_separately(
+                    workspace_id=workspace_id,
+                    source=source,
+                    source_id=source_id,
+                    chapter=chapter,
+                    chapter_id=chapter_id,
+                    clip_index=clip_index,
+                    rows=missing_rows,
+                    existing_rows=existing_rows,
+                    narrated=narrated,
+                    reused=reused,
+                    known_failures=known_failures,
                 )
-                skipped += 1
+                character_count += spoke
+                if spoke:
+                    narrated += 1
+                elif any(
+                    _saved_paragraph(row, existing_rows, self.client.model_id)
+                    for row in clip_rows
+                ):
+                    reused += 1
+                else:
+                    skipped += 1
                 previous_request_ids = []
                 output = publish()
                 continue

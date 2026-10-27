@@ -132,6 +132,8 @@ class InfrastructureSettings:
     signed_url_expires_seconds: int
     max_source_upload_bytes: int
     log_level: str
+    lessons_bucket: str = "lesson-files"
+    max_lesson_file_bytes: int = 50 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -190,6 +192,7 @@ class AssistantSettings:
     match_threshold: float
     segment_count: int
     wiki_count: int
+    lesson_count: int = 6
 
 
 @dataclass(frozen=True)
@@ -313,6 +316,14 @@ class Settings:
         return self.infra.max_source_upload_bytes
 
     @property
+    def lessons_bucket(self) -> str:
+        return self.infra.lessons_bucket
+
+    @property
+    def max_lesson_file_bytes(self) -> int:
+        return self.infra.max_lesson_file_bytes
+
+    @property
     def qngen_concept_batch_size(self) -> int:
         return self.qngen.concept_batch_size
 
@@ -336,6 +347,10 @@ def _get_settings_cached() -> Settings:
                 os.getenv("MAX_SOURCE_UPLOAD_BYTES", str(100 * 1024 * 1024)),
             ),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+            lessons_bucket=os.getenv("LESSONS_BUCKET", "lesson-files"),
+            max_lesson_file_bytes=int(
+                os.getenv("MAX_LESSON_FILE_BYTES", str(50 * 1024 * 1024)),
+            ),
         ),
         llm=LLMSettings(
             openai_api_key=os.getenv("OPENAI_API_KEY"),
@@ -386,6 +401,7 @@ def _get_settings_cached() -> Settings:
             match_threshold=float(os.getenv("ASSISTANT_MATCH_THRESHOLD", "0.3")),
             segment_count=int(os.getenv("ASSISTANT_SEGMENT_COUNT", "8")),
             wiki_count=int(os.getenv("ASSISTANT_WIKI_COUNT", "6")),
+            lesson_count=int(os.getenv("ASSISTANT_LESSON_COUNT", "6")),
         ),
         narration=NarrationSettings(
             speechify_api_key=os.getenv("SPEECHIFY_API_KEY"),

@@ -9,7 +9,7 @@ export interface AssistantMessage {
 }
 
 export interface Citation {
-  kind: 'segment' | 'wiki'
+  kind: 'segment' | 'wiki' | 'lesson'
   label: string
   snippet: string
   similarity: number
@@ -37,6 +37,7 @@ export interface AssistantChatRequest {
   submode?: DiscussionSubmode
   messages: AssistantMessage[]
   source_ids?: string[]
+  lesson_ids?: string[]
   scenario_id?: string
 }
 
@@ -58,6 +59,8 @@ export interface DiscussionThread {
   title: string
   submode: DiscussionSubmode
   source_id: string | null
+  /** Academy ELO class this thread focuses on ("Discuss this class"). */
+  lesson_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -79,6 +82,7 @@ export interface CreateThreadRequest {
   title: string
   submode?: DiscussionSubmode
   source_id?: string | null
+  lesson_id?: string | null
   seed_prompt?: string | null
 }
 

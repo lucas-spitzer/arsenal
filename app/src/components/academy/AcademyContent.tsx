@@ -1,9 +1,11 @@
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { defaultReaderSourceId, useOutputs } from '../../lib/academyOutputs'
 import { useLibraryFocus } from '../../lib/libraryFocus'
+import { CalendarView } from './CalendarView'
 import { DiscussionsView } from './DiscussionsView'
 import { FlashcardsView } from './FlashcardsView'
 import { LibraryView } from './LibraryView'
+import { ObjectivesView } from './ObjectivesView'
 import { QuizView } from './QuizView'
 import { ReaderView } from './ReaderView'
 import { ScenarioView } from './ScenarioView'
@@ -14,11 +16,21 @@ type AcademyContentProps = {
   page: AcademyPage
   sourceId?: string | null
   seg?: number | null
+  lessonId?: string | null
+  resourceId?: string | null
   scope: AcademyScope
   onOpen: (page: AcademyPage, scope: AcademyScope) => void
 }
 
-export function AcademyContent({ page, sourceId = null, seg = null, scope, onOpen }: AcademyContentProps) {
+export function AcademyContent({
+  page,
+  sourceId = null,
+  seg = null,
+  lessonId = null,
+  resourceId = null,
+  scope,
+  onOpen,
+}: AcademyContentProps) {
   const { activeWorkspace } = useWorkspace()
   const { focus } = useLibraryFocus(activeWorkspace?.id ?? null)
   const { items } = useOutputs()
@@ -52,7 +64,18 @@ export function AcademyContent({ page, sourceId = null, seg = null, scope, onOpe
             projectId={scope.projectId}
           />
         )}
-        {page === 'discussions' && <DiscussionsView sourceId={scope.sourceId} />}
+        {page === 'discussions' && (
+          <DiscussionsView sourceId={scope.sourceId} threadId={scope.threadId ?? null} />
+        )}
+        {page === 'calendar' && <CalendarView />}
+        {page === 'objectives' && (
+          <ObjectivesView
+            key={lessonId ?? 'all'}
+            focusLessonId={lessonId}
+            focusResourceId={resourceId}
+            onOpen={onOpen}
+          />
+        )}
       </div>
     </div>
   )

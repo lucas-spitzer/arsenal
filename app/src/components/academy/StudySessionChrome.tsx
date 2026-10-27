@@ -1,6 +1,7 @@
-import { ArrowLeft, ArrowRight, BookOpen, ChevronRight, Maximize2, Minimize2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpen, ChevronRight, Maximize2, Minimize2, Target } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+import type { Lesson } from '../../lib/lessonsApi'
 
 /* Shared chrome for the live study views (Flashcards, Quiz, Scenarios,
    Discussions): roster-style page header, a focusable session panel with
@@ -146,6 +147,32 @@ export function StudySourceReference({
         onClick={() => sourceId && navigate(`/app/reader/${sourceId}`)}
       >
         Open in reader <ChevronRight size={15} />
+      </button>
+    </aside>
+  )
+}
+
+export function StudyLessonReference({ lesson }: { lesson: Pick<Lesson, 'id' | 'title' | 'objectives'> }) {
+  const navigate = useNavigate()
+  const count = lesson.objectives.length
+  return (
+    <aside className="study-session__reference" aria-label="Class reference">
+      <div className="study-session__reference-head">
+        <div>
+          <span>Class reference</span>
+          <strong>{lesson.title}</strong>
+        </div>
+        <Target size={17} aria-hidden />
+      </div>
+      <p className="study-session__reference-detail">
+        {count} {count === 1 ? 'ELO' : 'ELOs'}. The tutor draws on this class first.
+      </p>
+      <button
+        type="button"
+        className="study-session__reference-link"
+        onClick={() => navigate(`/app/elo/${lesson.id}`)}
+      >
+        Open ELOs <ChevronRight size={15} />
       </button>
     </aside>
   )

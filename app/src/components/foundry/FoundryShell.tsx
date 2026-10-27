@@ -4,6 +4,8 @@ import { matchPath, useLocation, useNavigate, useSearchParams } from 'react-rout
 import { AcademyContent } from '../academy/AcademyContent'
 import {
   emptyAcademyScope,
+  academyPageForRole,
+  academyRailForRole,
   academyRailItems,
   type AcademyPage,
   type AcademyScope,
@@ -11,7 +13,9 @@ import {
 import { isAdminAccess } from '../../features/auth/access'
 import { signOut } from '../../features/auth/authService'
 import { useAuth } from '../../features/auth/authContext'
+import { FoundryCalendar } from './FoundryCalendar'
 import { FoundryDesign } from './design/FoundryDesign'
+import { FoundryObjectives } from './FoundryObjectives'
 import { FoundryOps } from './FoundryOps'
 import { FoundryStages } from './FoundryStages'
 import { FoundrySources } from './FoundrySources'
@@ -62,6 +66,7 @@ function readShellState(): ShellState {
             sourceId: typeof scope.sourceId === 'string' ? scope.sourceId : null,
             targetId: typeof scope.targetId === 'string' ? scope.targetId : null,
             projectId: typeof scope.projectId === 'string' ? scope.projectId : null,
+            threadId: typeof scope.threadId === 'string' ? scope.threadId : null,
           }
         : emptyAcademyScope
     return { mode, foundryPage, academyPage, academyScope }
@@ -97,24 +102,33 @@ export function FoundryShell() {
     setShell((shellState) => ({ ...shellState, academyScope: nextScope }))
   }
 
-  // Reader is the one URL-addressable screen: /app/reader/:sourceId?seg=N.
-  // When that route is active it overrides the state-driven tabs.
+  // URL-addressable screens: /app/reader/:sourceId?seg=N (Reader) and
+  // /app/elo/:lessonId?resource=ID (ELO citations from Discussions).
+  // When either route is active it overrides the state-driven tabs.
   const location = useLocation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const readerMatch = matchPath('/app/reader/:sourceId', location.pathname)
   const routedSourceId = readerMatch?.params.sourceId ?? null
+  const eloMatch = matchPath('/app/elo/:lessonId', location.pathname)
+  const routedLessonId = eloMatch?.params.lessonId ?? null
+  const routedResourceId = routedLessonId ? searchParams.get('resource') : null
+  const isRouted = Boolean(routedSourceId || routedLessonId)
   const segParam = searchParams.get('seg')
   const parsedSeg = segParam != null && segParam !== '' ? Number.parseInt(segParam, 10) : NaN
   const seg = Number.isFinite(parsedSeg) ? parsedSeg : null
 
-  const isAcademy = !isAdmin || Boolean(routedSourceId) || mode === 'academy'
-  const activeAcademyPage: AcademyPage = routedSourceId ? 'reader' : academyPage
-  const navItems = isAcademy ? academyRailItems : railItems
+  const isAcademy = !isAdmin || isRouted || mode === 'academy'
+  const activeAcademyPage: AcademyPage = routedSourceId
+    ? 'reader'
+    : routedLessonId
+      ? 'objectives'
+      : academyPageForRole(academyPage, isAdmin)
+  const navItems = isAcademy ? academyRailForRole(isAdmin) : railItems
   const activePage = isAcademy ? activeAcademyPage : foundryPage
 
   const toggleMode = () => {
-    if (routedSourceId) {
+    if (isRouted) {
       navigate('/app', { replace: true })
       setMode('foundry')
       return
@@ -123,13 +137,13 @@ export function FoundryShell() {
   }
 
   const setPage = (id: string) => {
-    if (routedSourceId) {
+    if (isRouted) {
       navigate('/app', { replace: true })
       setMode('academy')
     }
     if (isAcademy) {
       setAcademyScope(emptyAcademyScope) // rail navigation clears any open-from-Library scope
-      setAcademyPage(id as AcademyPage)
+      setAcademyPage(academyPageForRole(id as AcademyPage, isAdmin))
     } else {
       setFoundryPage(id as FoundryPage)
     }
@@ -137,10 +151,11 @@ export function FoundryShell() {
 
   // Open a runner from the Library, carrying a source filter + focus target.
   const openAcademy = (page: AcademyPage, scope: AcademyScope) => {
-    if (routedSourceId) navigate('/app', { replace: true })
+    if (isRouted) navigate('/app', { replace: true })
     setMode('academy')
-    setAcademyScope(scope)
-    setAcademyPage(page)
+    const nextPage = academyPageForRole(page, isAdmin)
+    setAcademyScope(nextPage === page ? scope : emptyAcademyScope)
+    setAcademyPage(nextPage)
   }
 
   return (
@@ -198,6 +213,8 @@ export function FoundryShell() {
             page={activeAcademyPage}
             sourceId={routedSourceId}
             seg={seg}
+            lessonId={routedLessonId}
+            resourceId={routedResourceId}
             scope={academyScope}
             onOpen={openAcademy}
           />
@@ -207,6 +224,8 @@ export function FoundryShell() {
             {foundryPage === 'sources' ? <FoundrySources /> : null}
             {foundryPage === 'stages' ? <FoundryStages /> : null}
             {foundryPage === 'design' ? <FoundryDesign /> : null}
+            {foundryPage === 'calendar' ? <FoundryCalendar /> : null}
+            {foundryPage === 'objectives' ? <FoundryObjectives /> : null}
             {foundryPage === 'workspace' ? <FoundryWorkspaces /> : null}
             {foundryPage === 'settings' ? <FoundryStageSettings /> : null}
           </>

@@ -1107,6 +1107,151 @@ def test_narrate_source_skips_mid_run_gemini_invalid_argument() -> None:
     assert chars == 10
 
 
+def test_narrate_source_splits_clip_when_gemini_returns_no_audio() -> None:
+    from app.services.gemini_tts_client import GeminiTtsError
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    class _EmptyClip(_FakeTts):
+        provider = "google"
+        model_id = "gemini-3.8-flash-tts"
+        audio_content_type = "audio/wav"
+
+        def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
+            if "\n\n" in text or text.startswith("b"):
+                self.texts.append(text)
+                raise GeminiTtsError(
+                    "Gemini TTS response missing audio inline data (finish_reason=OTHER)."
+                )
+            return super().synthesize_with_timestamps(text, **kwargs)
+
+    db = _FakeWorkerDb([])
+    db.chapters = [
+        {
+            "id": "ch-1",
+            "title": "One",
+            "sequence_index": 0,
+            "segment_ids": ["p1", "p2"],
+        }
+    ]
+    db.ndr_segments = [
+        {"id": "p1", "kind": "paragraph", "text": "Hello there."},
+        {"id": "p2", "kind": "paragraph", "text": "bbbbbbbbbb"},
+    ]
+    source = {
+        "id": "src-1",
+        "slug": "src-1",
+        "workspace_slug": "ocs-prep",
+        "storage_path": "ocs-prep/src-1/file.pdf",
+    }
+    client = _EmptyClip()
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=client,  # type: ignore[arg-type]
+        max_segment_chars=200,
+    )
+    output, chars, _ctx = executor._narrate_source(
+        workspace_id="ws-1",
+        source=source,
+        stage_run_id="sr-1",
+    )
+    assert client.texts == [
+        "Hello there.\n\nbbbbbbbbbb",
+        "Hello there.",
+        "bbbbbbbbbb",
+    ]
+    assert output["segments_narrated"] == 1
+    assert output["segments_skipped"] == 0
+    assert output["summary"] == "1/1 clips"
+    assert chars == len("Hello there.")
+    assert [row["segment_id"] for row in db.narration_rows] == ["p1", "p2"]
+    assert db.narration_rows[0]["audio_path"].endswith("ch-1-00-p1.wav")
+    assert [word["w"] for word in db.narration_rows[1]["words"]] == ["bbbbbbbbbb"]
+
+    client.texts.clear()
+    again, again_chars, _ctx = executor._narrate_source(
+        workspace_id="ws-1",
+        source=source,
+        stage_run_id="sr-2",
+    )
+    assert client.texts == []
+    assert again_chars == 0
+    assert again["segments_reused"] == 1
+    assert again["segments_narrated"] == 0
+
+
+def test_narrate_source_splits_a_refused_paragraph_into_sentences() -> None:
+    from app.services.gemini_tts_client import GeminiTtsError
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    paragraph = "Hello there. Brave words."
+
+    class _EmptySentence(_FakeTts):
+        provider = "google"
+        model_id = "gemini-3.8-flash-tts"
+        audio_content_type = "audio/wav"
+
+        def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
+            if text == paragraph or text.startswith("Brave"):
+                self.texts.append(text)
+                raise GeminiTtsError(
+                    "Gemini TTS response missing audio inline data (finish_reason=OTHER)."
+                )
+            return super().synthesize_with_timestamps(text, **kwargs)
+
+    db = _FakeWorkerDb([])
+    db.chapters = [
+        {
+            "id": "ch-1",
+            "title": "One",
+            "sequence_index": 0,
+            "segment_ids": ["p1"],
+        }
+    ]
+    db.ndr_segments = [
+        {"id": "p1", "kind": "paragraph", "text": paragraph},
+    ]
+    source = {
+        "id": "src-1",
+        "slug": "src-1",
+        "workspace_slug": "ocs-prep",
+        "storage_path": "ocs-prep/src-1/file.pdf",
+    }
+    client = _EmptySentence()
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=client,  # type: ignore[arg-type]
+        max_segment_chars=200,
+    )
+    output, chars, _ctx = executor._narrate_source(
+        workspace_id="ws-1",
+        source=source,
+        stage_run_id="sr-1",
+    )
+    assert client.texts == [paragraph, "Hello there.", "Brave words."]
+    assert output["summary"] == "1/1 clips"
+    assert chars == len("Hello there.")
+    assert len(db.narration_rows) == 1
+    assert [word["w"] for word in db.narration_rows[0]["words"]] == [
+        "Hello",
+        "there.",
+        "Brave",
+        "words.",
+    ]
+
+    client.texts.clear()
+    again, again_chars, _ctx = executor._narrate_source(
+        workspace_id="ws-1",
+        source=source,
+        stage_run_id="sr-2",
+    )
+    assert client.texts == []
+    assert again_chars == 0
+    assert again["segments_reused"] == 1
+    assert again["segments_narrated"] == 0
+
+
 def test_narrate_source_fails_first_gemini_invalid_argument() -> None:
     from app.services.gemini_tts_client import GeminiTtsError
     from app.worker.narration_executor import NarrationStageExecutor

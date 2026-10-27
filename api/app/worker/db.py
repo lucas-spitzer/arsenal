@@ -225,6 +225,54 @@ class WorkerDatabase:
         )
         return rows[0]
 
+    # --- Academy ELO lessons (lesson_chunks index for Discussions) ---------
+
+    def get_lesson(self, lesson_id: str) -> dict[str, Any] | None:
+        rows = self._request(
+            "GET",
+            "lessons",
+            params={"select": "*", "id": f"eq.{lesson_id}", "limit": "1"},
+        )
+        return rows[0] if rows else None
+
+    def list_lesson_objectives(self, lesson_id: str) -> list[dict[str, Any]]:
+        rows = self._request(
+            "GET",
+            "lesson_objectives",
+            params={"select": "*", "lesson_id": f"eq.{lesson_id}", "order": "position.asc"},
+        )
+        return rows or []
+
+    def get_lesson_resource(self, resource_id: str) -> dict[str, Any] | None:
+        rows = self._request(
+            "GET",
+            "lesson_resources",
+            params={"select": "*", "id": f"eq.{resource_id}", "limit": "1"},
+        )
+        return rows[0] if rows else None
+
+    def update_lesson_resource(self, resource_id: str, payload: dict[str, Any]) -> None:
+        self._request(
+            "PATCH",
+            "lesson_resources",
+            params={"id": f"eq.{resource_id}"},
+            json_body=payload,
+        )
+
+    def delete_lesson_chunks_for_resource(self, resource_id: str) -> None:
+        self._request("DELETE", "lesson_chunks", params={"resource_id": f"eq.{resource_id}"})
+
+    def delete_lesson_objective_chunks(self, lesson_id: str) -> None:
+        self._request(
+            "DELETE",
+            "lesson_chunks",
+            params={"lesson_id": f"eq.{lesson_id}", "kind": "eq.objective"},
+        )
+
+    def insert_lesson_chunks(self, rows: list[dict[str, Any]]) -> None:
+        for start in range(0, len(rows), NDR_SEGMENT_BATCH_SIZE):
+            self._request("POST", "lesson_chunks", json_body=rows[start : start + NDR_SEGMENT_BATCH_SIZE])
+
     def delete_ndr_segments_for_source(self, source_id: str) -> None:
         self._request(
             "DELETE",

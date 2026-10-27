@@ -18,8 +18,10 @@ import { ChatRichText } from './ChatRichText'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { useOutputs } from '../../lib/academyOutputs'
 import { discussionSections } from '../../lib/discussionPrompts'
+import { useLessons } from '../../lib/useLessons'
 import {
   StudyHead,
+  StudyLessonReference,
   StudyPanel,
   StudySourceReference,
 } from './StudySessionChrome'
@@ -33,7 +35,14 @@ const DEFAULT_SEED_PROMPT =
    academy start a new one, either free-form or seeded from a knowledge-base
    prompt. */
 
-export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?: string | null }) {
+export function DiscussionsView({
+  sourceId: initialSource = null,
+  threadId: initialThreadId = null,
+}: {
+  sourceId?: string | null
+  /** Thread to open on arrival, e.g. one created by "Discuss this class". */
+  threadId?: string | null
+}) {
   const { approvedUser } = useAuth()
   const { activeWorkspace } = useWorkspace()
   const canChooseStyle = isAdminAccess(approvedUser?.role)
@@ -88,6 +97,31 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
     }
   }, [workspaceId])
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  const openedInitialRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!workspaceId || !initialThreadId || openedInitialRef.current === initialThreadId) return
+    openedInitialRef.current = initialThreadId
+    let cancelled = false
+    getThread(workspaceId, initialThreadId)
+      .then((detail) => {
+        if (cancelled) return
+        setActiveThread(detail)
+        setMessages(detail.messages)
+        setThreads((rows) => (rows.some((row) => row.id === detail.id) ? rows : [detail, ...rows]))
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load the conversation.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId, initialThreadId])
+
+  const { lessons } = useLessons(workspaceId)
+  const threadLesson = activeThread?.lesson_id
+    ? lessons.find((lesson) => lesson.id === activeThread.lesson_id) ?? null
+    : null
 
   useEffect(() => {
     scrollLogToBottom()
@@ -501,6 +535,7 @@ export function DiscussionsView({ sourceId: initialSource = null }: { sourceId?:
       {activeThread?.source_id && sourceName && (
         <StudySourceReference sourceId={activeThread.source_id} sourceName={sourceName} />
       )}
+      {threadLesson && <StudyLessonReference lesson={threadLesson} />}
     </section>
   )
 }

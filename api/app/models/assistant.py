@@ -17,12 +17,14 @@ class AssistantChatRequest(BaseModel):
     messages: list[AssistantMessage] = Field(default_factory=list)
     # Optional narrowing: restrict retrieval to specific source documents.
     source_ids: list[str] | None = None
+    # Optional focus on Academy ELO classes. Lesson material is searched either way.
+    lesson_ids: list[str] | None = None
     # Required when mode == "scenario" to load its evaluation_criteria/rubric.
     scenario_id: str | None = None
 
 
 class Citation(BaseModel):
-    kind: Literal["segment", "wiki"]
+    kind: Literal["segment", "wiki", "lesson"]
     label: str
     snippet: str
     similarity: float
@@ -54,6 +56,7 @@ class DiscussionThreadResponse(BaseModel):
     title: str
     submode: DiscussionSubmode
     source_id: str | None = None
+    lesson_id: str | None = None
     created_at: str
     updated_at: str
 
@@ -75,6 +78,7 @@ class CreateDiscussionThreadRequest(BaseModel):
     title: str
     submode: DiscussionSubmode = "tbs"
     source_id: str | None = None
+    lesson_id: str | None = None
     # Optional assistant-authored opener persisted as the first message.
     seed_prompt: str | None = None
 

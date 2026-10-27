@@ -100,6 +100,7 @@ async def create_discussion_thread(
             "title": title,
             "submode": request.submode if is_admin(user) else "tbs",
             "source_id": request.source_id,
+            **({"lesson_id": request.lesson_id} if request.lesson_id else {}),
         }
     )
 
@@ -215,6 +216,7 @@ async def send_discussion_message(
         mode="discussion",
         submode=thread["submode"] if is_admin(user) else "tbs",
         source_ids=[thread["source_id"]] if thread.get("source_id") else None,
+        lesson_ids=[thread["lesson_id"]] if thread.get("lesson_id") else None,
         messages=[
             AssistantMessage(role=row["role"], content=row["content"])
             for row in history_rows

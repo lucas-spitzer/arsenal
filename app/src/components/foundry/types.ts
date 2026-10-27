@@ -3,9 +3,11 @@ import {
   Anvil,
   BookText,
   Boxes,
+  CalendarDays,
   CircleGauge,
   Layers,
   SlidersHorizontal,
+  Target,
 } from 'lucide-react'
 
 export type FoundryPage =
@@ -13,6 +15,8 @@ export type FoundryPage =
   | 'sources'
   | 'stages'
   | 'design'
+  | 'calendar'
+  | 'objectives'
   | 'workspace'
   | 'settings'
 
@@ -25,6 +29,8 @@ export const railItems: { id: FoundryPage; label: string; icon: LucideIcon }[] =
   { id: 'sources', label: 'SRC', icon: BookText },
   { id: 'stages', label: 'API', icon: Layers },
   { id: 'design', label: 'DSN', icon: Anvil },
+  { id: 'calendar', label: 'CAL', icon: CalendarDays },
+  { id: 'objectives', label: 'ELO', icon: Target },
   { id: 'workspace', label: 'WRK', icon: Boxes },
   { id: 'settings', label: 'CFG', icon: SlidersHorizontal },
 ]

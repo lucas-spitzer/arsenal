@@ -33,6 +33,8 @@ Do not stuff wiki into Mathesys, or flashcards into the artifact catalog.
 
 `web_explainer` is catalogued as a future Mathesys type. It is not a live `target_artifact`.
 
+**ELO lessons are separate from all three.** A TBS class (`lessons`), its ELOs (`lesson_objectives`), and its lecture files and MarineNet links (`lesson_resources`, `lesson-files` bucket) are added in Foundry ELO without production runs or `sources` rows. The worker embeds each ELO and the text of PDF, PPTX, DOCX, and TXT files into `lesson_chunks`. Discussions retrieval always searches `match_lesson_chunks` next to wiki and source chunks and cites hits as `lesson`. A thread started from "Discuss this class" carries `lesson_id`, so that class's chunks are retrieved first.
+
 ## Intellex knowledge (two objects)
 
 Intellex is a knowledge base in two senses. Keep them distinct.

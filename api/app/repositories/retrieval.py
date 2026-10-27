@@ -30,6 +30,27 @@ class RetrievalRepository:
         )
         return rows or []
 
+    async def match_lesson_chunks(
+        self,
+        *,
+        embedding: list[float],
+        workspace_id: str,
+        threshold: float,
+        count: int,
+        lesson_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        rows = await self.db.rpc(
+            "match_lesson_chunks",
+            {
+                "query_embedding": embedding,
+                "p_workspace_id": workspace_id,
+                "match_threshold": threshold,
+                "match_count": count,
+                "p_lesson_ids": lesson_ids,
+            },
+        )
+        return rows or []
+
     async def match_wiki_entries(
         self,
         *,

@@ -41,6 +41,10 @@ SYSTEM_PROMPTS: dict[str, str] = {
         "question, say so plainly. Do not invent facts, examples, or doctrine. "
         "When you use a passage, cite it inline as [n] using the numbers shown "
         "in the source material.\n\n"
+        "The source material may include class ELOs (Enabling Learning "
+        "Objectives) and lecture slides. When an ELO is in the material, hold "
+        "the answer to that ELO's standard, such as naming every item when it "
+        "says \"without omission\".\n\n"
         "Teach the concept they asked about, whatever it is.\n\n"
         "On each turn:\n"
         "1. Answer in plain language. Lead with the idea, then use the source's "
@@ -118,6 +122,7 @@ class AssistantService:
             latest_user,
             workspace_id,
             source_ids=request.source_ids,
+            lesson_ids=request.lesson_ids,
         )
         if not chunks:
             return _no_context_response()

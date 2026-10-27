@@ -212,3 +212,28 @@ def narration_clip_path(
         voice_id,
         filename,
     )
+
+
+def narration_paragraph_path(
+    source: dict[str, Any],
+    provider: str,
+    model_id: str,
+    voice_id: str,
+    chapter_id: str,
+    clip_index: int,
+    segment_id: str,
+    *,
+    extension: str = "mp3",
+) -> str:
+    """Audio for one paragraph when Gemini will not speak the whole clip."""
+    workspace_slug, source_slug = location_from_source(source)
+    suffix = extension.lstrip(".") or "mp3"
+    filename = f"{chapter_id}-{clip_index:02d}-{segment_id}.{suffix}"
+    return audio_clip_path(
+        workspace_slug,
+        source_slug,
+        provider,
+        model_id,
+        voice_id,
+        filename,
+    )

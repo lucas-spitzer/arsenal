@@ -14,6 +14,7 @@ from app.routers import (
     assistant,
     artifacts,
     assessments,
+    calendar,
     email_code,
     image,
     llm,
@@ -22,6 +23,7 @@ from app.routers import (
     stages,
     sources,
     knowledge,
+    lessons,
     study_materials,
     tts,
     wiki,
@@ -84,6 +86,8 @@ app.include_router(image.router)
 app.include_router(assistant.router)
 app.include_router(study_materials.router)
 app.include_router(knowledge.router)
+app.include_router(calendar.router)
+app.include_router(lessons.router)
 
 
 @app.get("/health")

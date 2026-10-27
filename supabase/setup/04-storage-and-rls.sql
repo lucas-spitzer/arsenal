@@ -21,6 +21,24 @@ values
       'image/jpeg',
       'image/webp'
     ]
+  ),
+  (
+    'lesson-files',
+    'lesson-files',
+    false,
+    null,
+    array[
+      'application/pdf',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain',
+      'image/png',
+      'image/jpeg'
+    ]
   )
 on conflict (id) do nothing;
 
@@ -43,6 +61,11 @@ alter table public.quizzes enable row level security;
 alter table public.scenarios enable row level security;
 alter table public.discussion_threads enable row level security;
 alter table public.discussion_messages enable row level security;
+alter table public.calendar_events enable row level security;
+alter table public.lessons enable row level security;
+alter table public.lesson_objectives enable row level security;
+alter table public.lesson_resources enable row level security;
+alter table public.lesson_chunks enable row level security;
 alter table public.study_materials enable row level security;
 alter table public.study_material_components enable row level security;
 alter table public.study_material_component_versions enable row level security;
@@ -68,6 +91,11 @@ revoke all on table public.quizzes from anon, authenticated;
 revoke all on table public.scenarios from anon, authenticated;
 revoke all on table public.discussion_threads from anon, authenticated;
 revoke all on table public.discussion_messages from anon, authenticated;
+revoke all on table public.calendar_events from anon, authenticated;
+revoke all on table public.lessons from anon, authenticated;
+revoke all on table public.lesson_objectives from anon, authenticated;
+revoke all on table public.lesson_resources from anon, authenticated;
+revoke all on table public.lesson_chunks from anon, authenticated;
 revoke all on table public.study_materials from anon, authenticated;
 revoke all on table public.study_material_components from anon, authenticated;
 revoke all on table public.study_material_component_versions from anon, authenticated;
@@ -80,6 +108,9 @@ revoke execute on function public.match_ndr_segments(
 ) from public, anon, authenticated;
 revoke execute on function public.match_wiki_entries(
   extensions.vector, uuid, double precision, integer
+) from public, anon, authenticated;
+revoke execute on function public.match_lesson_chunks(
+  extensions.vector, uuid, double precision, integer, uuid[]
 ) from public, anon, authenticated;
 
 -- FastAPI uses the service role key for data access in V1.

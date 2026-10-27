@@ -4,12 +4,13 @@ vi.mock('../features/auth/authService', () => ({
   getAccessToken: async () => null,
 }))
 
-import { academyRailItems } from '../components/academy/types'
+import { academyRailItems, academyPageForRole, academyRailForRole } from '../components/academy/types'
 import { railItems } from '../components/foundry/types'
 import {
   defaultReaderSourceId,
   filterOutputs,
   knowledgeRunOutputItems,
+  libraryItemsForRole,
   outputFooter,
   wikiEntriesToOutputItems,
 } from './academyOutputs'
@@ -51,6 +52,47 @@ describe('wiki knowledge on New Run and Library', () => {
   it('omits wiki from Foundry and Academy rails', () => {
     expect(railItems.map((item) => item.id)).not.toContain('wiki')
     expect(academyRailItems.map((item) => item.id)).not.toContain('wiki')
+  })
+
+  it('hides flashcards, questions, and scenarios from students and keeps them for admins', () => {
+    expect(academyRailForRole(false).map((item) => item.id)).toEqual([
+      'library',
+      'reader',
+      'calendar',
+      'objectives',
+      'discussions',
+    ])
+    expect(academyRailForRole(true).map((item) => item.id)).toEqual([
+      'library',
+      'reader',
+      'calendar',
+      'objectives',
+      'discussions',
+      'flashcards',
+      'quiz',
+      'scenarios',
+    ])
+    expect(academyPageForRole('flashcards', false)).toBe('library')
+    expect(academyPageForRole('quiz', false)).toBe('library')
+    expect(academyPageForRole('scenarios', false)).toBe('library')
+    expect(academyPageForRole('reader', false)).toBe('reader')
+    expect(academyPageForRole('flashcards', true)).toBe('flashcards')
+
+    const items = [
+      { kind: 'book' as const, id: 'book' },
+      { kind: 'flashcard' as const, id: 'cards' },
+      { kind: 'question' as const, id: 'questions' },
+      { kind: 'scenario' as const, id: 'scenarios' },
+      { kind: 'wiki' as const, id: 'wiki' },
+    ]
+    expect(libraryItemsForRole(items, false).map((item) => item.id)).toEqual(['book', 'wiki'])
+    expect(libraryItemsForRole(items, true).map((item) => item.id)).toEqual([
+      'book',
+      'cards',
+      'questions',
+      'scenarios',
+      'wiki',
+    ])
   })
 
   it('maps each source’s canonical wiki entries into one Library card', () => {
