@@ -55,6 +55,21 @@ class WikiEntryUpdate(BaseModel):
     items: list[WikiListItem] | None = None
 
 
+def redact_elo_definitions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Hide stored ELO answers from students. The question stays on preferred_label."""
+    redacted: list[dict[str, Any]] = []
+    for row in rows:
+        if row.get("entry_kind") == "elo":
+            redacted.append({**row, "definition": ""})
+            continue
+        redacted.append(row)
+    return redacted
+
+
+def redact_elo_definition(row: dict[str, Any]) -> dict[str, Any]:
+    return redact_elo_definitions([row])[0]
+
+
 class WikiEntryResponse(BaseModel):
     id: str
     workspace_id: str

@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
+from app.access import is_admin
 from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import (
     get_source_repository,
@@ -17,6 +18,8 @@ from app.models.wiki_entry import (
     WikiEntryUpdate,
     WikiReviseProposal,
     WikiReviseRequest,
+    redact_elo_definition,
+    redact_elo_definitions,
 )
 from app.models.wiki_ingest import (
     WikiIngestBatchResponse,
@@ -38,7 +41,7 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/wiki", tags=["wiki"])
 @router.get("/entries", response_model=list[WikiEntryResponse])
 async def list_wiki_entries(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
     wiki_entries: Annotated[WikiEntryRepository, Depends(get_wiki_entry_repository)],
     status_filter: Annotated[str | None, Query(alias="status")] = None,
     search: Annotated[str | None, Query()] = None,
@@ -52,6 +55,8 @@ async def list_wiki_entries(
         limit=limit,
         offset=offset,
     )
+    if not is_admin(user):
+        rows = redact_elo_definitions(rows)
     return [WikiEntryResponse.model_validate(row) for row in rows]
 
 
@@ -91,7 +96,7 @@ async def create_wiki_entry(
 async def get_wiki_entry(
     wiki_entry_id: str,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
     wiki_entries: Annotated[WikiEntryRepository, Depends(get_wiki_entry_repository)],
 ) -> WikiEntryResponse:
     row = await wiki_entries.get_for_workspace(wiki_entry_id, workspace.id)
@@ -102,6 +107,8 @@ async def get_wiki_entry(
             detail="Wiki entry not found.",
         )
 
+    if not is_admin(user):
+        row = redact_elo_definition(row)
     return WikiEntryResponse.model_validate(row)
 
 

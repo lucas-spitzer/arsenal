@@ -182,24 +182,23 @@ export function DiscussionsView({
 
   const startThread = async (options: {
     title: string
-    seedPrompt?: string
     sourceId?: string | null
+    wikiEntryId?: string | null
   }) => {
     if (!workspaceId || creating) return
     setCreating(true)
     setError(null)
-    const studentPrompt = options.seedPrompt?.trim() || null
-    let createdId: string | null = null
+    const wikiEntryId = options.wikiEntryId ?? null
     try {
       const detail = await createThread(workspaceId, {
         title: options.title,
         submode: canChooseStyle ? (activeThread?.submode ?? 'tbs') : 'tbs',
         source_id: options.sourceId ?? null,
-        // An ELO is the student's question. seed_prompt is an assistant opener,
-        // so only the blank-thread welcome uses it.
-        seed_prompt: studentPrompt ? null : DEFAULT_SEED_PROMPT,
+        wiki_entry_id: wikiEntryId,
+        // An ELO question is the tutor's opener, filled in on the server from the
+        // stored entry. seed_prompt is only the blank-thread welcome.
+        seed_prompt: wikiEntryId ? null : DEFAULT_SEED_PROMPT,
       })
-      createdId = detail.id
       setThreads((rows) => [detail, ...rows])
       setActiveThread(detail)
       setMessages(detail.messages)
@@ -209,9 +208,6 @@ export function DiscussionsView({
       setError(err instanceof Error ? err.message : 'Could not start the conversation.')
     } finally {
       setCreating(false)
-    }
-    if (createdId && studentPrompt) {
-      await submitMessage(createdId, studentPrompt)
     }
   }
 
@@ -353,7 +349,7 @@ export function DiscussionsView({
                 className="chat__input"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder={messagePlaceholder(submode)}
+                placeholder={messagePlaceholder(submode, Boolean(activeThread.wiki_entry_id))}
                 aria-label="Your message"
                 disabled={sending}
               />
@@ -385,7 +381,7 @@ export function DiscussionsView({
                             onClick={() =>
                               void startThread({
                                 title: prompt.title,
-                                seedPrompt: prompt.prompt,
+                                wikiEntryId: prompt.key,
                                 sourceId: prompt.sourceId,
                               })
                             }
@@ -517,7 +513,7 @@ export function DiscussionsView({
                       onClick={() =>
                         void startThread({
                           title: prompt.title,
-                          seedPrompt: prompt.prompt,
+                          wikiEntryId: prompt.key,
                           sourceId: prompt.sourceId,
                         })
                       }
@@ -540,7 +536,8 @@ export function DiscussionsView({
   )
 }
 
-function messagePlaceholder(submode: DiscussionSubmode): string {
+function messagePlaceholder(submode: DiscussionSubmode, checkingAnswer: boolean): string {
+  if (checkingAnswer) return 'Write your answer…'
   switch (submode) {
     case 'tbs':
       return 'Ask about a concept…'

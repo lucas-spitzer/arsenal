@@ -132,11 +132,21 @@ class FakeThreads:
         return None
 
 
+class _Wiki:
+    async def get_for_workspace(self, wiki_entry_id: str, workspace_id: str) -> None:
+        return None
+
+
 class FakeAssistant:
     def __init__(self) -> None:
         self.requests: list[AssistantChatRequest] = []
 
-    async def chat(self, request: AssistantChatRequest, workspace_id: str) -> AssistantChatResponse:
+    async def chat(
+        self,
+        request: AssistantChatRequest,
+        workspace_id: str,
+        elo_check: object | None = None,
+    ) -> AssistantChatResponse:
         self.requests.append(request)
         return AssistantChatResponse(answer="Answer [1]", grounded=True, citations=[])
 
@@ -177,6 +187,7 @@ def test_thread_lesson_id_reaches_chat_request() -> None:
             CurrentUser(id="u1", email="s@example.com", role="student"),
             FakeThreads(thread),  # type: ignore[arg-type]
             assistant,  # type: ignore[arg-type]
+            _Wiki(),  # type: ignore[arg-type]
         )
     )
 

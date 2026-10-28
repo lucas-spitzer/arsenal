@@ -149,6 +149,12 @@ describe('wiki knowledge on New Run and Library', () => {
           preferred_label: 'Retired',
           status: 'deprecated',
         }),
+        wikiEntry({
+          id: 'wiki-elo',
+          preferred_label: 'Explain the commission.',
+          entry_kind: 'elo',
+          definition: 'A commission is a grant of authority.',
+        }),
       ],
       () => 'OCS Prep',
     )

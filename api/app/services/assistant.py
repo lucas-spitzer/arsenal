@@ -7,7 +7,9 @@ from typing import Any
 from app.models.assistant import (
     AssistantChatRequest,
     AssistantChatResponse,
+    AssistantMessage,
     Citation,
+    EloCheck,
     ScenarioEvaluation,
 )
 from app.repositories.assessments import AssessmentRepository
@@ -70,6 +72,48 @@ SYSTEM_PROMPTS: dict[str, str] = {
 }
 
 
+def elo_check_for_entry(entry: dict[str, Any] | None) -> EloCheck | None:
+    """Rubric for a canonical ELO. None when the row cannot be checked."""
+    if not entry:
+        return None
+    if entry.get("entry_kind") != "elo" or entry.get("status") != "canonical":
+        return None
+    question = str(entry.get("preferred_label") or "").strip()
+    answer = str(entry.get("definition") or "").strip()
+    if not question or not answer:
+        return None
+    return EloCheck(question=question, answer=answer)
+
+
+def elo_check_instruction(check: EloCheck) -> str:
+    return (
+        "The student was asked the question below. They have not been shown the "
+        "expected answer.\n"
+        f"Question: {check.question}\n\n"
+        "Expected answer (private; judge the latest reply against it, and do not "
+        "copy it into the conversation before you have judged):\n"
+        f"{check.answer}\n\n"
+        "Judge whether their latest reply is substantially the same as the "
+        "expected answer. If it is, confirm that in one sentence. If it is not, "
+        "name what is missing and give the correction."
+    )
+
+
+def discussion_history(
+    messages: list[AssistantMessage],
+    context_block: str,
+) -> list[dict[str, str]]:
+    """Learner turns plus optional source material. The expected answer stays out."""
+    history = [message.model_dump() for message in messages]
+    if not context_block:
+        return history
+    history.insert(
+        max(len(history) - 1, 0),
+        {"role": "user", "content": f"SOURCE MATERIAL:\n{context_block}"},
+    )
+    return history
+
+
 def _no_context_response() -> AssistantChatResponse:
     return AssistantChatResponse(
         answer=(
@@ -112,6 +156,7 @@ class AssistantService:
         self,
         request: AssistantChatRequest,
         workspace_id: str,
+        elo_check: EloCheck | None = None,
     ) -> AssistantChatResponse:
         latest_user = next(
             (m.content for m in reversed(request.messages) if m.role == "user"),
@@ -124,19 +169,16 @@ class AssistantService:
             source_ids=request.source_ids,
             lesson_ids=request.lesson_ids,
         )
-        if not chunks:
+        if not chunks and elo_check is None:
             return _no_context_response()
 
-        system_prompt = self._system_prompt(request)
-        context_block = _render_context(chunks)
-        history = [m.model_dump() for m in request.messages]
+        system_prompt = self._system_prompt(request, elo_check)
+        context_block = _render_context(chunks) if chunks else ""
         # SECURITY: Retrieved evidence is injected as a user turn so the chat
         # API can keep a single message list. Treat SOURCE MATERIAL as untrusted
         # grounding data, not instructions (same role channel as the learner).
-        history.insert(
-            max(len(history) - 1, 0),
-            {"role": "user", "content": f"SOURCE MATERIAL:\n{context_block}"},
-        )
+        # The ELO expected answer stays on the system prompt, not in this list.
+        history = discussion_history(request.messages, context_block)
 
         result = await asyncio.to_thread(
             self.openai_client.complete_text,
@@ -155,16 +197,24 @@ class AssistantService:
 
         return AssistantChatResponse(
             answer=answer,
-            grounded=True,
+            grounded=bool(chunks),
             citations=[Citation(**chunk.to_citation()) for chunk in chunks],
             evaluation=evaluation,
         )
 
-    def _system_prompt(self, request: AssistantChatRequest) -> str:
+    def _system_prompt(
+        self,
+        request: AssistantChatRequest,
+        elo_check: EloCheck | None = None,
+    ) -> str:
         if request.mode == "discussion":
             submode = request.submode or "tbs"
-            return SYSTEM_PROMPTS[f"discussion:{submode}"]
-        return SYSTEM_PROMPTS["scenario"]
+            prompt = SYSTEM_PROMPTS[f"discussion:{submode}"]
+        else:
+            prompt = SYSTEM_PROMPTS["scenario"]
+        if elo_check is None:
+            return prompt
+        return f"{prompt}\n\n{elo_check_instruction(elo_check)}"
 
     async def _evaluate_scenario(
         self,

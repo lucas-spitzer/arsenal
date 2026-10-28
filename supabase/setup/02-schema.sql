@@ -919,6 +919,10 @@ on public.lesson_chunks using hnsw (embedding extensions.vector_cosine_ops);
 alter table public.discussion_threads
   add column lesson_id uuid references public.lessons (id) on delete set null;
 
+-- An ELO discussion stores the wiki question. The expected answer stays on the entry.
+alter table public.discussion_threads
+  add column wiki_entry_id uuid references public.wiki_entries (id) on delete set null;
+
 -- ---------------------------------------------------------------------------
 -- RAG match helpers (service role only; tenancy via p_workspace_id)
 -- ---------------------------------------------------------------------------
@@ -1000,6 +1004,7 @@ as $$
   where w.workspace_id = p_workspace_id
     and w.embedding is not null
     and w.status = 'canonical'
+    and w.entry_kind <> 'elo'
     and 1 - (w.embedding <=> query_embedding) >= match_threshold
   order by w.embedding <=> query_embedding
   limit match_count;

@@ -4,7 +4,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.config import Settings, get_settings
-from app.access import can_read_library
+from app.access import can_read_library, is_admin
 from app.dependencies.auth import require_approved_user
 from app.dependencies.services import (
     get_artifact_repository,
@@ -27,7 +27,7 @@ from app.models.auth import CurrentUser
 from app.models.knowledge import KnowledgeRunTitle
 from app.models.library import LibraryCatalogResponse
 from app.models.source import SourceResponse
-from app.models.wiki_entry import WikiEntryResponse
+from app.models.wiki_entry import WikiEntryResponse, redact_elo_definitions
 from app.models.workspace import WorkspaceResponse
 from app.repositories.artifacts import ArtifactRepository
 from app.repositories.assessments import AssessmentRepository
@@ -108,6 +108,7 @@ async def load_library_catalog(
     projects: KnowledgeProjectRepository,
     storage: SupabaseStorageClient,
     settings: Settings,
+    reveal_elo_answers: bool = True,
 ) -> LibraryCatalogResponse:
     (
         source_rows,
@@ -131,6 +132,8 @@ async def load_library_catalog(
         _with_signed_visuals(quiz_rows, storage, settings),
         _with_signed_visuals(scenario_rows, storage, settings),
     )
+    if not reveal_elo_answers:
+        wiki_rows = redact_elo_definitions(wiki_rows)
     return LibraryCatalogResponse(
         sources=[SourceResponse.model_validate(row) for row in source_rows],
         artifacts=[ArtifactResponse.model_validate(row) for row in artifact_rows],
@@ -148,7 +151,7 @@ async def load_library_catalog(
 )
 async def get_library(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
     sources: Annotated[SourceRepository, Depends(get_source_repository)],
     artifacts: Annotated[ArtifactRepository, Depends(get_artifact_repository)],
     wiki_entries: Annotated[WikiEntryRepository, Depends(get_wiki_entry_repository)],
@@ -167,6 +170,7 @@ async def get_library(
         projects=projects,
         storage=storage,
         settings=settings,
+        reveal_elo_answers=is_admin(user),
     )
 
 

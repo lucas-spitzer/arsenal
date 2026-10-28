@@ -383,7 +383,7 @@ export function AcademyWiki({
   const visibleEntries = useMemo(() => {
     const q = query.toLowerCase()
     return wikiEntries.filter((entry) => {
-      if (entry.status === 'deprecated') return false
+      if (entry.status === 'deprecated' || entry.entry_kind === 'elo') return false
       if (targetId) return entry.id === targetId
       if (sourceId) {
         const origin = entry.origin

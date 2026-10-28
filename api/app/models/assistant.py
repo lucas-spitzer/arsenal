@@ -50,6 +50,13 @@ class AssistantChatResponse(BaseModel):
 # --- Persisted discussion threads ------------------------------------------
 
 
+class EloCheck(BaseModel):
+    """Private rubric for an ELO discussion. Never persisted on a message."""
+
+    question: str
+    answer: str
+
+
 class DiscussionThreadResponse(BaseModel):
     id: str
     workspace_id: str
@@ -57,6 +64,7 @@ class DiscussionThreadResponse(BaseModel):
     submode: DiscussionSubmode
     source_id: str | None = None
     lesson_id: str | None = None
+    wiki_entry_id: str | None = None
     created_at: str
     updated_at: str
 
@@ -79,6 +87,8 @@ class CreateDiscussionThreadRequest(BaseModel):
     submode: DiscussionSubmode = "tbs"
     source_id: str | None = None
     lesson_id: str | None = None
+    # Canonical ELO whose question opens the thread. The stored definition stays server-side.
+    wiki_entry_id: str | None = None
     # Optional assistant-authored opener persisted as the first message.
     seed_prompt: str | None = None
 

@@ -221,7 +221,7 @@ export function wikiEntriesToOutputItems(
 ): OutputItem[] {
   const groups = new Map<string, WikiEntry[]>()
   for (const entry of wikiEntries) {
-    if (entry.status === 'deprecated') continue
+    if (entry.status === 'deprecated' || entry.entry_kind === 'elo') continue
     const sourceId = wikiSourceId(entry)
     const key = sourceId ?? ''
     const list = groups.get(key) ?? []

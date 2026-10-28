@@ -4,7 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.access import is_admin
 from app.dependencies.auth import require_approved_user
-from app.dependencies.services import get_assistant_service, get_discussion_repository
+from app.dependencies.services import (
+    get_assistant_service,
+    get_discussion_repository,
+    get_wiki_entry_repository,
+)
 from app.dependencies.workspace import require_workspace
 from app.models.assistant import (
     AssistantChatRequest,
@@ -21,7 +25,8 @@ from app.models.assistant import (
 from app.models.auth import CurrentUser
 from app.models.workspace import WorkspaceResponse
 from app.repositories.discussions import DiscussionRepository
-from app.services.assistant import AssistantService
+from app.repositories.wiki_entries import WikiEntryRepository
+from app.services.assistant import AssistantService, elo_check_for_entry
 
 router = APIRouter(
     prefix="/workspaces/{workspace_id}/assistant",
@@ -85,6 +90,7 @@ async def create_discussion_thread(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     threads: Annotated[DiscussionRepository, Depends(get_discussion_repository)],
+    wiki_entries: Annotated[WikiEntryRepository, Depends(get_wiki_entry_repository)],
 ) -> DiscussionThreadDetailResponse:
     title = request.title.strip()
     if not title:
@@ -93,6 +99,19 @@ async def create_discussion_thread(
             detail="Thread title is required.",
         )
 
+    wiki_entry_id: str | None = None
+    opener = request.seed_prompt.strip() if request.seed_prompt else ""
+    if request.wiki_entry_id:
+        entry = await wiki_entries.get_for_workspace(request.wiki_entry_id, workspace.id)
+        check = elo_check_for_entry(entry)
+        if check is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Discussion starter must be a canonical ELO.",
+            )
+        wiki_entry_id = request.wiki_entry_id
+        opener = check.question
+
     row = await threads.create_thread(
         {
             "workspace_id": workspace.id,
@@ -100,17 +119,18 @@ async def create_discussion_thread(
             "title": title,
             "submode": request.submode if is_admin(user) else "tbs",
             "source_id": request.source_id,
+            "wiki_entry_id": wiki_entry_id,
             **({"lesson_id": request.lesson_id} if request.lesson_id else {}),
         }
     )
 
     messages: list[DiscussionMessageResponse] = []
-    if request.seed_prompt and request.seed_prompt.strip():
+    if opener:
         seeded = await threads.append_message(
             {
                 "thread_id": row["id"],
                 "role": "assistant",
-                "content": request.seed_prompt.strip(),
+                "content": opener,
                 "citations": [],
             }
         )
@@ -192,6 +212,7 @@ async def send_discussion_message(
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     threads: Annotated[DiscussionRepository, Depends(get_discussion_repository)],
     assistant: Annotated[AssistantService, Depends(get_assistant_service)],
+    wiki_entries: Annotated[WikiEntryRepository, Depends(get_wiki_entry_repository)],
 ) -> SendDiscussionMessageResponse:
     content = request.content.strip()
     if not content:
@@ -223,7 +244,12 @@ async def send_discussion_message(
         ]
         + [AssistantMessage(role="user", content=content)],
     )
-    response = await assistant.chat(chat_request, workspace.id)
+    elo_check = None
+    wiki_entry_id = thread.get("wiki_entry_id")
+    if wiki_entry_id:
+        entry = await wiki_entries.get_for_workspace(str(wiki_entry_id), workspace.id)
+        elo_check = elo_check_for_entry(entry)
+    response = await assistant.chat(chat_request, workspace.id, elo_check)
 
     assistant_row = await threads.append_message(
         {

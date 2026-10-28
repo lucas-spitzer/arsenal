@@ -61,6 +61,8 @@ export interface DiscussionThread {
   source_id: string | null
   /** Academy ELO class this thread focuses on ("Discuss this class"). */
   lesson_id?: string | null
+  /** Wiki ELO whose question opened this thread. The expected answer stays on the server. */
+  wiki_entry_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -83,6 +85,7 @@ export interface CreateThreadRequest {
   submode?: DiscussionSubmode
   source_id?: string | null
   lesson_id?: string | null
+  wiki_entry_id?: string | null
   seed_prompt?: string | null
 }
 
