@@ -4,8 +4,12 @@ export const AUDIO_NARRATION_ACTION = 'audio_narration'
 
 export interface NarrationCheckpoint {
   sourceId: string
+  modelId: string
+  voiceId: string
   clipCount: number
   clipsTotal: number
+  paragraphsSaved: number | null
+  paragraphsTotal: number | null
 }
 
 export interface NarrationRunPayload {
@@ -27,6 +31,7 @@ function manifestText(value: unknown): string {
 }
 
 function manifestCount(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
   const count = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(count)) return null
   return count
@@ -37,6 +42,18 @@ function isNewerArtifact(candidate: Artifact, current: Artifact): boolean {
     return candidate.created_at > current.created_at
   }
   return candidate.id > current.id
+}
+
+function isPartial(
+  clipCount: number,
+  clipsTotal: number,
+  paragraphsSaved: number | null,
+  paragraphsTotal: number | null,
+): boolean {
+  if (paragraphsSaved !== null && paragraphsTotal !== null && paragraphsTotal > 0) {
+    return paragraphsSaved > 0 && paragraphsSaved < paragraphsTotal
+  }
+  return clipCount > 0 && clipCount < clipsTotal
 }
 
 /** Partial narration for the voice and model the next run will use. */
@@ -66,18 +83,50 @@ export function narrationCheckpointsForSources(
     const clipCount = manifestCount(artifact.manifest.clip_count)
     const clipsTotal = manifestCount(artifact.manifest.clips_total)
     if (clipCount === null || clipsTotal === null) continue
-    if (clipCount <= 0 || clipCount >= clipsTotal) continue
+    const paragraphsSaved = manifestCount(artifact.manifest.paragraphs_saved)
+    const paragraphsTotal = manifestCount(artifact.manifest.paragraphs_total)
+    if (!isPartial(clipCount, clipsTotal, paragraphsSaved, paragraphsTotal)) continue
     checkpoints.push({
       sourceId: artifact.source_id,
+      modelId,
+      voiceId,
       clipCount,
       clipsTotal,
+      paragraphsSaved,
+      paragraphsTotal,
     })
   }
   return checkpoints
 }
 
+function savedAmount(checkpoint: NarrationCheckpoint): string {
+  if (checkpoint.paragraphsSaved !== null && checkpoint.paragraphsTotal !== null) {
+    return `${checkpoint.paragraphsSaved} of ${checkpoint.paragraphsTotal} paragraphs`
+  }
+  return `${checkpoint.clipCount} of ${checkpoint.clipsTotal} clips`
+}
+
+function voiceLabel(checkpoint: NarrationCheckpoint): string {
+  return `${checkpoint.modelId} (${checkpoint.voiceId})`
+}
+
 export function narrationCheckpointCopy(checkpoint: NarrationCheckpoint): string {
-  return `${checkpoint.clipCount} of ${checkpoint.clipsTotal} clips are already saved. Continue will synthesize only the missing clips. Start over deletes those clips and synthesizes the book again.`
+  return `${savedAmount(checkpoint)} of ${voiceLabel(checkpoint)} narration are already saved. Continue synthesizes only what is missing.`
+}
+
+export function narrationCheckpointLine(checkpoint: NarrationCheckpoint): string {
+  return `${savedAmount(checkpoint)} saved for ${voiceLabel(checkpoint)}`
+}
+
+/** Shown before Start over deletes saved audio; the deletion cannot be undone. */
+export function narrationRestartWarning(checkpoints: NarrationCheckpoint[]): string {
+  const first = checkpoints[0]
+  if (!first) return ''
+  const amount =
+    checkpoints.length === 1
+      ? savedAmount(first)
+      : `the saved audio for ${checkpoints.length} sources`
+  return `Start over permanently deletes ${amount} of ${voiceLabel(first)} narration and synthesizes everything again, using new TTS credits and daily quota. This cannot be undone.`
 }
 
 export function narrationRunPayload(args: {

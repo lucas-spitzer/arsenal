@@ -20,6 +20,11 @@ function asEntryKind(value: string): (typeof ENTRY_KINDS)[number] {
   return 'term'
 }
 
+function uploadLabel(origin: Record<string, unknown>): string {
+  const value = origin.section_title
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 function KindPill({ value }: { value: string }) {
   return <span className={`academy-wiki__pill academy-wiki__pill--${value}`}>{value}</span>
 }
@@ -331,7 +336,7 @@ function EntryRow({
       <td>
         <KindPill value={entry.entry_kind} />
       </td>
-      <td className="academy-wiki__importance">{entry.importance}</td>
+      <td className="academy-wiki__source">{uploadLabel(entry.origin)}</td>
       {canEdit ? (
       <td>
         <div className="academy-wiki__actions">
@@ -395,7 +400,8 @@ export function AcademyWiki({
       if (
         q &&
         !entry.preferred_label.toLowerCase().includes(q) &&
-        !entry.definition.toLowerCase().includes(q)
+        !entry.definition.toLowerCase().includes(q) &&
+        !uploadLabel(entry.origin).toLowerCase().includes(q)
       ) {
         return false
       }
@@ -459,7 +465,7 @@ export function AcademyWiki({
                   <th>Label</th>
                   <th colSpan={2}>Definition</th>
                   <th>Kind</th>
-                  <th>Importance</th>
+                  <th>Source</th>
                   {canEdit ? <th>Actions</th> : null}
                 </tr>
               </thead>

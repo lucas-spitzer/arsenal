@@ -560,3 +560,134 @@ def test_narration_override_from_rows_accepts_cartesia() -> None:
     assert override is not None
     assert override.provider == "cartesia"
     assert override.voice_id == "a5136bf9-224c-4d76-b823-52bd5efcffcc"
+
+
+def _gemini_response() -> Any:
+    pcm = b"\x00\x00" * 24000
+
+    class _Inline:
+        data = pcm
+        mime_type = "audio/L16;codec=pcm;rate=24000"
+
+    class _Part:
+        inline_data = _Inline()
+
+    class _Content:
+        parts = [_Part()]
+
+    class _Candidate:
+        content = _Content()
+
+    class _Response:
+        candidates = [_Candidate()]
+
+    return _Response()
+
+
+class _ScriptedGenai:
+    """Raise the queued errors in order, then return audio."""
+
+    def __init__(self, errors: list[Exception]) -> None:
+        self.errors = errors
+        self.calls = 0
+        self.models = self
+
+    def generate_content(self, **kwargs: Any) -> Any:
+        del kwargs
+        self.calls += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        return _gemini_response()
+
+
+_PER_MINUTE_429 = (
+    "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'details': [{'violations': "
+    "[{'quotaId': 'GenerateRequestsPerMinutePerProjectPerModel'}]}, "
+    "{'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '57s'}]}}"
+)
+_PER_DAY_429 = (
+    "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Please retry in "
+    "15h46m21.11654995s.', 'details': [{'violations': "
+    "[{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel'}]}, "
+    "{'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '56781s'}]}}"
+)
+
+
+def _gemini_client(genai: Any, **kwargs: Any) -> GeminiTtsClient:
+    return GeminiTtsClient(
+        api_key="k",
+        voice_id="Charon",
+        model_id="gemini-3.8-flash-tts",
+        max_retries=3,
+        min_request_interval_seconds=0,
+        client=genai,
+        **kwargs,
+    )
+
+
+def test_gemini_tts_waits_out_per_minute_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("app.services.gemini_tts_client.time.sleep", sleeps.append)
+    genai = _ScriptedGenai([RuntimeError(_PER_MINUTE_429)])
+
+    result = _gemini_client(genai).synthesize_with_timestamps("Hello world")
+
+    assert genai.calls == 2
+    assert sleeps == [59.0]
+    assert result.audio.startswith(b"RIFF")
+
+
+def test_gemini_tts_daily_limit_raises_quota_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.gemini_tts_client import GeminiQuotaError
+
+    monkeypatch.setattr("app.services.gemini_tts_client.time.sleep", lambda _: None)
+    genai = _ScriptedGenai([RuntimeError(_PER_DAY_429)])
+
+    with pytest.raises(GeminiQuotaError) as raised:
+        _gemini_client(genai).synthesize_with_timestamps("Hello world")
+
+    assert genai.calls == 1
+    assert raised.value.resume_at is not None
+
+
+def test_gemini_tts_request_budget_stops_before_calling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.gemini_tts_client import GeminiQuotaError
+
+    monkeypatch.setattr("app.services.gemini_tts_client.time.sleep", lambda _: None)
+    genai = _ScriptedGenai([])
+    client = _gemini_client(genai, request_budget=2)
+    client.synthesize_with_timestamps("One")
+    client.synthesize_with_timestamps("Two")
+
+    with pytest.raises(GeminiQuotaError, match="request budget reached"):
+        client.synthesize_with_timestamps("Three")
+    assert genai.calls == 2
+
+
+def test_gemini_tts_paces_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("app.services.gemini_tts_client.time.sleep", sleeps.append)
+    genai = _ScriptedGenai([])
+    client = _gemini_client(genai)
+    client.min_request_interval_seconds = 6.5
+    client.synthesize_with_timestamps("One")
+    client.synthesize_with_timestamps("Two")
+
+    assert len(sleeps) == 1
+    assert 6.0 < sleeps[0] <= 6.5
+
+
+def test_gemini_tts_does_not_retry_empty_audio(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.gemini_tts_client import GeminiTtsError
+
+    monkeypatch.setattr("app.services.gemini_tts_client.time.sleep", lambda _: None)
+    refusal = GeminiTtsError(
+        "Gemini TTS response missing audio inline data (finish_reason=OTHER)."
+    )
+    genai = _ScriptedGenai([refusal, refusal, refusal])
+
+    with pytest.raises(GeminiTtsError, match="missing audio inline data"):
+        _gemini_client(genai).synthesize_with_timestamps("Hello world")
+    assert genai.calls == 1

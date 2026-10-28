@@ -9,8 +9,10 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import re
 import time
 import wave
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from google import genai
@@ -42,10 +44,45 @@ _RETRYABLE_MARKERS = (
     "INTERNAL",
     "missing audio inline data",
 )
+# A refusal (finish_reason OTHER) repeats for the same text, so retrying only
+# spends the per-day request quota; the narration stage splits the text instead.
+_MAX_EMPTY_AUDIO_ATTEMPTS = 1
+_MAX_RATE_LIMIT_WAITS = 3
+_RATE_LIMIT_PADDING_SECONDS = 2.0
+_MAX_RATE_LIMIT_WAIT_SECONDS = 90.0
+_RETRY_DELAY = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
+_RETRY_IN = re.compile(r"retry in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?", re.IGNORECASE)
 
 
 class GeminiTtsError(RuntimeError):
     pass
+
+
+class GeminiQuotaError(GeminiTtsError):
+    """No more requests can be made today (Google's daily cap or our run budget)."""
+
+    def __init__(self, message: str, *, resume_at: datetime | None = None) -> None:
+        super().__init__(message)
+        self.resume_at = resume_at
+
+
+def _is_rate_limited(message: str) -> bool:
+    return "429" in message or "RESOURCE_EXHAUSTED" in message
+
+
+def _is_daily_limit(message: str) -> bool:
+    return "PerDay" in message or "per_day" in message
+
+
+def _retry_after_seconds(message: str) -> float | None:
+    match = _RETRY_DELAY.search(message)
+    if match:
+        return float(match.group(1))
+    match = _RETRY_IN.search(message)
+    if match and any(match.groups()):
+        hours, minutes, seconds = (float(value or 0) for value in match.groups())
+        return hours * 3600 + minutes * 60 + seconds
+    return None
 
 
 def _inline_audio(response: Any) -> tuple[bytes, str]:
@@ -112,6 +149,8 @@ class GeminiTtsClient:
         request_timeout_seconds: int | None = None,
         max_retries: int | None = None,
         max_segment_chars: int | None = None,
+        min_request_interval_seconds: float | None = None,
+        request_budget: int | None = None,
         client: Any = None,
     ) -> None:
         settings = get_settings()
@@ -129,6 +168,18 @@ class GeminiTtsClient:
         self.max_segment_chars = (
             max_segment_chars or narration.google_tts_max_segment_chars
         )
+        self.min_request_interval_seconds = (
+            narration.google_tts_min_request_interval_seconds
+            if min_request_interval_seconds is None
+            else min_request_interval_seconds
+        )
+        self.request_budget = (
+            narration.google_tts_request_budget
+            if request_budget is None
+            else request_budget
+        )
+        self.requests_made = 0
+        self._last_request_at: float | None = None
         self._client = client
 
     @property
@@ -170,19 +221,45 @@ class GeminiTtsClient:
         )
 
         last_error: str | None = None
-        for attempt in range(self.max_retries):
+        attempt = 0
+        empty_audio_attempts = 0
+        rate_limit_waits = 0
+        while attempt < self.max_retries:
             try:
-                response = genai_client.models.generate_content(
-                    model=self.model_id,
-                    contents=text,
-                    config=config,
-                )
+                response = self._generate(genai_client, text, config)
                 return self._parse(response, text)
+            except GeminiQuotaError:
+                raise
             except Exception as exc:
                 if isinstance(exc, GeminiTtsError) and "GEMINI_API_KEY" in str(exc):
                     raise
                 last_error = str(exc)
-                if not _is_retryable(exc) or attempt >= self.max_retries - 1:
+                if _is_rate_limited(last_error):
+                    wait_seconds = self._rate_limit_wait(last_error, len(text), exc)
+                    rate_limit_waits += 1
+                    if rate_limit_waits > _MAX_RATE_LIMIT_WAITS:
+                        raise GeminiTtsError(
+                            f"Gemini TTS synthesis failed ({len(text)} chars): "
+                            f"{last_error}",
+                        ) from exc
+                    logger.warning(
+                        "Gemini TTS per-minute limit hit for %s; waiting %.0fs "
+                        "(wait %d/%d)",
+                        self.model_id,
+                        wait_seconds,
+                        rate_limit_waits,
+                        _MAX_RATE_LIMIT_WAITS,
+                    )
+                    time.sleep(wait_seconds)
+                    continue
+                if "missing audio inline data" in last_error:
+                    empty_audio_attempts += 1
+                give_up = (
+                    not _is_retryable(exc)
+                    or attempt >= self.max_retries - 1
+                    or empty_audio_attempts >= _MAX_EMPTY_AUDIO_ATTEMPTS
+                )
+                if give_up:
                     if isinstance(exc, GeminiTtsError):
                         raise
                     raise GeminiTtsError(
@@ -190,10 +267,11 @@ class GeminiTtsClient:
                         f"{last_error}",
                     ) from exc
                 wait_seconds = _RETRY_BACKOFF_SECONDS * (2**attempt)
+                attempt += 1
                 logger.warning(
                     "Gemini TTS attempt %d/%d failed for %d chars (%s); "
                     "retrying in %ds",
-                    attempt + 1,
+                    attempt,
                     self.max_retries,
                     len(text),
                     last_error,
@@ -205,6 +283,42 @@ class GeminiTtsClient:
             f"Gemini TTS synthesis failed after {self.max_retries} attempt(s) "
             f"({len(text)} chars): {last_error}",
         )
+
+    def _generate(self, genai_client: Any, text: str, config: Any) -> Any:
+        if self.request_budget > 0 and self.requests_made >= self.request_budget:
+            raise GeminiQuotaError(
+                f"Gemini TTS request budget reached ({self.request_budget} "
+                f"requests this run for {self.model_id}).",
+            )
+        if self._last_request_at is not None:
+            elapsed = time.monotonic() - self._last_request_at
+            if elapsed < self.min_request_interval_seconds:
+                time.sleep(self.min_request_interval_seconds - elapsed)
+        self._last_request_at = time.monotonic()
+        self.requests_made += 1
+        return genai_client.models.generate_content(
+            model=self.model_id,
+            contents=text,
+            config=config,
+        )
+
+    def _rate_limit_wait(self, message: str, chars: int, exc: Exception) -> float:
+        """Seconds to wait for a per-minute 429; raise for the per-day cap."""
+        delay = _retry_after_seconds(message)
+        if _is_daily_limit(message) or (
+            delay is not None and delay > _MAX_RATE_LIMIT_WAIT_SECONDS
+        ):
+            resume_at = (
+                datetime.now(UTC) + timedelta(seconds=delay)
+                if delay is not None
+                else None
+            )
+            raise GeminiQuotaError(
+                f"Gemini TTS daily request limit reached for {self.model_id} "
+                f"({chars} chars): {message}",
+                resume_at=resume_at,
+            ) from exc
+        return (delay if delay is not None else 60.0) + _RATE_LIMIT_PADDING_SECONDS
 
     def _parse(self, response: Any, text: str) -> NarrationResult:
         audio_bytes, mime = _inline_audio(response)

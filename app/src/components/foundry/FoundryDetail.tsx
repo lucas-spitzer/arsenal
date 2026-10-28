@@ -14,6 +14,7 @@ import {
   productionRunCostUsd,
   productionRunDurationSec,
   productionRunLabel,
+  productionRunParagraphsMissing,
   productionRunProgress,
   productionRunTargetLabel,
   collapseDuplicateNarrationArtifacts,
@@ -40,6 +41,7 @@ export function FoundryDetail({ run }: FoundryDetailProps) {
     stageRuns.some((stageRun) => stageRun.status === 'queued' || stageRun.status === 'running')
   useLiveTick(hasLiveDuration)
   const progress = productionRunProgress(run, stageRuns)
+  const paragraphsMissing = productionRunParagraphsMissing(stageRuns)
   const durationSec = productionRunDurationSec(run)
   const runCost = productionRunCostUsd(run, stageRuns)
 
@@ -52,7 +54,10 @@ export function FoundryDetail({ run }: FoundryDetailProps) {
       <div className="as-console__detail">
         <h4>{productionRunLabel(run, sources)}</h4>
         <div className="meta">
-          {statusLabel(run.status)} · {formatDuration(durationSec)} · {progress}% complete
+          {statusLabel(run.status)} · {formatDuration(durationSec)} ·{' '}
+          {paragraphsMissing
+            ? `Incomplete: ${paragraphsMissing} paragraphs missing`
+            : `${progress}% complete`}
           {runCost > 0 ? ` · ${formatCostUsd(runCost)}` : ''}
           {run.target_artifacts.length
             ? ` · ${productionRunTargetLabel(run.target_artifacts)}`

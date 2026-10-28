@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,14 @@ load_dotenv(API_DIR / ".env")
 logger = logging.getLogger(__name__)
 
 NDR_SEGMENT_BATCH_SIZE = 200
+# Embeddings make up most of each row and no worker reader needs them.
+NDR_SEGMENT_COLUMNS = "id,source_id,workspace_id,sequence_index,kind,text,locator,md,created_at"
+# Transient Postgres statement timeouts (57014) and gateway errors on reads.
+_GET_RETRY_DELAYS_SECONDS = (2.0, 5.0)
+
+
+def _is_transient(response: httpx.Response) -> bool:
+    return response.status_code >= 500 or "57014" in response.text
 
 
 # Wiki ingest batches are production-run input. Canonical wiki_entries are
@@ -69,14 +78,26 @@ class WorkerDatabase:
         params: dict[str, str] | None = None,
         json_body: Any | None = None,
     ) -> Any:
-        with httpx.Client(timeout=60) as client:
-            response = client.request(
-                method,
-                f"{self.base_url}/{table}",
-                headers=self.headers,
-                params=params,
-                json=json_body,
-            )
+        retry_delays = _GET_RETRY_DELAYS_SECONDS if method == "GET" else ()
+        for attempt in range(len(retry_delays) + 1):
+            with httpx.Client(timeout=60) as client:
+                response = client.request(
+                    method,
+                    f"{self.base_url}/{table}",
+                    headers=self.headers,
+                    params=params,
+                    json=json_body,
+                )
+            if attempt < len(retry_delays) and _is_transient(response):
+                logger.warning(
+                    "Supabase GET %s failed (%d); retrying in %.0fs",
+                    table,
+                    response.status_code,
+                    retry_delays[attempt],
+                )
+                time.sleep(retry_delays[attempt])
+                continue
+            break
 
         if response.status_code >= 400:
             detail = response.text.strip() or response.reason_phrase
@@ -419,7 +440,7 @@ class WorkerDatabase:
             "GET",
             "ndr_segments",
             params={
-                "select": "*",
+                "select": NDR_SEGMENT_COLUMNS,
                 "source_id": f"eq.{source_id}",
                 "order": "sequence_index.asc",
             },

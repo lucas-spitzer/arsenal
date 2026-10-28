@@ -14,6 +14,7 @@ import {
   narrationArtifactStatusLabel,
   narrationSegmentProgress,
   pipelineStepDetail,
+  productionRunParagraphsMissing,
   stageRunSummary,
 } from './foundryMappers'
 import type { Artifact, PipelineStep, StageRun } from './workspaceApi'
@@ -76,6 +77,23 @@ describe('narration artifact progress', () => {
 
     expect(narrationSegmentProgress(stageRun)).toEqual({ done: 36, total: 81 })
     expect(stageRunSummary(stageRun)).toBe('36/81 clips')
+    expect(productionRunParagraphsMissing([stageRun])).toBe(0)
+
+    const gaps: StageRun = {
+      ...stageRun,
+      status: 'completed',
+      output: {
+        ...stageRun.output,
+        segments_reused: 34,
+        segments_narrated: 0,
+        segments_total: 34,
+        paragraphs_total: 223,
+        paragraphs_saved: 213,
+        paragraphs_missing: 10,
+      },
+    }
+    expect(stageRunSummary(gaps)).toBe('34/34 clips · Incomplete: 10 paragraphs missing')
+    expect(productionRunParagraphsMissing([stageRun, gaps])).toBe(10)
 
     const step: PipelineStep = {
       step: 'generate-narration',

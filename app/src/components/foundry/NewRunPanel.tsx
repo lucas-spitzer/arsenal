@@ -4,7 +4,9 @@ import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { sourceTitle } from '../../lib/foundryMappers'
 import {
   narrationCheckpointCopy,
+  narrationCheckpointLine,
   narrationCheckpointsForSources,
+  narrationRestartWarning,
   narrationRunPayload,
   narrationVoiceModel,
   type NarrationCheckpoint,
@@ -26,6 +28,7 @@ export function NewRunPanel({ onClose, onCreated }: NewRunPanelProps) {
   const [stageSettings, setStageSettings] = useState<StageSetting[] | null>(null)
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [checkpoints, setCheckpoints] = useState<NarrationCheckpoint[] | null>(null)
+  const [confirmRestart, setConfirmRestart] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
@@ -108,10 +111,16 @@ export function NewRunPanel({ onClose, onCreated }: NewRunPanelProps) {
         )
       : []
     if (partial.length > 0) {
+      setConfirmRestart(false)
       setCheckpoints(partial)
       return
     }
     void startRun([])
+  }
+
+  const closeCheckpoints = () => {
+    setConfirmRestart(false)
+    setCheckpoints(null)
   }
 
   const checkpoint = checkpoints?.[0]
@@ -174,7 +183,7 @@ export function NewRunPanel({ onClose, onCreated }: NewRunPanelProps) {
         title="Saved narration"
         open={checkpoint !== undefined}
         onClose={() => {
-          if (!isSubmitting) setCheckpoints(null)
+          if (!isSubmitting) closeCheckpoints()
         }}
       >
         {submitError ? <ErrorBanner message={submitError} /> : null}
@@ -185,44 +194,60 @@ export function NewRunPanel({ onClose, onCreated }: NewRunPanelProps) {
               const title = source ? sourceTitle(source) : 'This source'
               return (
                 <li key={item.sourceId}>
-                  {title}: {item.clipCount} of {item.clipsTotal} clips
+                  {title}: {narrationCheckpointLine(item)}
                 </li>
               )
             })}
           </ul>
         ) : null}
         <p className="as-console__confirm-copy">
-          {checkpoints && checkpoints.length > 1
-            ? 'Continue will synthesize only the missing clips. Start over deletes those clips and synthesizes them again.'
-            : checkpoint
-              ? narrationCheckpointCopy(checkpoint)
-              : ''}
+          {confirmRestart && checkpoints
+            ? narrationRestartWarning(checkpoints)
+            : checkpoints && checkpoints.length > 1
+              ? 'Continue synthesizes only what is missing.'
+              : checkpoint
+                ? narrationCheckpointCopy(checkpoint)
+                : ''}
         </p>
         <div className="as-console__dialog-actions">
           <button
             type="button"
             className="as-console__cta as-console__cta--ghost"
-            onClick={() => setCheckpoints(null)}
+            onClick={() => (confirmRestart ? setConfirmRestart(false) : closeCheckpoints())}
             disabled={isSubmitting}
           >
-            Cancel
+            {confirmRestart ? 'Back' : 'Cancel'}
           </button>
-          <button
-            type="button"
-            className="as-console__cta as-console__cta--ghost"
-            onClick={() => void startRun(checkpoints?.map((item) => item.sourceId) ?? [])}
-            disabled={isSubmitting}
-          >
-            Start over
-          </button>
-          <button
-            type="button"
-            className="as-console__cta"
-            onClick={() => void startRun([])}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? 'Starting…' : 'Continue'}
-          </button>
+          {confirmRestart ? (
+            <button
+              type="button"
+              className="as-console__cta as-console__cta--ghost"
+              onClick={() => void startRun(checkpoints?.map((item) => item.sourceId) ?? [])}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Starting…' : 'Delete saved audio and start over'}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="as-console__cta as-console__cta--ghost"
+                onClick={() => setConfirmRestart(true)}
+                disabled={isSubmitting}
+              >
+                Start over…
+              </button>
+              <button
+                type="button"
+                className="as-console__cta"
+                onClick={() => void startRun([])}
+                disabled={isSubmitting}
+                autoFocus
+              >
+                {isSubmitting ? 'Starting…' : 'Continue'}
+              </button>
+            </>
+          )}
         </div>
       </FoundryDialog>
     </section>

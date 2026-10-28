@@ -3767,10 +3767,10 @@
   flex: 1 1 10rem;
 }
 
-.academy-wiki__importance {
+.academy-wiki__source {
   color: var(--text-secondary);
   font-size: 0.85rem;
-  text-transform: lowercase;
+  white-space: nowrap;
 }
 
 .academy-wiki__row--muted {

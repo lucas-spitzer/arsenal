@@ -247,9 +247,27 @@ export function narrationSegmentProgress(
   return { done: covered, total }
 }
 
+/** Paragraphs the Reader will skip because they have no audio yet. */
+export function narrationParagraphsMissing(stageRun: StageRun): number {
+  const missing = Number(stageRun.output?.paragraphs_missing)
+  return Number.isFinite(missing) && missing > 0 ? missing : 0
+}
+
+/** Missing paragraphs from the run's latest narration stage run. */
+export function productionRunParagraphsMissing(stageRuns: StageRun[]): number {
+  const latest = [...stageRuns]
+    .reverse()
+    .find((stageRun) => stageRun.stage_id === 'generate-narration')
+  return latest ? narrationParagraphsMissing(latest) : 0
+}
+
 export function stageRunSummary(stageRun: StageRun): string {
   const progress = narrationSegmentProgress(stageRun)
-  if (progress) return `${progress.done}/${progress.total} clips`
+  if (progress) {
+    const clips = `${progress.done}/${progress.total} clips`
+    const missing = narrationParagraphsMissing(stageRun)
+    return missing ? `${clips} · Incomplete: ${missing} paragraphs missing` : clips
+  }
   if (stageRun.error) return 'Execution failed.'
   if (stageRun.output && typeof stageRun.output.summary === 'string') {
     return stageRun.output.summary

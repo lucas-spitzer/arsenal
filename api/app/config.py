@@ -213,6 +213,9 @@ class NarrationSettings:
     speechify_max_segment_chars: int
     cartesia_max_segment_chars: int
     google_tts_max_segment_chars: int
+    # Gemini allows 10 requests/minute and 100/day per model on Tier 1.
+    google_tts_min_request_interval_seconds: float = 6.5
+    google_tts_request_budget: int = 90
 
     @property
     def provider(self) -> str:
@@ -425,6 +428,10 @@ def _get_settings_cached() -> Settings:
             google_tts_max_segment_chars=int(
                 os.getenv("GOOGLE_TTS_MAX_SEGMENT_CHARS", str(GOOGLE_TTS_MAX_SEGMENT_CHARS)),
             ),
+            google_tts_min_request_interval_seconds=float(
+                os.getenv("GOOGLE_TTS_MIN_REQUEST_INTERVAL_SECONDS", "6.5"),
+            ),
+            google_tts_request_budget=int(os.getenv("GOOGLE_TTS_REQUEST_BUDGET", "90")),
         ),
         qngen=QnGenSettings(
             concept_batch_size=int(os.getenv("CONCEPT_BATCH_SIZE", "8")),

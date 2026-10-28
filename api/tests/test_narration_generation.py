@@ -1102,7 +1102,8 @@ def test_narrate_source_skips_mid_run_gemini_invalid_argument() -> None:
     assert output["segments_skipped"] == 1
     assert output["segments_total"] == 2
     assert output["segments_done"] == 1
-    assert output["summary"] == "1/2 clips"
+    assert output["summary"] == "1/2 clips, 1 of 2 paragraphs missing"
+    assert output["paragraphs_missing"] == 1
     assert len(db.narration_rows) == 1
     assert chars == 10
 
@@ -1379,3 +1380,220 @@ def test_narrate_source_keeps_estimated_when_forced_alignment_invalid(
     assert db.narration_rows[0]["alignment_source"] == "estimated"
     assert db.narration_rows[0]["alignment_quality"]["valid"] is True
 
+
+
+def _two_chapter_db() -> "_FakeWorkerDb":
+    db = _FakeWorkerDb([])
+    db.chapters = [
+        {"id": "ch-1", "title": "One", "sequence_index": 0, "segment_ids": ["p1"]},
+        {"id": "ch-2", "title": "Two", "sequence_index": 1, "segment_ids": ["p2"]},
+    ]
+    db.ndr_segments = [
+        {"id": "p1", "kind": "paragraph", "text": "Hello there.", "sequence_index": 0},
+        {"id": "p2", "kind": "paragraph", "text": "Brave words.", "sequence_index": 1},
+    ]
+    return db
+
+
+_SOURCE = {
+    "id": "src-1",
+    "slug": "src-1",
+    "workspace_slug": "ocs-prep",
+    "storage_path": "ocs-prep/src-1/file.pdf",
+}
+
+
+def test_daily_quota_saves_partial_narration_and_resumes() -> None:
+    from app.services.gemini_tts_client import GeminiQuotaError
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    class _QuotaAfterOne(_FakeTts):
+        provider = "google"
+        model_id = "gemini-3.8-flash-tts"
+
+        def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
+            if text.startswith("Brave"):
+                raise GeminiQuotaError(
+                    "Gemini TTS daily request limit reached for gemini-3.8-flash-tts "
+                    "(12 chars): 429 RESOURCE_EXHAUSTED GenerateRequestsPerDayPerProjectPerModel",
+                )
+            return super().synthesize_with_timestamps(text, **kwargs)
+
+    db = _two_chapter_db()
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=_QuotaAfterOne(),  # type: ignore[arg-type]
+        max_segment_chars=200,
+    )
+    with pytest.raises(GeminiQuotaError) as raised:
+        executor.run_for_source(
+            production_run_id="run-1",
+            workspace_id="ws-1",
+            source=_SOURCE,
+        )
+
+    message = str(raised.value)
+    assert message.startswith("Daily Gemini quota reached. 1 of 2 paragraphs saved.")
+    assert "Run again after" in message
+    failed = db.updated_stage_runs[-1][1]
+    assert failed["status"] == "failed"
+    assert failed["error"] == message
+    assert [row["segment_id"] for row in db.narration_rows] == ["p1"]
+    manifest = db.artifacts[0]["manifest"]
+    assert manifest["status"] == "in_progress"
+    assert manifest["paragraphs_saved"] == 1
+    assert manifest["paragraphs_missing"] == 1
+
+    resumed = _FakeTts()
+    resumed.provider = "google"  # type: ignore[misc]
+    resumed.model_id = "gemini-3.8-flash-tts"  # type: ignore[misc]
+    executor._client = resumed  # type: ignore[assignment]
+    output, _chars, _ctx = executor._narrate_source(
+        workspace_id="ws-1",
+        source=_SOURCE,
+        stage_run_id="sr-2",
+    )
+    assert resumed.texts == ["Brave words."]
+    assert output["paragraphs_missing"] == 0
+    assert output["segments_reused"] == 1
+
+
+def test_request_budget_stops_the_run_instead_of_skipping_clips() -> None:
+    from app.services.gemini_tts_client import GeminiQuotaError
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    class _Budgeted(_FakeTts):
+        provider = "google"
+        model_id = "gemini-3.8-flash-tts"
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.requests_made = 0
+
+        def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
+            if self.requests_made >= 1:
+                raise GeminiQuotaError(
+                    "Gemini TTS request budget reached (1 requests this run for "
+                    "gemini-3.8-flash-tts).",
+                )
+            self.requests_made += 1
+            return super().synthesize_with_timestamps(text, **kwargs)
+
+    db = _two_chapter_db()
+    client = _Budgeted()
+    client.requests_made = 5
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=client,  # type: ignore[arg-type]
+        max_segment_chars=200,
+    )
+    with pytest.raises(GeminiQuotaError) as raised:
+        executor.run_for_source(
+            production_run_id="run-1",
+            workspace_id="ws-1",
+            source=_SOURCE,
+        )
+
+    assert str(raised.value).startswith(
+        "Request budget for this run reached. 1 of 2 paragraphs saved."
+    )
+    assert client.texts == ["Hello there."]
+    progress = db.updated_stage_runs[-2][1]["output"]
+    assert progress["segments_skipped"] == 0
+
+
+def test_refused_paragraph_fallback_is_capped() -> None:
+    from app.services.gemini_tts_client import GeminiTtsError
+    from app.worker.narration_executor import (
+        _MAX_FRAGMENT_REQUESTS,
+        NarrationStageExecutor,
+    )
+
+    paragraph = " ".join(f"Sentence {n}." for n in range(20))
+
+    class _RefusesAll(_FakeTts):
+        provider = "google"
+        model_id = "gemini-3.8-flash-tts"
+        audio_content_type = "audio/wav"
+
+        def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
+            self.texts.append(text)
+            raise GeminiTtsError(
+                "Gemini TTS response missing audio inline data (finish_reason=OTHER)."
+            )
+
+    db = _FakeWorkerDb([])
+    db.chapters = [
+        {"id": "ch-1", "title": "One", "sequence_index": 0, "segment_ids": ["p1"]},
+    ]
+    db.ndr_segments = [{"id": "p1", "kind": "paragraph", "text": paragraph}]
+    client = _RefusesAll()
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=client,  # type: ignore[arg-type]
+        max_segment_chars=1000,
+    )
+    executor._narrate_source(workspace_id="ws-1", source=_SOURCE, stage_run_id="sr-1")
+
+    assert len(client.texts) == 1 + _MAX_FRAGMENT_REQUESTS
+    assert len(db.narration_rows) == 1
+    assert len(db.narration_rows[0]["words"]) == len(paragraph.split())
+
+
+def test_refused_clip_is_halved_so_good_paragraphs_share_audio() -> None:
+    from app.services.gemini_tts_client import GeminiTtsError
+    from app.worker.narration_executor import NarrationStageExecutor
+
+    texts = ["Alpha one.", "Bravo two.", "Charlie three.", "Delta four."]
+
+    class _RefusesDelta(_FakeTts):
+        provider = "google"
+        model_id = "gemini-3.8-flash-tts"
+        audio_content_type = "audio/wav"
+
+        def synthesize_with_timestamps(self, text: str, **kwargs: Any) -> Any:
+            if "Delta" in text:
+                self.texts.append(text)
+                raise GeminiTtsError(
+                    "Gemini TTS response missing audio inline data (finish_reason=OTHER)."
+                )
+            return super().synthesize_with_timestamps(text, **kwargs)
+
+    db = _FakeWorkerDb([])
+    db.chapters = [
+        {
+            "id": "ch-1",
+            "title": "One",
+            "sequence_index": 0,
+            "segment_ids": [f"p{n}" for n in range(4)],
+        }
+    ]
+    db.ndr_segments = [
+        {"id": f"p{n}", "kind": "paragraph", "text": text} for n, text in enumerate(texts)
+    ]
+    client = _RefusesDelta()
+    executor = NarrationStageExecutor(
+        db=db,  # type: ignore[arg-type]
+        storage=_FakeWorkerStorage(),  # type: ignore[arg-type]
+        client=client,  # type: ignore[arg-type]
+        max_segment_chars=1000,
+    )
+    output, _chars, _ctx = executor._narrate_source(
+        workspace_id="ws-1", source=_SOURCE, stage_run_id="sr-1"
+    )
+
+    assert client.texts == [
+        "\n\n".join(texts),
+        "Alpha one.\n\nBravo two.",
+        "Charlie three.\n\nDelta four.",
+        "Charlie three.",
+        "Delta four.",
+    ]
+    paths = {row["segment_id"]: row["audio_path"] for row in db.narration_rows}
+    assert paths["p0"] == paths["p1"]
+    assert paths["p2"] != paths["p3"]
+    assert [word["w"] for word in db.narration_rows[1]["words"]] == ["Bravo", "two."]
+    assert output["paragraphs_missing"] == 0

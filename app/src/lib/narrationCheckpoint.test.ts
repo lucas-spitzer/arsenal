@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   narrationCheckpointCopy,
   narrationCheckpointsForSources,
+  narrationRestartWarning,
   narrationRunPayload,
   narrationVoiceModel,
 } from './narrationCheckpoint'
@@ -59,10 +60,66 @@ describe('narration checkpoint dialog', () => {
       voice?.voiceId ?? '',
       voice?.modelId ?? '',
     )
-    expect(checkpoints).toEqual([{ sourceId: 'src-1', clipCount: 18, clipsTotal: 81 }])
+    expect(checkpoints).toEqual([
+      {
+        sourceId: 'src-1',
+        modelId: 'gemini-3.8-flash-tts',
+        voiceId: 'Sadaltager',
+        clipCount: 18,
+        clipsTotal: 81,
+        paragraphsSaved: null,
+        paragraphsTotal: null,
+      },
+    ])
     expect(narrationCheckpointCopy(checkpoints[0])).toBe(
-      '18 of 81 clips are already saved. Continue will synthesize only the missing clips. Start over deletes those clips and synthesizes the book again.',
+      '18 of 81 clips of gemini-3.8-flash-tts (Sadaltager) narration are already saved. Continue synthesizes only what is missing.',
     )
+  })
+
+  it('uses paragraph counts so split clips still count as partial', () => {
+    const checkpoints = narrationCheckpointsForSources(
+      [
+        artifact({
+          manifest: {
+            status: 'complete',
+            voice_id: 'Charon',
+            model_id: 'gemini-3.8-flash-tts',
+            clip_count: 40,
+            clips_total: 34,
+            paragraphs_saved: 213,
+            paragraphs_total: 223,
+          },
+        }),
+      ],
+      ['src-1'],
+      'Charon',
+      'gemini-3.8-flash-tts',
+    )
+    expect(checkpoints).toHaveLength(1)
+    expect(narrationRestartWarning(checkpoints)).toBe(
+      'Start over permanently deletes 213 of 223 paragraphs of gemini-3.8-flash-tts (Charon) narration and synthesizes everything again, using new TTS credits and daily quota. This cannot be undone.',
+    )
+  })
+
+  it('skips narration with every paragraph saved', () => {
+    const checkpoints = narrationCheckpointsForSources(
+      [
+        artifact({
+          manifest: {
+            voice_id: 'Charon',
+            model_id: 'gemini-3.8-flash-tts',
+            clip_count: 30,
+            clips_total: 34,
+            paragraphs_saved: 223,
+            paragraphs_total: 223,
+          },
+        }),
+      ],
+      ['src-1'],
+      'Charon',
+      'gemini-3.8-flash-tts',
+    )
+    expect(checkpoints).toEqual([])
   })
 
   it('does not offer continue for a different voice', () => {
