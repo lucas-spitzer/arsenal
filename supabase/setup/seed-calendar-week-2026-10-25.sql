@@ -15,7 +15,7 @@ seed (event_date, kind, title, location, start_time, end_time) as (
     (date '2026-10-25', 'deadline', 'Complete Sexual Assault Prevention Quiz', null, null, null),
     (date '2026-10-26', 'class', 'TCCC Class', 'CR-3', time '10:30', time '11:30'),
     (date '2026-10-27', 'prac_app', 'TCCC Prac App', 'Cannon Field', time '07:00', time '11:00'),
-    (date '2026-10-28', 'evaluation', 'TCCC Evaluation', 'Cannon Field', time '12:30', time '16:30'),
+    (date '2026-10-28', 'evaluation', 'TCCC Evaluation', 'Cannon Field', time '07:00', time '11:00'),
     (date '2026-10-29', 'prac_app', 'TCCC Supplemental Evacuation Prac App', 'Cannon Field', time '07:00', time '11:00'),
     (date '2026-10-29', 'deadline', 'Print Intro to Marine Corps History Sheet', null, null, null),
     (date '2026-10-30', 'class', 'Intro to Anatomy and Biomechanics', 'CR-1', time '13:00', time '13:30'),

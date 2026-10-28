@@ -34,9 +34,9 @@ export type AcademyScope = {
 export const emptyAcademyScope: AcademyScope = { sourceId: null, targetId: null, projectId: null, threadId: null }
 
 export const academyRailItems: { id: AcademyPage; label: string; icon: LucideIcon }[] = [
+  { id: 'calendar', label: 'CAL', icon: CalendarDays },
   { id: 'library', label: 'LIB', icon: Library },
   { id: 'reader', label: 'RDR', icon: BookOpen },
-  { id: 'calendar', label: 'CAL', icon: CalendarDays },
   { id: 'objectives', label: 'ELO', icon: Target },
   { id: 'discussions', label: 'DSC', icon: MessageSquare },
   { id: 'flashcards', label: 'FLC', icon: Layers },

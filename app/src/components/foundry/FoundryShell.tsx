@@ -41,7 +41,7 @@ type ShellState = {
 const defaultShellState: ShellState = {
   mode: 'foundry',
   foundryPage: 'ops',
-  academyPage: 'library',
+  academyPage: 'calendar',
   academyScope: emptyAcademyScope,
 }
 
@@ -58,7 +58,7 @@ function readShellState(): ShellState {
     const academyPage =
       typeof parsed.academyPage === 'string' && academyPageIds.has(parsed.academyPage as AcademyPage)
         ? (parsed.academyPage as AcademyPage)
-        : 'library'
+        : 'calendar'
     const scope = parsed.academyScope
     const academyScope: AcademyScope =
       scope && typeof scope === 'object'

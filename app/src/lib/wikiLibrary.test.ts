@@ -56,16 +56,16 @@ describe('wiki knowledge on New Run and Library', () => {
 
   it('hides study materials, flashcards, questions, and scenarios from students and keeps them for admins', () => {
     expect(academyRailForRole(false).map((item) => item.id)).toEqual([
+      'calendar',
       'library',
       'reader',
-      'calendar',
       'objectives',
       'discussions',
     ])
     expect(academyRailForRole(true).map((item) => item.id)).toEqual([
+      'calendar',
       'library',
       'reader',
-      'calendar',
       'objectives',
       'discussions',
       'flashcards',
