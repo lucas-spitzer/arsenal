@@ -54,7 +54,7 @@ describe('wiki knowledge on New Run and Library', () => {
     expect(academyRailItems.map((item) => item.id)).not.toContain('wiki')
   })
 
-  it('hides flashcards, questions, and scenarios from students and keeps them for admins', () => {
+  it('hides study materials, flashcards, questions, and scenarios from students and keeps them for admins', () => {
     expect(academyRailForRole(false).map((item) => item.id)).toEqual([
       'library',
       'reader',
@@ -80,6 +80,7 @@ describe('wiki knowledge on New Run and Library', () => {
 
     const items = [
       { kind: 'book' as const, id: 'book' },
+      { kind: 'material' as const, id: 'material' },
       { kind: 'flashcard' as const, id: 'cards' },
       { kind: 'question' as const, id: 'questions' },
       { kind: 'scenario' as const, id: 'scenarios' },
@@ -88,6 +89,7 @@ describe('wiki knowledge on New Run and Library', () => {
     expect(libraryItemsForRole(items, false).map((item) => item.id)).toEqual(['book', 'wiki'])
     expect(libraryItemsForRole(items, true).map((item) => item.id)).toEqual([
       'book',
+      'material',
       'cards',
       'questions',
       'scenarios',

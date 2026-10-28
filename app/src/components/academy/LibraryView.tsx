@@ -150,7 +150,7 @@ export function LibraryView({
         description={
           isAdmin
             ? 'Search, filter, and open every book, audio file, study material, wiki entry, flashcard, question, and scenario in this workspace.'
-            : 'Search, filter, and open the books, audio, study material, and wiki entries in this workspace.'
+            : 'Search, filter, and open the books, audio, and wiki entries in this workspace.'
         }
         stats={[
           { value: filtered.length, label: 'outputs' },
@@ -172,7 +172,7 @@ export function LibraryView({
         searchPlaceholder={
           isAdmin
             ? 'Search flashcards, questions, scenarios, wiki, books, audio, study material…'
-            : 'Search books, audio, study material, and wiki entries…'
+            : 'Search books, audio, and wiki entries…'
         }
       />
 

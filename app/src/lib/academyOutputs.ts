@@ -36,8 +36,8 @@ export interface OutputItem {
   searchText?: string
 }
 
-// Same study-guide kinds the student Academy rail hides. Books, audio, study material, and wiki stay.
-export const studentHiddenLibraryKinds = ['flashcard', 'question', 'scenario'] as const satisfies readonly OutputKind[]
+// Study guides the student Academy rail hides, plus printable study material. Books, audio, and wiki stay.
+export const studentHiddenLibraryKinds = ['material', 'flashcard', 'question', 'scenario'] as const satisfies readonly OutputKind[]
 
 const studentHiddenLibraryKindSet = new Set<OutputKind>(studentHiddenLibraryKinds)
 
