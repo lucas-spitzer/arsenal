@@ -45,6 +45,7 @@ describe('wiki knowledge on New Run and Library', () => {
     const values = ARTIFACT_OPTIONS.map((option) => option.value)
     expect(values).toContain('electronic_book')
     expect(values).toContain('wiki_json')
+    expect(values).not.toContain('chapter_source')
     expect(values).not.toContain('wiki_knowledge')
     expect(values).not.toContain('flashcards')
   })

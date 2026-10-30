@@ -12,6 +12,7 @@ import base64
 import json
 import logging
 import time
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -23,7 +24,7 @@ from app.services.tts.alignment import (
     align_ordered_timings,
     timing_quality,
 )
-from app.services.tts.types import NarrationResult, WordTiming
+from app.services.tts.types import NarrationResult, TtsQuotaError, WordTiming
 from app.tts_defaults import SPEECHIFY_BATCH_MAX_CHARS, SPEECHIFY_STREAM_MAX_CHARS
 
 logger = logging.getLogger(__name__)
@@ -31,10 +32,23 @@ logger = logging.getLogger(__name__)
 _API_BASE = "https://api.speechify.ai/v1/audio"
 _RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 _RETRY_BACKOFF_SECONDS = 5
+_MAX_RATE_LIMIT_WAIT_SECONDS = 90.0
 
 
 class SpeechifyError(RuntimeError):
     pass
+
+
+class SpeechifyQuotaError(SpeechifyError, TtsQuotaError):
+    """Speechify kept returning 429, or asked for a wait longer than we hold a job."""
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    raw = (response.headers.get("retry-after") or "").strip()
+    try:
+        return max(0.0, float(raw)) if raw else None
+    except ValueError:
+        return None
 
 
 def words_from_speech_marks(
@@ -211,9 +225,8 @@ class SpeechifyClient:
             last_error = f"{response.status_code}: {response.text.strip()[:500]}"
             if response.status_code not in _RETRYABLE_STATUS_CODES:
                 break
-            if attempt >= self.max_retries - 1:
+            if not self._wait_to_retry(attempt, last_error, response):
                 break
-            self._backoff(attempt, last_error)
 
         raise SpeechifyError(
             f"Speechify synthesis failed after {self.max_retries} attempt(s): {last_error}",
@@ -275,9 +288,8 @@ class SpeechifyClient:
                         last_error = f"{response.status_code}: {error_body.strip()[:500]}"
                         if response.status_code not in _RETRYABLE_STATUS_CODES:
                             break
-                        if attempt >= self.max_retries - 1:
+                        if not self._wait_to_retry(attempt, last_error, response):
                             break
-                        self._backoff(attempt, last_error)
                         continue
                     return self._parse_stream(response, text)
             except (httpx.ReadTimeout, httpx.ConnectTimeout) as exc:
@@ -378,6 +390,40 @@ class SpeechifyClient:
             alignment_source="provider",
             alignment_quality=timing_quality(text, words, duration),
         )
+
+    def _wait_to_retry(
+        self,
+        attempt: int,
+        reason: str,
+        response: httpx.Response,
+    ) -> bool:
+        """Sleep before the next attempt; False when attempts are used up.
+
+        A 429 that outlasts our retries, or asks for a long wait, raises
+        SpeechifyQuotaError so the narration stage pauses instead of failing.
+        """
+        last_attempt = attempt >= self.max_retries - 1
+        if response.status_code == 429:
+            delay = _retry_after_seconds(response)
+            if last_attempt or (delay is not None and delay > _MAX_RATE_LIMIT_WAIT_SECONDS):
+                wait = delay if delay is not None else 15 * 60
+                raise SpeechifyQuotaError(
+                    f"Speechify rate limit reached: {reason}",
+                    resume_at=datetime.now(UTC) + timedelta(seconds=wait),
+                )
+            if delay is not None:
+                logger.warning(
+                    "Speechify rate limited (attempt %d/%d); waiting %.0fs per Retry-After",
+                    attempt + 1,
+                    self.max_retries,
+                    delay,
+                )
+                time.sleep(delay)
+                return True
+        if last_attempt:
+            return False
+        self._backoff(attempt, reason)
+        return True
 
     def _backoff(self, attempt: int, reason: str) -> None:
         wait_seconds = _RETRY_BACKOFF_SECONDS * (2**attempt)

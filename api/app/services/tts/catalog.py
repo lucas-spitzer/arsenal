@@ -173,6 +173,43 @@ def default_voice_for_model(model: str | None) -> str:
     return "hugh_32"
 
 
+# Gemini's prebuilt voice names. Only a few are offered in the picker, but any
+# of them can be set through AUDIO_NARRATION_VOICE_ID.
+GEMINI_PREBUILT_VOICES: frozenset[str] = frozenset(
+    {
+        "Achernar", "Achird", "Algenib", "Algieba", "Alnilam", "Aoede",
+        "Autonoe", "Callirrhoe", "Charon", "Despina", "Enceladus", "Erinome",
+        "Fenrir", "Gacrux", "Iapetus", "Kore", "Laomedeia", "Leda", "Orus",
+        "Puck", "Pulcherrima", "Rasalgethi", "Sadachbia", "Sadaltager",
+        "Schedar", "Sulafat", "Umbriel", "Vindemiatrix", "Zephyr",
+        "Zubenelgenubi",
+    }
+)
+
+
+def _provider_of_known_voice(voice_id: str) -> str | None:
+    if voice_id in GEMINI_PREBUILT_VOICES:
+        return "google"
+    for entry in TTS_MODEL_CATALOG:
+        if any(voice.id == voice_id for voice in entry.voices):
+            return entry.provider
+    return None
+
+
+def voice_for_model(voice_id: str | None, model: str | None) -> str:
+    """Keep `voice_id` unless it is known to belong to another provider.
+
+    Unknown ids pass through so a voice outside the catalog still works.
+    """
+    voice = (voice_id or "").strip()
+    if not voice:
+        return default_voice_for_model(model)
+    owner = _provider_of_known_voice(voice)
+    if owner is not None and owner != tts_provider_for_model(model or DEFAULT_NARRATION_MODEL):
+        return default_voice_for_model(model)
+    return voice
+
+
 def tts_catalog_list_price(model: str | None) -> float | None:
     entry = get_tts_catalog_model(model)
     if entry is None:
@@ -217,4 +254,5 @@ __all__ = [
     "get_tts_catalog_model",
     "tts_catalog_list_price",
     "validate_tts_selection",
+    "voice_for_model",
 ]

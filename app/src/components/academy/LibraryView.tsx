@@ -18,6 +18,8 @@ import {
   type OutputSort,
   type OutputType,
 } from '../../lib/academyOutputs'
+import { sourceDisplayName } from '../../lib/sourceDisplay'
+import { getArtifactDownloadUrl, type Source } from '../../lib/workspaceApi'
 import { FoundryLoader } from '../foundry/FoundryLoader'
 import { OutputFilterBar } from './OutputFilterBar'
 import { StudyHead } from './StudySessionChrome'
@@ -50,14 +52,55 @@ function downloadTitle(item: OutputItem): string {
   if (item.narrationDownload === 'failed') return 'Could not prepare the audio file. Try again.'
   if (item.kind === 'book') return 'Download book'
   if (item.kind === 'material') return 'Download study material'
+  if (item.isAudiobook) return 'Download audiobook'
   return 'Download audio'
 }
 
 function openLabel(item: OutputItem): string {
+  if (item.isAudiobook) return 'Play'
   if (item.kind === 'audio') return item.isNarration ? 'Open' : 'Download'
   if (item.kind === 'book' || item.kind === 'artifact') return 'Open'
   if (item.kind === 'flashcard') return 'Study'
   return 'Open'
+}
+
+// Temporary stand-in so the library audiobook card can be screenshotted.
+// Delete this block, and the call in LibraryView, once the shot is taken.
+const SCREENSHOT_AUDIOBOOK_ID = 'screenshot-audiobook-armed-forces-officer'
+
+function armedForcesOfficerSource(sources: Source[]): Source | undefined {
+  return sources.find((source) =>
+    sourceDisplayName(source).toLowerCase().includes('armed forces officer'),
+  )
+}
+
+function screenshotAudiobook(source: Source): OutputItem {
+  const sourceName = sourceDisplayName(source)
+  return {
+    kind: 'audio',
+    id: SCREENSHOT_AUDIOBOOK_ID,
+    title: '4 hours and 5 mins',
+    sourceId: source.id,
+    sourceName,
+    footer: sourceName,
+    badge: 'MP3',
+    createdAt: '2026-10-29T12:00:00.000Z',
+    runnerPage: null,
+    isAudio: true,
+    isEbook: false,
+    isNarration: false,
+    isAudiobook: true,
+    narrationDownload: null,
+    projectId: null,
+  }
+}
+
+function withScreenshotAudiobook(items: OutputItem[], sources: Source[]): OutputItem[] {
+  const source = armedForcesOfficerSource(sources)
+  if (!source || items.some((item) => item.isAudiobook && item.sourceId === source.id)) {
+    return items
+  }
+  return [...items, screenshotAudiobook(source)]
 }
 
 export function LibraryView({
@@ -68,19 +111,21 @@ export function LibraryView({
   const { items: catalogItems, sources: catalogSources } = useOutputs()
   const { approvedUser } = useAuth()
   const isAdmin = isAdminAccess(approvedUser?.role)
+  const { downloadArtifact, error, isLoading, sources: workspaceSources } = useWorkspaceData()
   const items = useMemo(
-    () => libraryItemsForRole(catalogItems, isAdmin),
-    [catalogItems, isAdmin],
+    () => withScreenshotAudiobook(libraryItemsForRole(catalogItems, isAdmin), workspaceSources),
+    [catalogItems, isAdmin, workspaceSources],
   )
   const sources = useMemo(() => {
     const ids = new Set(items.flatMap((item) => (item.sourceId ? [item.sourceId] : [])))
     return catalogSources.filter((source) => ids.has(source.id))
   }, [catalogSources, items])
-  const { downloadArtifact, error, isLoading } = useWorkspaceData()
   const { activeWorkspace } = useWorkspace()
   const { focus, toggleFocus } = useLibraryFocus(activeWorkspace?.id ?? null)
   const navigate = useNavigate()
 
+  const [player, setPlayer] = useState<{ title: string; url: string } | null>(null)
+  const [playError, setPlayError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [type, setType] = useState<OutputType>('all')
   const [sourceId, setSourceId] = useState<string | null>(null)
@@ -112,7 +157,26 @@ export function LibraryView({
     return [...map.entries()]
   }, [filtered, sort])
 
+  const playAudiobook = async (item: OutputItem) => {
+    if (item.id === SCREENSHOT_AUDIOBOOK_ID) return
+    setPlayError(null)
+    try {
+      const result = await getArtifactDownloadUrl(item.id)
+      if (!result.download_url) {
+        setPlayError('That audiobook is not ready to play.')
+        return
+      }
+      setPlayer({ title: item.title || item.sourceName, url: result.download_url })
+    } catch (caught) {
+      setPlayError(caught instanceof Error ? caught.message : 'Could not play that audiobook.')
+    }
+  }
+
   const handleOpen = (item: OutputItem) => {
+    if (item.isAudiobook) {
+      void playAudiobook(item)
+      return
+    }
     if (item.kind === 'material') {
       void downloadArtifact(item.id)
       return
@@ -176,6 +240,8 @@ export function LibraryView({
         }
       />
 
+      {playError ? <p className="lib__play-error">{playError}</p> : null}
+
       {isLoading && items.length === 0 ? (
         <div className="lib__empty">
           <FoundryLoader label="Loading library" size="sm" />
@@ -203,7 +269,10 @@ export function LibraryView({
             <CardGrid
               items={list}
               onOpen={handleOpen}
-              onDownload={(item) => void downloadArtifact(item.id)}
+              onDownload={(item) => {
+                if (item.id === SCREENSHOT_AUDIOBOOK_ID) return
+                void downloadArtifact(item.id)
+              }}
               focus={focus}
               onToggleFocus={toggleFocus}
             />
@@ -213,11 +282,20 @@ export function LibraryView({
         <CardGrid
           items={filtered}
           onOpen={handleOpen}
-          onDownload={(item) => void downloadArtifact(item.id)}
+          onDownload={(item) => {
+            if (item.id === SCREENSHOT_AUDIOBOOK_ID) return
+            void downloadArtifact(item.id)
+          }}
           focus={focus}
           onToggleFocus={toggleFocus}
         />
       )}
+      {player ? (
+        <div className="lib__player">
+          <p className="lib__player-title">{player.title}</p>
+          <audio key={player.url} controls autoPlay src={player.url} />
+        </div>
+      ) : null}
     </section>
   )
 }

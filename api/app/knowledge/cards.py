@@ -34,10 +34,20 @@ def list_card_back(entry: dict[str, Any]) -> str:
 
 
 def definition_card_back(entry: dict[str, Any]) -> str:
-    """Definition for a term. A list uses its numbered item names. Significance stays off."""
-    if str(entry.get("entry_kind") or "") == "list":
+    """Definition for a term. A list uses its numbered item names.
+
+    An abbreviation shows the expanded title, then the definition.
+    """
+    kind = str(entry.get("entry_kind") or "")
+    if kind == "list":
         return list_card_back(entry)
-    return str(entry.get("definition") or "").strip()
+    definition = str(entry.get("definition") or "").strip()
+    if kind == "abbreviation":
+        title = str(entry.get("significance") or "").strip()
+        if title and definition:
+            return f"{title}\n{definition}"
+        return title or definition
+    return definition
 
 
 def definition_flashcard_row(project: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:

@@ -7,6 +7,7 @@ Layout (no UUIDs in keys):
     {workspace_slug}/{source_slug}/narration.json
     {workspace_slug}/{source_slug}/wiki.json
     {workspace_slug}/{source_slug}/audio/{provider}/{model_id}/{voice_id}/{clip}
+    {workspace_slug}/{source_slug}/audiobooks/{title}.mp3
     {workspace_slug}/{source_slug}/work/{parse.md|pages.json|normalized.json|trimmed.json|book.json}
     {workspace_slug}/drafts/{batch_slug}/{file}
     {workspace_slug}/study-material/{material_slug}/files/{component_id}/{file}
@@ -82,6 +83,11 @@ def output_path(workspace_slug: str, source_slug: str, artifact_type: str) -> st
     except KeyError as exc:
         raise ValueError(f"Unknown artifact type: {artifact_type}") from exc
     return f"{source_folder(workspace_slug, source_slug)}/{filename}"
+
+
+def audiobook_object_path(workspace_slug: str, source_slug: str, filename: str) -> str:
+    """A complete audiobook MP3 uploaded for one source."""
+    return f"{source_folder(workspace_slug, source_slug)}/audiobooks/{filename}"
 
 
 def audio_clip_path(

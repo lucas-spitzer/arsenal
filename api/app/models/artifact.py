@@ -19,6 +19,15 @@ class ArtifactResponse(BaseModel):
     created_at: datetime
 
 
+class LibraryArtifactUploadResponse(BaseModel):
+    artifact_type: Literal["audiobook", "knowledge"]
+    source_id: str
+    title: str
+    artifact: ArtifactResponse | None = None
+    wiki_entry_count: int = 0
+    question_count: int = 0
+
+
 class ArtifactDownloadResponse(BaseModel):
     artifact_id: str
     filename: str

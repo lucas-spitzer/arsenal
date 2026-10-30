@@ -8,6 +8,7 @@ import {
   artifactLibraryCard,
   isIncompleteNarrationArtifact,
   narrationDownloadState,
+  outputChipLabel,
 } from './academyOutputs'
 import {
   collapseDuplicateNarrationArtifacts,
@@ -224,5 +225,42 @@ describe('library artifact cards', () => {
         }),
       ),
     ).toMatchObject({ chipLabel: 'Material', title: 'Land Navigation', isStudyMaterial: true })
+  })
+
+  it('names an uploaded mp3 as an Audiobook', () => {
+    const card = artifactLibraryCard(
+      artifact({
+        artifact_type: 'audiobook',
+        format: 'mp3',
+        filename: 'Warfighting.mp3',
+        manifest: { title: 'Warfighting' },
+      }),
+    )
+    expect(card).toMatchObject({
+      chipLabel: 'Audiobook',
+      title: 'Warfighting',
+      isAudiobook: true,
+      isNarration: false,
+      isAudio: true,
+    })
+    expect(
+      outputChipLabel({
+        kind: 'audio',
+        id: 'art-1',
+        title: 'Warfighting',
+        sourceId: 'src-1',
+        sourceName: 'Warfighting',
+        footer: 'Warfighting',
+        badge: 'MP3',
+        createdAt: '2026-01-01T00:00:00Z',
+        runnerPage: null,
+        isAudio: true,
+        isEbook: false,
+        isNarration: false,
+        isAudiobook: true,
+        narrationDownload: null,
+        projectId: null,
+      }),
+    ).toBe('Audiobook')
   })
 })

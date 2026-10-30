@@ -6,8 +6,9 @@ import {
   buildNarrationClips,
   endsSentence,
   matchWikiTerms,
+  pickNarrationSet,
   resolveReaderSelection,
-  timingIndexAt,
+  sentenceCueAt,
   type Block,
 } from './readerContent'
 
@@ -251,6 +252,38 @@ describe('buildNarrationClips', () => {
     expect(clips[0].timings).toHaveLength(10)
     expect(clips[1].audioKey).toBe('chapter-1.mp3')
     expect(clips[1].globals).toHaveLength(4)
+    expect(clips[0].cues.map((cue) => [cue.s, cue.firstGlobal])).toEqual([
+      [0, clips[0].globals[0]],
+      [0.9, clips[0].globals[4]],
+    ])
+    expect(clips[0].cues[0].sentence).not.toBe(clips[0].cues[1].sentence)
+    expect(clips[1].cues).toHaveLength(1)
+  })
+
+  it('cues every sentence inside a paragraph at its first word', () => {
+    const { wordBlocks } = buildNarration([para(0, 'p', 'One two. Three four.')])
+    const narration = new Map([
+      [
+        'p',
+        {
+          id: 'n1',
+          audio_path: 'clip.mp3',
+          alignment_source: 'provider' as const,
+          words: [
+            { s: 0, e: 0.2 },
+            { s: 0.2, e: 0.4 },
+            { s: 0.7, e: 0.9 },
+            { s: 0.9, e: 1.1 },
+          ],
+        },
+      ],
+    ])
+
+    const [clip] = buildNarrationClips(wordBlocks, narration)
+    expect(clip.cues.map((cue) => [cue.s, cue.firstGlobal])).toEqual([
+      [0, 0],
+      [0.7, 2],
+    ])
   })
 
   it('drops a paragraph whose timing count does not match rendered words', () => {
@@ -274,17 +307,59 @@ describe('buildNarrationClips', () => {
   })
 })
 
-describe('timingIndexAt', () => {
-  const timings = [
-    { s: 0.1, e: 0.18 },
-    { s: 0.18, e: 0.24 },
-    { s: 0.24, e: 0.31 },
+describe('sentenceCueAt', () => {
+  const cues = [
+    { s: 0.1, sentence: 0, firstGlobal: 0 },
+    { s: 2.4, sentence: 1, firstGlobal: 6 },
+    { s: 5, sentence: 2, firstGlobal: 11 },
   ]
 
-  it('resolves short consecutive words from exact media time', () => {
-    expect(timingIndexAt(timings, 0.099)).toBe(-1)
-    expect(timingIndexAt(timings, 0.12)).toBe(0)
-    expect(timingIndexAt(timings, 0.2)).toBe(1)
-    expect(timingIndexAt(timings, 0.3)).toBe(2)
+  it('holds the current sentence until the next one starts', () => {
+    expect(sentenceCueAt(cues, 0.1)?.sentence).toBe(0)
+    expect(sentenceCueAt(cues, 2.39)?.sentence).toBe(0)
+    expect(sentenceCueAt(cues, 2.4)?.sentence).toBe(1)
+    expect(sentenceCueAt(cues, 4.99)?.sentence).toBe(1)
+    expect(sentenceCueAt(cues, 60)?.sentence).toBe(2)
+  })
+
+  it('shows the first sentence before its first word starts', () => {
+    expect(sentenceCueAt(cues, 0)?.sentence).toBe(0)
+  })
+
+  it('returns nothing for a clip without cues', () => {
+    expect(sentenceCueAt([], 1)).toBeUndefined()
+  })
+})
+
+describe('pickNarrationSet', () => {
+  const row = (segment_id: string, model_id: string, voice_id: string, created_at: string) => ({
+    segment_id,
+    model_id,
+    voice_id,
+    created_at,
+  })
+
+  it('keeps the model and voice that cover the most paragraphs', () => {
+    const rows = [
+      row('p1', 'gemini', 'Kore', '2026-10-01'),
+      row('p1', 'simba-3.2', 'hugh_32', '2026-09-01'),
+      row('p2', 'simba-3.2', 'hugh_32', '2026-09-01'),
+    ]
+    expect(pickNarrationSet(rows).map((r) => [r.segment_id, r.model_id])).toEqual([
+      ['p1', 'simba-3.2'],
+      ['p2', 'simba-3.2'],
+    ])
+  })
+
+  it('breaks a tie with the newest set', () => {
+    const rows = [
+      row('p1', 'gemini', 'Kore', '2026-09-01'),
+      row('p1', 'simba-3.2', 'hugh_32', '2026-10-01'),
+    ]
+    expect(pickNarrationSet(rows).map((r) => r.model_id)).toEqual(['simba-3.2'])
+  })
+
+  it('returns nothing for no rows', () => {
+    expect(pickNarrationSet([])).toEqual([])
   })
 })

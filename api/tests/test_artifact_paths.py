@@ -4,6 +4,7 @@ import pytest
 
 from app.artifact_paths import (
     audio_clip_path,
+    audiobook_object_path,
     downloadable_artifact_path,
     drafts_path,
     narration_clip_path,
@@ -49,6 +50,9 @@ def test_library_paths() -> None:
     )
     assert downloadable_artifact_path(source, "wiki_json") == (
         "ocs-prep/mcdp-1-3-tactics/wiki.json"
+    )
+    assert audiobook_object_path("ocs-prep", "mcdp-1-3-tactics", "war.mp3") == (
+        "ocs-prep/mcdp-1-3-tactics/audiobooks/war.mp3"
     )
     assert audio_clip_path(
         "ocs-prep",

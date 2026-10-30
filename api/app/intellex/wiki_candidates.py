@@ -19,11 +19,11 @@ from pydantic import BaseModel, Field, field_validator
 from app.intellex.wiki_slug import normalize_slug
 
 Importance = Literal["essential", "supporting", "contextual"]
-EntryKind = Literal["term", "list", "elo"]
+EntryKind = Literal["term", "list", "elo", "abbreviation"]
 
 
 def canonical_kind(entry_kind: str) -> EntryKind:
-    """Map a stored or proposed kind onto ``term``, ``list``, or ``elo``.
+    """Map a stored or proposed kind onto ``term``, ``list``, ``elo``, or ``abbreviation``.
 
     Older rows used ``concept`` and ``insight``. Both are terms.
     """
@@ -32,6 +32,8 @@ def canonical_kind(entry_kind: str) -> EntryKind:
         return "list"
     if kind == "elo":
         return "elo"
+    if kind == "abbreviation":
+        return "abbreviation"
     return "term"
 
 

@@ -18,7 +18,6 @@ def test_build_pipeline_always_includes_intellex_steps() -> None:
         "normalize-document",
         "trim-document-boundaries",
         "structure-document",
-        "validate-structure",
         "chunk",
         "source-research",
     ]
@@ -89,12 +88,26 @@ def test_wiki_knowledge_appends_transcribe_and_structure_before_qngen() -> None:
     ]
 
 
+def test_ingest_skips_structure_validation() -> None:
+    assert all(step["step"] != "validate-structure" for step in build_pipeline([]))
+    assert "chapter_source" not in SUPPORTED_TARGET_ARTIFACTS
+
+
 def test_wiki_json_target_maps_to_export_stage() -> None:
     pipeline = build_pipeline(["wiki_json"])
     export_step = next(step for step in pipeline if step["step"] == "export-wiki-json")
 
     assert export_step["module"] == "mathesys"
     assert export_step["stage_id"] == "export-wiki-json"
+
+
+def test_electronic_book_still_validates_before_enrichment() -> None:
+    step_names = [step["step"] for step in build_pipeline(["electronic_book"])]
+    validate_at = step_names.index("validate-structure")
+    enrich_at = step_names.index("web-enrichment")
+    ebook_at = step_names.index("create-ebook")
+
+    assert validate_at < enrich_at < ebook_at
 
 
 def test_study_sheet_is_no_longer_a_target() -> None:

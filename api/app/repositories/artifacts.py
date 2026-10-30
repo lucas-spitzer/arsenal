@@ -74,6 +74,25 @@ class ArtifactRepository:
 
         return artifact
 
+    async def create(self, payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await self.db.insert("artifacts", payload)
+        return rows[0]
+
+    async def list_for_source(
+        self,
+        source_id: str,
+        workspace_id: str,
+        *,
+        artifact_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        filters: dict[str, str] = {
+            "source_id": f"eq.{source_id}",
+            "workspace_id": f"eq.{workspace_id}",
+        }
+        if artifact_type:
+            filters["artifact_type"] = f"eq.{artifact_type}"
+        return await self.db.select_many("artifacts", filters=filters)
+
     async def list_narration_for_source(
         self,
         source_id: str,

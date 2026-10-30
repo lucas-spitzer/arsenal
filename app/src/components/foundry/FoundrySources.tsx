@@ -2,19 +2,30 @@ import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { formatDate, statusLabel } from '../../lib/foundryFormat'
 import { mapSourceDisplay } from '../../lib/foundryMappers'
+import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { FoundryViewToggle } from './FoundryViewToggle'
 import { ErrorBanner } from './ErrorBanner'
 import { FoundryLoader } from './FoundryLoader'
+import { UploadArtifactsDialog } from './UploadArtifactsDialog'
 import type { FoundryView } from './types'
 
 export function FoundrySources() {
-  const { sources, structuredSources, isLoading, error, uploadSource, uploadStructuredData } = useWorkspaceData()
+  const { sources, structuredSources, isLoading, error, uploadSource, uploadLibraryArtifact } =
+    useWorkspaceData()
   const [query, setQuery] = useState('')
   const [view, setView] = useState<FoundryView>('grid')
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [artifactsOpen, setArtifactsOpen] = useState(false)
+  const [artifactsKey, setArtifactsKey] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const dataInputRef = useRef<HTMLInputElement>(null)
+  const uploadSources = useMemo(
+    () =>
+      [...sources, ...structuredSources].sort((left, right) =>
+        sourceDisplayName(left).localeCompare(sourceDisplayName(right)),
+      ),
+    [sources, structuredSources],
+  )
 
   const displaySources = useMemo(
     () =>
@@ -37,7 +48,7 @@ export function FoundrySources() {
     )
   }, [displaySources, query])
 
-  const handleUpload = async (event: ChangeEvent<HTMLInputElement>, structured: boolean) => {
+  const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
@@ -46,7 +57,7 @@ export function FoundrySources() {
     setUploadError(null)
 
     try {
-      await (structured ? uploadStructuredData(file) : uploadSource(file))
+      await uploadSource(file)
     } catch (caught) {
       setUploadError(caught instanceof Error ? caught.message : 'Upload failed.')
     } finally {
@@ -66,21 +77,17 @@ export function FoundrySources() {
           ref={fileInputRef}
           type="file"
           hidden
-          onChange={(event) => void handleUpload(event, false)}
-        />
-        <input
-          ref={dataInputRef}
-          type="file"
-          accept=".json,application/json"
-          hidden
-          onChange={(event) => void handleUpload(event, true)}
+          onChange={(event) => void handleUpload(event)}
         />
         <button
           className="as-console__cta as-console__cta--ghost"
           disabled={isUploading}
-          onClick={() => dataInputRef.current?.click()}
+          onClick={() => {
+            setArtifactsKey((key) => key + 1)
+            setArtifactsOpen(true)
+          }}
         >
-          {isUploading ? 'Uploading…' : '⇪ Upload structured data'}
+          ⇪ Upload Artifacts
         </button>
         <button
           className="as-console__cta as-console__cta--ghost"
@@ -209,6 +216,16 @@ export function FoundrySources() {
           </div>
         )}
       </div>
+      <UploadArtifactsDialog
+        key={artifactsKey}
+        open={artifactsOpen}
+        sources={uploadSources}
+        onClose={() => setArtifactsOpen(false)}
+        onUpload={async (request) => {
+          await uploadLibraryArtifact(request)
+          setArtifactsOpen(false)
+        }}
+      />
     </>
   )
 }

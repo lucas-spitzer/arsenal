@@ -1,6 +1,7 @@
 export interface CardEntry {
   entry_kind: string
   definition: string
+  significance?: string | null
   items?: { name: string }[]
 }
 
@@ -12,5 +13,11 @@ export function listCardBack(entry: CardEntry): string {
 
 export function definitionCardBack(entry: CardEntry): string {
   if (entry.entry_kind === 'list') return listCardBack(entry)
-  return entry.definition.trim()
+  const definition = entry.definition.trim()
+  if (entry.entry_kind === 'abbreviation') {
+    const title = (entry.significance ?? '').trim()
+    if (title && definition) return `${title}\n${definition}`
+    return title || definition
+  }
+  return definition
 }

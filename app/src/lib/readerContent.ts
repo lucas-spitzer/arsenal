@@ -183,32 +183,87 @@ export type SpokenWord = {
 }
 export type WordBlock = { block: Block; words: SpokenWord[] }
 
+/** Where a sentence starts on its clip's timeline. */
+export type SentenceCue = { s: number; sentence: number; firstGlobal: number }
+
 export type NarrationClip = {
   fetchNarrationId: string
   audioKey: string
   globals: number[]
+  /** Sentence index for each entry in `globals`. */
+  sentences: number[]
   timings: { s: number; e: number }[]
   alignmentSource: 'provider' | 'forced' | 'estimated'
+  cues: SentenceCue[]
 }
 
-/** Return the latest timing whose start is at or before media time. */
-export function timingIndexAt(
-  timings: { s: number; e: number }[],
-  mediaTime: number,
-): number {
+type NarrationSetRow = {
+  segment_id: string
+  model_id: string
+  voice_id: string
+  created_at: string
+}
+
+/**
+ * Keep one model and voice per source so the Reader never mixes narrations.
+ * The set covering the most paragraphs wins; the newest breaks a tie.
+ */
+export function pickNarrationSet<T extends NarrationSetRow>(rows: T[]): T[] {
+  const sets = new Map<string, { rows: T[]; newest: string }>()
+  for (const row of rows) {
+    const key = `${row.model_id}|${row.voice_id}`
+    const set = sets.get(key)
+    if (set) {
+      set.rows.push(row)
+      if (row.created_at > set.newest) set.newest = row.created_at
+    } else {
+      sets.set(key, { rows: [row], newest: row.created_at })
+    }
+  }
+  let best: { rows: T[]; newest: string } | null = null
+  for (const set of sets.values()) {
+    if (
+      !best
+      || set.rows.length > best.rows.length
+      || (set.rows.length === best.rows.length && set.newest > best.newest)
+    ) {
+      best = set
+    }
+  }
+  return best ? best.rows : []
+}
+
+/** One cue per sentence, at the start time of its first word. */
+export function buildSentenceCues(
+  clip: Pick<NarrationClip, 'globals' | 'sentences' | 'timings'>,
+): SentenceCue[] {
+  const cues: SentenceCue[] = []
+  for (let i = 0; i < clip.globals.length; i += 1) {
+    if (i > 0 && clip.sentences[i] === clip.sentences[i - 1]) continue
+    cues.push({ s: clip.timings[i].s, sentence: clip.sentences[i], firstGlobal: clip.globals[i] })
+  }
+  return cues
+}
+
+/**
+ * The sentence being read at `mediaTime`. Holds through pauses between words
+ * and returns the first sentence before its first word starts, so the
+ * highlight never drops out while the clip plays.
+ */
+export function sentenceCueAt(cues: SentenceCue[], mediaTime: number): SentenceCue | undefined {
   let low = 0
-  let high = timings.length - 1
-  let found = -1
+  let high = cues.length - 1
+  let found = 0
   while (low <= high) {
     const middle = Math.floor((low + high) / 2)
-    if (timings[middle].s <= mediaTime) {
+    if (cues[middle].s <= mediaTime) {
       found = middle
       low = middle + 1
     } else {
       high = middle - 1
     }
   }
-  return found
+  return cues[found]
 }
 
 type StyledWord = { text: string; em: boolean; strong: boolean }
@@ -501,12 +556,14 @@ export function buildNarrationClips(
     const last = clips[clips.length - 1]
     const timings = row.words.map((w) => ({ s: w.s, e: w.e }))
     const globals = wb.words.map((word) => word.global)
+    const sentences = wb.words.map((word) => word.sentence)
     if (
       last
       && last.audioKey === audioKey
       && last.alignmentSource === row.alignment_source
     ) {
       last.globals.push(...globals)
+      last.sentences.push(...sentences)
       last.timings.push(...timings)
       continue
     }
@@ -514,9 +571,12 @@ export function buildNarrationClips(
       fetchNarrationId: row.id,
       audioKey,
       globals,
+      sentences,
       timings,
       alignmentSource: row.alignment_source,
+      cues: [],
     })
   }
+  for (const clip of clips) clip.cues = buildSentenceCues(clip)
   return clips
 }

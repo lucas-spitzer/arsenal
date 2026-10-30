@@ -6,8 +6,8 @@ SONIC_MODEL = "sonic-3.6"
 GEMINI_FLASH_TTS_MODEL = "gemini-3.8-flash-tts"
 GEMINI_FLASH_LITE_TTS_MODEL = "gemini-3.8-flash-lite-tts"
 
-DEFAULT_NARRATION_MODEL = GEMINI_FLASH_TTS_MODEL
-DEFAULT_NARRATION_VOICE_ID = "Charon"
+DEFAULT_NARRATION_MODEL = SIMBA_MODEL
+DEFAULT_NARRATION_VOICE_ID = "hugh_32"
 
 # Same idea as MODEL_FAMILIES: .env names the family, code names the current id.
 TTS_MODEL_FAMILIES: dict[str, str] = {

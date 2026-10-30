@@ -140,3 +140,57 @@ def test_chapter_elos_stay_a_separate_kind() -> None:
     assert promoted[commission]["entry_kind"] == "elo"
     assert promoted["Special Trust and Confidence"]["entry_kind"] == "term"
     assert promoted["The Four Commissioning Virtues"]["entry_kind"] == "list"
+
+
+def test_question_pack_becomes_abbreviations_and_questions() -> None:
+    notes = parse_structured_notes(
+        json.dumps(
+            {
+                "abbreviations": [
+                    {
+                        "abbreviation": "MEF",
+                        "title": "Marine Expeditionary Force",
+                        "definition": "The largest MAGTF.",
+                        "category": "MAGTF",
+                    },
+                ],
+                "questions": [
+                    {
+                        "question": "What does MEF stand for?",
+                        "abbreviation": "mef",
+                        "correct": "Marine Expeditionary Force",
+                        "distractors": [{"text": "Marine Expeditionary Brigade", "misconception": "That is an MEB."}],
+                    },
+                ],
+            },
+        ),
+    )
+    assert notes is not None
+    assert notes.entries[0]["entry_kind"] == "abbreviation"
+    assert notes.entries[0]["label"] == "MEF"
+    assert notes.entries[0]["aliases"] == ["Marine Expeditionary Force"]
+    assert notes.entries[0]["significance"] == "Marine Expeditionary Force"
+    assert notes.entries[0]["category"] == "MAGTF"
+    question = notes.questions[0]
+    assert question["format"] == "multiple_choice"
+    assert question["pool"]["correct"] == ["Marine Expeditionary Force"]
+    assert question["citation"] == {"kind": "abbreviation", "label": "mef"}
+
+
+def test_question_keeps_a_citation_that_is_not_in_the_file() -> None:
+    notes = parse_structured_notes(
+        json.dumps(
+            {
+                "questions": [
+                    {
+                        "question": "What does MEF stand for?",
+                        "abbreviation": "MEF",
+                        "correct": ["Marine Expeditionary Force"],
+                        "distractors": [{"text": "Marine Expeditionary Brigade"}],
+                    },
+                ],
+            },
+        ),
+    )
+    assert notes is not None
+    assert notes.questions[0]["citation"] == {"kind": "abbreviation", "label": "MEF"}

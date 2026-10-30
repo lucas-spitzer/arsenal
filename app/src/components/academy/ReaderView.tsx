@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -34,8 +35,9 @@ import {
   buildNarrationClips,
   globalsFromDomSelection,
   matchWikiTerms,
+  pickNarrationSet,
   resolveReaderSelection,
-  timingIndexAt,
+  sentenceCueAt,
   type Block,
   type NarrationClip,
   type SpokenWord,
@@ -154,8 +156,9 @@ export function ReaderView({
       .then(([segments, chapters, narrationResult]) => {
         if (cancelled) return
         const narration = new Map<string, NarrationSegment>()
-        for (const row of narrationResult.rows) {
-          if (row.words.length > 0) narration.set(row.segment_id, row)
+        const timed = narrationResult.rows.filter((row) => row.words.length > 0)
+        for (const row of pickNarrationSet(timed)) {
+          narration.set(row.segment_id, row)
         }
         setLive({
           blocks: buildBlocks(segments, chapters),
@@ -200,13 +203,13 @@ export function ReaderView({
   const [bookmarkSpread, setBookmarkSpread] = useState<number | null>(null)
   const bookmarkRestoredRef = useRef(false)
 
-  // Narration / audio state. `spoken` is the global index of the word currently
-  // being read (-1 = not started). Playback is a simulated cadence until the
-  // narration stage's synthesized audio is wired in; speed scales the WPM.
+  // Narration / audio state. `spoken` is the global index of the reading
+  // position (-1 = not started): the first word of the current sentence with
+  // audio, or the current word with the simulated cadence. `activeSentence`
+  // is the highlighted sentence; it only changes at sentence boundaries.
   const [playing, setPlaying] = useState(false)
   const [spoken, setSpoken] = useState(-1)
-  const [activeSpoken, setActiveSpoken] = useState(-1)
-  const [preciseHighlight, setPreciseHighlight] = useState(false)
+  const [activeSentence, setActiveSentence] = useState(-1)
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1)
   const [audioError, setAudioError] = useState<string | null>(null)
 
@@ -261,8 +264,7 @@ export function ReaderView({
     setSpread(0)
     setPlaying(false)
     setSpoken(-1)
-    setActiveSpoken(-1)
-    setPreciseHighlight(false)
+    setActiveSentence(-1)
     setTargetSeq(null)
     bookmarkRestoredRef.current = false
   }, [sourceId, seg, cancelFlip])
@@ -686,11 +688,11 @@ export function ReaderView({
   }, [turn])
 
   // --- Narration playback -------------------------------------------------
-  // Two engines share the `spoken` index. When synthesized audio exists
-  // (narration_segments rows), an HTMLAudioElement plays each chapter clip
-  // and word timings drive the highlight. Consecutive paragraphs that share
-  // an audio_path stay on one file. Otherwise a simulated WPM cadence walks
-  // the words (reader-recommendations §6 fallback).
+  // Two engines share `spoken` and `activeSentence`. When synthesized audio
+  // exists (narration_segments rows), an HTMLAudioElement plays each chapter
+  // clip and sentence start times drive the highlight. Consecutive paragraphs
+  // that share an audio_path stay on one file. Otherwise a simulated WPM
+  // cadence walks the words (reader-recommendations §6 fallback).
   const tracks = useMemo<NarrationClip[]>(
     () => buildNarrationClips(wordBlocks, live.narration),
     [live.narration, wordBlocks],
@@ -699,15 +701,21 @@ export function ReaderView({
     () => new Set(tracks.flatMap((track) => track.globals)),
     [tracks],
   )
-  const hasAudio = isLive && tracks.length > 0
-  const hasEstimatedAlignment = tracks.some(
-    (track) => track.alignmentSource === 'estimated',
+  // Globals are numbered 0..total-1 in reading order, so the array index is the global.
+  const sentenceOfGlobal = useMemo(
+    () => wordBlocks.flatMap((wb) => wb.words.map((word) => word.sentence)),
+    [wordBlocks],
   )
+  const hasAudio = isLive && tracks.length > 0
 
   const spokenRef = useRef(spoken)
   useEffect(() => {
     spokenRef.current = spoken
   }, [spoken])
+  const activeSentenceRef = useRef(activeSentence)
+  useEffect(() => {
+    activeSentenceRef.current = activeSentence
+  }, [activeSentence])
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const activeTrackIndexRef = useRef(-1)
   const playTrackRef = useRef<
@@ -733,19 +741,14 @@ export function ReaderView({
     const msPerWord = 60000 / (BASE_WPM * speed)
     const tick = window.setInterval(() => {
       setSpoken((i) => {
-        if (i + 1 >= total) {
-          setPlaying(false)
-          setActiveSpoken(total - 1)
-          return total - 1
-        }
-        const next = i + 1
-        setPreciseHighlight(false)
-        setActiveSpoken(next)
+        const next = Math.min(i + 1, total - 1)
+        if (i + 1 >= total) setPlaying(false)
+        setActiveSentence(sentenceOfGlobal[next] ?? -1)
         return next
       })
     }, msPerWord)
     return () => window.clearInterval(tick)
-  }, [playing, speed, total, hasAudio])
+  }, [playing, speed, total, hasAudio, sentenceOfGlobal])
 
   // The media element survives pause/resume. Media time is the source of truth;
   // word indexes are only a rendering projection of that clock.
@@ -773,20 +776,18 @@ export function ReaderView({
       return res.audio_url
     }
 
+    // Called every animation frame; state changes only when the sentence does.
+    // The previous sentence stays lit through pauses and while the next clip loads.
     const syncHighlight = () => {
       const track = tracks[activeTrackIndexRef.current]
       if (!track) return
-      const index = timingIndexAt(track.timings, audio.currentTime)
-      if (index < 0) {
-        setActiveSpoken(-1)
+      const cue = sentenceCueAt(track.cues, audio.currentTime)
+      if (!cue) return
+      if (cue.sentence === activeSentenceRef.current && cue.firstGlobal === spokenRef.current) {
         return
       }
-      const global = track.globals[index]
-      setSpoken((current) => (current === global ? current : global))
-      setPreciseHighlight(track.alignmentSource !== 'estimated')
-      setActiveSpoken(
-        audio.currentTime < track.timings[index].e ? global : -1,
-      )
+      setActiveSentence(cue.sentence)
+      setSpoken(cue.firstGlobal)
     }
 
     const animate = () => {
@@ -806,8 +807,13 @@ export function ReaderView({
 
     const playIndex = async (index: number, seekTo: number | null) => {
       const track = tracks[index]
-      if (!track || disposed) {
-        if (!disposed) setPlaying(false)
+      if (disposed) return
+      if (!track) {
+        // Past the last clip: narration is finished, so clear the highlight.
+        const lastTrack = tracks[tracks.length - 1]
+        setPlaying(false)
+        setActiveSentence(-1)
+        if (lastTrack) setSpoken(lastTrack.globals[lastTrack.globals.length - 1])
         return
       }
       activeTrackIndexRef.current = index
@@ -861,7 +867,6 @@ export function ReaderView({
     audio.ontimeupdate = syncHighlight
     audio.onplay = startAnimation
     audio.onended = () => {
-      setActiveSpoken(-1)
       void playIndex(activeTrackIndexRef.current + 1, 0)
     }
     const onVisibilityChange = () => {
@@ -957,11 +962,15 @@ export function ReaderView({
     })
   }, [playing, spoken, total])
 
+  const registerBlock = useCallback((seq: number, el: HTMLElement | null) => {
+    if (el) blockRefs.current.set(seq, el)
+    else blockRefs.current.delete(seq)
+  }, [])
+
   const restartNarration = useCallback(() => {
     setPlaying(false)
     setSpoken(-1)
-    setActiveSpoken(-1)
-    setPreciseHighlight(false)
+    setActiveSentence(-1)
     const audio = audioRef.current
     if (audio) {
       audio.pause()
@@ -969,16 +978,6 @@ export function ReaderView({
       activeTrackIndexRef.current = -1
     }
   }, [])
-
-  // The active sentence, used to draw the soft "reading band" ahead of the word.
-  const speakingSentence = useMemo(() => {
-    if (activeSpoken < 0) return -1
-    for (const wb of wordBlocks) {
-      const hit = wb.words.find((w) => w.global === activeSpoken)
-      if (hit) return hit.sentence
-    }
-    return -1
-  }, [activeSpoken, wordBlocks])
 
   // --- Fullscreen ---------------------------------------------------------
   const toggleFullscreen = useCallback(async () => {
@@ -1218,19 +1217,13 @@ export function ReaderView({
                   key={block.id}
                   block={block}
                   words={words}
-                  spoken={spoken}
-                  activeSpoken={activeSpoken}
-                  preciseHighlight={preciseHighlight}
-                  narratedGlobals={narratedGlobals}
-                  speakingSentence={speakingSentence}
+                  progress={sentenceProgress(words, activeSentence)}
+                  narrated={words.length > 0 && narratedGlobals.has(words[0].global)}
                   chapterStart={block.isChapterStart && i > 0}
                   isTarget={targetSeq != null && block.seq === targetSeq}
                   termByWord={termByWord}
                   onTermClick={onTermClick}
-                  registerRef={(el) => {
-                    if (el) blockRefs.current.set(block.seq, el)
-                    else blockRefs.current.delete(block.seq)
-                  }}
+                  registerRef={registerBlock}
                 />
               ))}
             </div>
@@ -1339,9 +1332,7 @@ export function ReaderView({
             <Volume2 size={14} aria-hidden="true" />
             {spoken < 0
               ? hasAudio
-                ? hasEstimatedAlignment
-                  ? 'Audio narration · sentence sync'
-                  : 'Audio narration'
+                ? 'Audio narration'
                 : 'Narration'
               : `${Math.min(spoken + 1, total)} / ${total} words`}
           </span>
@@ -1593,14 +1584,23 @@ export function ReaderView({
   )
 }
 
-function ReaderBlock({
+// A block's narration progress: the active sentence when it is in this block,
+// ALL_READ once narration has passed the block, -1 before it reaches the block.
+// Blocks away from the active sentence keep the same value, so memo skips them.
+const ALL_READ = Number.POSITIVE_INFINITY
+
+function sentenceProgress(words: SpokenWord[], activeSentence: number): number {
+  if (activeSentence < 0 || words.length === 0) return -1
+  if (activeSentence > words[words.length - 1].sentence) return ALL_READ
+  if (activeSentence < words[0].sentence) return -1
+  return activeSentence
+}
+
+const ReaderBlock = memo(function ReaderBlock({
   block,
   words,
-  spoken,
-  activeSpoken,
-  preciseHighlight,
-  narratedGlobals,
-  speakingSentence,
+  progress,
+  narrated,
   chapterStart,
   isTarget,
   termByWord,
@@ -1609,55 +1609,50 @@ function ReaderBlock({
 }: {
   block: Block
   words: SpokenWord[]
-  spoken: number
-  activeSpoken: number
-  preciseHighlight: boolean
-  narratedGlobals: Set<number>
-  speakingSentence: number
+  progress: number
+  narrated: boolean
   chapterStart: boolean
   isTarget: boolean
   termByWord: Map<number, string>
   onTermClick: (entryId: string, target: HTMLElement) => void
-  registerRef: (el: HTMLElement | null) => void
+  registerRef: (seq: number, el: HTMLElement | null) => void
 }) {
   const cls = `${chapterStart ? ' reader__chapter-start' : ''}${isTarget ? ' is-target' : ''}`
+  const ref = (el: HTMLElement | null) => registerRef(block.seq, el)
   if (block.kind === 'heading') {
     if (block.level === 1)
       return (
-        <h1 ref={registerRef} className={`reader__h1${cls}`} data-segment-id={block.id}>
+        <h1 ref={ref} className={`reader__h1${cls}`} data-segment-id={block.id}>
           {block.text}
         </h1>
       )
     return (
-      <h2 ref={registerRef} className={`reader__h2${cls}`} data-segment-id={block.id}>
+      <h2 ref={ref} className={`reader__h2${cls}`} data-segment-id={block.id}>
         {block.text}
       </h2>
     )
   }
   const variantCls = block.variant ? ` reader__para--${block.variant}` : ''
-  const paintOf = (word: SpokenWord) => {
-    if (preciseHighlight && word.global === activeSpoken) return 'speaking'
-    if (word.global < spoken && narratedGlobals.has(word.global)) return 'read'
-    if (word.sentence === speakingSentence) return 'band'
-    return 'plain'
+
+  const sentences: { sentence: number; words: SpokenWord[] }[] = []
+  for (const word of words) {
+    const last = sentences[sentences.length - 1]
+    if (last && last.sentence === word.sentence) last.words.push(word)
+    else sentences.push({ sentence: word.sentence, words: [word] })
   }
 
-  const runs: { band: boolean; words: SpokenWord[] }[] = []
-  for (const word of words) {
-    const band = paintOf(word) === 'band'
-    const last = runs[runs.length - 1]
-    if (last && last.band === band) last.words.push(word)
-    else runs.push({ band, words: [word] })
+  const sentenceClass = (sentence: number) => {
+    if (sentence === progress) return 'reader__sentence reader__band'
+    if (narrated && sentence < progress) return 'reader__sentence is-read'
+    return 'reader__sentence'
   }
 
   const renderWord = (word: SpokenWord) => {
-    const paint = paintOf(word)
-    const state = paint === 'speaking' ? ' is-speaking' : paint === 'read' ? ' is-read' : ''
     const style = `${word.em ? ' is-em' : ''}${word.strong ? ' is-strong' : ''}`
     const termId = termByWord.get(word.global)
     if (termId) {
       return (
-        <span key={word.global} className={`reader__word${state}${style}`} data-global={word.global}>
+        <span key={word.global} className={`reader__word${style}`} data-global={word.global}>
           <button
             type="button"
             className="reader__term"
@@ -1672,19 +1667,19 @@ function ReaderBlock({
       )
     }
     return (
-      <span key={word.global} className={`reader__word${state}${style}`} data-global={word.global}>
+      <span key={word.global} className={`reader__word${style}`} data-global={word.global}>
         {word.text}{' '}
       </span>
     )
   }
 
   return (
-    <p ref={registerRef} className={`reader__para${variantCls}${cls}`} data-segment-id={block.id}>
-      {runs.map((run) => (
-        <span key={run.words[0].global} className={run.band ? 'reader__band' : undefined}>
-          {run.words.map((word) => renderWord(word))}
+    <p ref={ref} className={`reader__para${variantCls}${cls}`} data-segment-id={block.id}>
+      {sentences.map(({ sentence, words: sentenceWords }) => (
+        <span key={sentence} className={sentenceClass(sentence)} data-sentence={sentence}>
+          {sentenceWords.map(renderWord)}
         </span>
       ))}
     </p>
   )
-}
+})

@@ -1,5 +1,8 @@
+from datetime import datetime
+
 from redis import Redis
 from rq import Queue
+from rq.job import Job
 
 from app.config import Settings
 
@@ -64,6 +67,27 @@ def enqueue_narration_combine(settings: Settings, artifact_id: str) -> str:
     return job.id
 
 
+def enqueue_narration_resume(
+    settings: Settings,
+    production_run_id: str,
+    stage_run_ids: dict[str, str | None],
+    resume_at: datetime,
+) -> str:
+    """Schedule paused narration to continue once the provider quota resets.
+
+    Needs a worker started with the RQ scheduler.
+    """
+    queue = get_task_queue(settings)
+    job = queue.enqueue_at(
+        resume_at,
+        "app.worker.jobs.resume_narration",
+        production_run_id,
+        stage_run_ids,
+        job_timeout=settings.production_run_job_timeout,
+    )
+    return job.id
+
+
 def enqueue_production_run(settings: Settings, production_run_id: str) -> str:
     queue = get_task_queue(settings)
     job = queue.enqueue(
@@ -100,7 +124,11 @@ def cancel_queued_jobs_for_run(settings: Settings, production_run_id: str) -> No
     A job already executing keeps running until it next loads the run.
     """
     queue = get_task_queue(settings)
-    for job in list(queue.jobs):
+    scheduled = Job.fetch_many(
+        queue.scheduled_job_registry.get_job_ids(),
+        connection=queue.connection,
+    )
+    for job in [*queue.jobs, *(job for job in scheduled if job is not None)]:
         args = job.args or ()
         if args and str(args[0]) == production_run_id:
             job.cancel()

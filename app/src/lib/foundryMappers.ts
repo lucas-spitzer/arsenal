@@ -261,7 +261,26 @@ export function productionRunParagraphsMissing(stageRuns: StageRun[]): number {
   return latest ? narrationParagraphsMissing(latest) : 0
 }
 
+/** When a narration stage run paused on a provider quota, the time it resumes. */
+export function stageRunResumeAt(stageRun: StageRun): Date | null {
+  if (stageRun.status !== 'queued') return null
+  const raw = stageRun.output?.resume_at
+  if (typeof raw !== 'string') return null
+  const at = new Date(raw)
+  return Number.isNaN(at.getTime()) ? null : at
+}
+
 export function stageRunSummary(stageRun: StageRun): string {
+  const resumeAt = stageRunResumeAt(stageRun)
+  if (resumeAt) {
+    const when = resumeAt.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+    return `Waiting for quota, resumes at ${when}`
+  }
   const progress = narrationSegmentProgress(stageRun)
   if (progress) {
     const clips = `${progress.done}/${progress.total} clips`
@@ -607,6 +626,13 @@ export function pipelineStepDetail(
   stageRuns: StageRun[],
   runStatus: string,
 ): string {
+  if (step.stage_id) {
+    const pausedRun = stageRuns.find(
+      (stageRun) => stageRun.stage_id === step.stage_id && stageRunResumeAt(stageRun),
+    )
+    if (pausedRun) return stageRunSummary(pausedRun)
+  }
+
   if (step.detail) return step.detail
 
   if (step.stage_id) {
@@ -639,6 +665,7 @@ export function artifactModule(artifact: Artifact): string {
     artifact.artifact_type === 'narration_audio' ||
     artifact.artifact_type === 'wiki_json' ||
     artifact.artifact_type === 'study_material' ||
+    artifact.artifact_type === 'audiobook' ||
     artifact.artifact_type === 'uploaded'
   ) {
     return 'mathesys'

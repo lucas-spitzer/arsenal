@@ -29,7 +29,7 @@ from app.services.tts.factory import (
     set_narration_override,
 )
 from app.worker.db import WorkerDatabase
-from app.worker.narration_executor import NarrationStageExecutor
+from app.worker.narration_executor import NarrationPaused, NarrationStageExecutor
 from app.worker.stage_executor import (
     ExportWikiJsonStageExecutor,
     FlashcardGenStageExecutor,
@@ -90,6 +90,13 @@ def mark_step(
     return updated_pipeline
 
 
+def narration_waiting_detail(waiting: int, resume_at: datetime) -> str:
+    return (
+        f"{waiting} source(s) waiting for narration quota; resumes after "
+        f"{resume_at.astimezone(UTC).strftime('%Y-%m-%d %H:%M')} UTC"
+    )
+
+
 def step_detail(*, processed: int, reused: int, suffix: str | None = None) -> str:
     parts: list[str] = []
 
@@ -120,6 +127,9 @@ class PipelineContext:
     target_artifacts: list[str] = field(default_factory=list)
     intellex_complete_source_ids: set[str] = field(default_factory=set)
     intellex_skip_source_ids: set[str] = field(default_factory=set)
+    # Source id -> paused narration stage run (None when it never started).
+    narration_waiting: dict[str, str | None] = field(default_factory=dict)
+    narration_resume_at: datetime | None = None
 
 
 class PipelineRunner:
@@ -393,6 +403,9 @@ class PipelineRunner:
         )
 
     def run_validate_step(self, context: PipelineContext, pipeline: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not any(step.get("step") == "validate-structure" for step in pipeline):
+            return pipeline
+
         def run_source(source: dict[str, Any]) -> str:
             source_id = source["id"]
             book = context.books.get(source_id)
@@ -585,12 +598,65 @@ class PipelineRunner:
         context: PipelineContext,
         pipeline: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        return self._run_mathesys_narration_step(
+        if "narration_audio" not in context.target_artifacts:
+            return pipeline
+        return self._narrate_sources(
             context,
             pipeline,
-            target_artifact="narration_audio",
-            step_name="generate-narration",
-            executor=self.generate_narration,
+            {source["id"]: None for source in context.sources},
+        )
+
+    def _narrate_sources(
+        self,
+        context: PipelineContext,
+        pipeline: list[dict[str, Any]],
+        stage_run_ids: dict[str, str | None],
+    ) -> list[dict[str, Any]]:
+        """Narrate each source, resuming the given stage run where there is one.
+
+        A provider quota pauses the step: the paused source and every source
+        after it go into `context.narration_waiting` for a scheduled resume.
+        """
+        finished: list[str] = []
+        for source in context.sources:
+            source_id = source["id"]
+            if source_id not in stage_run_ids:
+                continue
+            if context.narration_waiting:
+                context.narration_waiting[source_id] = stage_run_ids[source_id]
+                continue
+            try:
+                finished.append(
+                    self.generate_narration.run_for_source(
+                        production_run_id=context.production_run_id,
+                        workspace_id=context.workspace_id,
+                        source=source,
+                        stage_run_id=stage_run_ids[source_id],
+                    )
+                )
+            except NarrationPaused as paused:
+                context.narration_waiting[source_id] = paused.stage_run_id
+                context.narration_resume_at = paused.resume_at
+                finished.append(paused.stage_run_id)
+
+        last_stage_run_id = finished[-1] if finished else None
+        if context.narration_waiting and context.narration_resume_at is not None:
+            return mark_step(
+                pipeline,
+                "generate-narration",
+                status="waiting",
+                stage_run_id=last_stage_run_id,
+                detail=narration_waiting_detail(
+                    len(context.narration_waiting),
+                    context.narration_resume_at,
+                ),
+            )
+        return mark_step(
+            pipeline,
+            "generate-narration",
+            status="completed",
+            stage_run_id=last_stage_run_id,
+            detail=f"{len(finished)} stage run(s)",
         )
 
     def run_transcribe_wiki_notes_step(
@@ -816,9 +882,7 @@ class PipelineRunner:
             },
         )
 
-        settings_rows = self.db.list_workspace_stage_settings(workspace_id)
-        override_token = set_workspace_overrides(overrides_from_rows(settings_rows))
-        narration_token = set_narration_override(narration_override_from_rows(settings_rows))
+        tokens = self._apply_workspace_overrides(workspace_id)
 
         try:
             pipeline = self.run_store_step(context, pipeline)
@@ -870,42 +934,133 @@ class PipelineRunner:
             self.db.update_production_run(production_run_id, {"pipeline": pipeline})
 
             pipeline = self.run_generate_scenarios_step(context, pipeline)
-            cost_usd = self.db.sum_stage_run_costs(production_run_id)
-            self.db.update_production_run(
-                production_run_id,
-                {
-                    "pipeline": pipeline,
-                    "status": "completed",
-                    "completed_at": utc_now_iso(),
-                    "cost_usd": cost_usd,
-                },
-            )
-
-            return {
-                "production_run_id": production_run_id,
-                "status": "completed",
-                "message": "Production run completed.",
-                "segment_count": segment_count,
-            }
+            result = self._finish_run(context, pipeline)
+            result["segment_count"] = segment_count
+            return result
         except Exception as exc:
-            logger.exception("Production run %s failed", production_run_id)
-            cost_usd = self.db.sum_stage_run_costs(production_run_id)
-            self.db.update_production_run(
-                production_run_id,
-                {
-                    "status": "failed",
-                    "error": str(exc),
-                    "pipeline": pipeline,
-                    "completed_at": utc_now_iso(),
-                    "cost_usd": cost_usd,
-                },
-            )
-
-            for source in context.sources:
-                if source.get("status") == "processing":
-                    self.db.update_source(source["id"], {"status": "failed"})
-
+            self._fail_run(context, pipeline, exc)
             raise
         finally:
-            reset_workspace_overrides(override_token)
-            reset_narration_override(narration_token)
+            self._reset_workspace_overrides(tokens)
+
+    def resume_narration(
+        self,
+        production_run_id: str,
+        stage_run_ids: dict[str, str | None],
+    ) -> dict[str, Any]:
+        """Continue narration that paused on a provider quota, then finish the run."""
+        production_run = self.db.get_production_run(production_run_id)
+        status = production_run.get("status") if production_run else None
+        if not production_run or status != "queued":
+            logger.info(
+                "Skipping narration resume for production run %s (status %s).",
+                production_run_id,
+                status,
+            )
+            return {
+                "production_run_id": production_run_id,
+                "status": status,
+                "message": "Narration resume skipped.",
+            }
+
+        pipeline = copy.deepcopy(production_run.get("pipeline") or [])
+        workspace_id = production_run["workspace_id"]
+        context = PipelineContext(
+            production_run_id=production_run_id,
+            workspace_id=workspace_id,
+            sources=self.db.get_sources(list(stage_run_ids)),
+            target_artifacts=production_run.get("target_artifacts") or [],
+        )
+        self.db.update_production_run(production_run_id, {"status": "running", "error": None})
+
+        tokens = self._apply_workspace_overrides(workspace_id)
+        try:
+            pipeline = self._narrate_sources(context, pipeline, stage_run_ids)
+            return self._finish_run(context, pipeline)
+        except Exception as exc:
+            self._fail_run(context, pipeline, exc)
+            raise
+        finally:
+            self._reset_workspace_overrides(tokens)
+
+    def _apply_workspace_overrides(self, workspace_id: str) -> tuple[Any, Any]:
+        """Use the workspace's stage model and narration voice settings."""
+        settings_rows = self.db.list_workspace_stage_settings(workspace_id)
+        return (
+            set_workspace_overrides(overrides_from_rows(settings_rows)),
+            set_narration_override(narration_override_from_rows(settings_rows)),
+        )
+
+    def _reset_workspace_overrides(self, tokens: tuple[Any, Any]) -> None:
+        override_token, narration_token = tokens
+        reset_workspace_overrides(override_token)
+        reset_narration_override(narration_token)
+
+    def _finish_run(
+        self,
+        context: PipelineContext,
+        pipeline: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Complete the run, or leave it queued with narration scheduled to resume."""
+        production_run_id = context.production_run_id
+        cost_usd = self.db.sum_stage_run_costs(production_run_id)
+        if context.narration_waiting and context.narration_resume_at is not None:
+            from app.config import get_settings
+            from app.services.queue import enqueue_narration_resume
+
+            enqueue_narration_resume(
+                get_settings(),
+                production_run_id,
+                context.narration_waiting,
+                context.narration_resume_at,
+            )
+            self.db.update_production_run(
+                production_run_id,
+                {"pipeline": pipeline, "status": "queued", "cost_usd": cost_usd},
+            )
+            return {
+                "production_run_id": production_run_id,
+                "status": "queued",
+                "message": narration_waiting_detail(
+                    len(context.narration_waiting),
+                    context.narration_resume_at,
+                ),
+            }
+
+        self.db.update_production_run(
+            production_run_id,
+            {
+                "pipeline": pipeline,
+                "status": "completed",
+                "completed_at": utc_now_iso(),
+                "cost_usd": cost_usd,
+            },
+        )
+        return {
+            "production_run_id": production_run_id,
+            "status": "completed",
+            "message": "Production run completed.",
+        }
+
+    def _fail_run(
+        self,
+        context: PipelineContext,
+        pipeline: list[dict[str, Any]],
+        exc: Exception,
+    ) -> None:
+        logger.exception("Production run %s failed", context.production_run_id)
+        cost_usd = self.db.sum_stage_run_costs(context.production_run_id)
+        self.db.update_production_run(
+            context.production_run_id,
+            {
+                "status": "failed",
+                "error": str(exc),
+                "pipeline": pipeline,
+                "completed_at": utc_now_iso(),
+                "cost_usd": cost_usd,
+            },
+        )
+
+        for source in context.sources:
+            if source.get("status") == "processing":
+                self.db.update_source(source["id"], {"status": "failed"})

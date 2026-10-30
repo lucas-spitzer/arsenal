@@ -43,6 +43,7 @@ export interface KnowledgeQuestion {
   explanation: string | null
   difficulty: string
   draft: Record<string, unknown> | null
+  visual?: AssessmentVisual | null
 }
 
 export interface KnowledgeScenario {

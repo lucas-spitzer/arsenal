@@ -33,7 +33,7 @@ Do not stuff wiki into Mathesys, or flashcards into the artifact catalog.
 
 `web_explainer` is catalogued as a future Mathesys type. It is not a live `target_artifact`.
 
-**ELO lessons are separate from all three.** A TBS class (`lessons`), its ELOs (`lesson_objectives`), and its lecture files and MarineNet links (`lesson_resources`, `lesson-files` bucket) are added in Foundry ELO without production runs or `sources` rows. The worker embeds each ELO and the text of PDF, PPTX, DOCX, and TXT files into `lesson_chunks`. Discussions retrieval always searches `match_lesson_chunks` next to wiki and source chunks and cites hits as `lesson`. A thread started from "Discuss this class" carries `lesson_id`, so that class's chunks are retrieved first.
+**ELO lessons are separate from all three.** A TBS class (`lessons`), its ELOs (`lesson_objectives`), and its lecture files and MCeLE links (`lesson_resources`, `lesson-files` bucket) are added in Foundry ELO without production runs or `sources` rows. The worker embeds each ELO and the text of PDF, PPTX, DOCX, and TXT files into `lesson_chunks`. Discussions retrieval always searches `match_lesson_chunks` next to wiki and source chunks and cites hits as `lesson`. A thread started from "Discuss this class" carries `lesson_id`, so that class's chunks are retrieved first.
 
 ## Intellex knowledge (two objects)
 
@@ -48,7 +48,7 @@ Knowledge is not extracted as a leftover Intellex ingest stage. Ingest does not 
 
 A **production run** is one work order: selected sources plus `target_artifacts`. One table, one OPS timeline.
 
-- Upload enqueues an **ingest-only** run (`target_artifacts` empty). Intellex base: store → parse → normalize → trim → structure → validate → chunk → source-research. Later runs reuse ingest when the source is already processed. `web-enrichment` runs only when `electronic_book` is a target, immediately before `create-ebook`.
+- Upload enqueues an **ingest-only** run (`target_artifacts` empty). Intellex base: store → parse → normalize → trim → structure → chunk → source-research. Later runs reuse ingest when the source is already processed. `validate-structure` and `web-enrichment` run only when `electronic_book` is a target, immediately before `create-ebook`. Validation comes first.
 - OPS New Run targets are ebook, narration, and wiki export. A knowledge project uses its own runs: `knowledge_structure` (transcribe and structure), `knowledge_draft` (the assessment stages that were turned on, then `attach-visuals`), and `knowledge_visuals` (attach only, when an image changes later).
 - Study material stays a Design-tab run with its own pipeline. It is not a `target_artifact`.
 

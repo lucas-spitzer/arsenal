@@ -101,6 +101,7 @@ Run these only on databases that already have a Foundry schema and need a target
 | `seed-lessons-tbs.sql` | Operator seed. Inserts the TBS classes and their ELOs into the platoon workspace ("The Basic School"). Skips classes that already exist. Run after `alter-lessons.sql`, then press **Re-index all** on Foundry ELO so Discussions can search them. |
 | `seed-calendar-week-2026-10-25.sql` | Operator seed. Inserts the week of Sun Oct 25 – Fri Oct 30, 2026 into the platoon workspace ("The Basic School"). Skips rows that already exist. Run after the calendar table exists. |
 | `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. |
+| `../maintenance/add-audiobook-artifact.sql` | DB was created before direct audiobook uploads. Adds `audiobook` to `artifacts_type_check`. Idempotent aside from the constraint swap. |
 | `../maintenance/delete-production-run.sql` | Operator utility. Deletes one production run and the rows it created. Refuses Study Material runs. Storage files cannot be deleted from SQL. |
 | `../maintenance/delete-study-material-run.sql` | Operator utility. Deletes one Study Material production run, its material, components, versions, artifacts, and stage runs. Storage files cannot be deleted from SQL. |
 | `../maintenance/delete-source.sql` | Operator utility. Deletes one source and the rows it created. Storage files cannot be deleted from SQL. |
@@ -295,7 +296,7 @@ cd api && python -m scripts.publish_narration_artifacts
 
 - `lessons` — one row per TBS class (`title`, `sort_order`, `notes`).
 - `lesson_objectives` — the class's ordered ELOs (`text`, `code` such as `MCS-MED-1001a`, `is_async`).
-- `lesson_resources` — downloadable files in the `lesson-files` bucket or https links (MarineNet). Files carry `index_status` / `index_error` for Discussions search.
+- `lesson_resources` — downloadable files in the `lesson-files` bucket or https links (MCeLE). Files carry `index_status` / `index_error` for Discussions search.
 - `lesson_chunks` — extracted, embedded text from ELOs and lesson files. Searched by `match_lesson_chunks` alongside `ndr_segments` and `wiki_entries`. Not related to `wiki_entries` rows with `entry_kind = 'elo'`.
 
 ### Seeded stages

@@ -4,7 +4,12 @@ Walks each source's document_chapters in reading order and synthesizes one
 clip per chapter for the configured voice (idempotent re-runs). If a chapter's
 joined paragraph text exceeds the provider character cap, it is packed into
 the fewest clips that fit, always splitting on paragraph boundaries. A single
-paragraph over the cap is skipped.
+paragraph over the cap is skipped. When a provider refuses a clip, its
+paragraphs are tried one at a time; a paragraph that is still refused stays
+missing.
+
+A provider quota or rate limit pauses the stage (NarrationPaused) instead of
+failing it; the pipeline schedules a resume.
 
 Audio is stored at `{workspace}/{source}/audio/{voice_id}/{chapter}-{clip}.{mp3|wav}`.
 Each paragraph keeps a `narration_segments` row pointing at that shared file,
@@ -17,12 +22,9 @@ and sources-bucket audio paths) — not a zip of clips.
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import logging
-import re
-import wave
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -40,10 +42,9 @@ from app.config import get_settings
 from app.services.elevenlabs_client import ElevenLabsError, force_align_audio
 from app.services.gemini_tts_client import GeminiQuotaError, GeminiTtsError
 from app.services.speechify_client import SpeechifyError
-from app.services.tts.alignment import timing_quality, tokenize_with_spans
-from app.services.tts.audio import even_word_timings
+from app.services.tts.alignment import timing_quality
 from app.services.tts.factory import TtsClient, get_tts_client
-from app.services.tts.types import WordTiming
+from app.services.tts.types import NarrationResult, TtsQuotaError, WordTiming
 from app.services.stage_run_billing import stage_run_completion_fields
 from app.worker.db import WorkerDatabase
 from app.worker.storage import WorkerStorage
@@ -121,13 +122,22 @@ def _can_skip_gemini_clip(
 
 def _stops_run(exc: BaseException) -> bool:
     """Rate and quota limits end the run; retrying other clips only spends quota."""
-    if isinstance(exc, GeminiQuotaError):
+    if isinstance(exc, TtsQuotaError):
         return True
     message = str(exc)
     return "429" in message or "RESOURCE_EXHAUSTED" in message
 
 
 _QUOTA_TIMEZONE = ZoneInfo("America/Los_Angeles")
+_RATE_LIMIT_RESUME_DELAY = timedelta(minutes=15)
+
+
+class NarrationPaused(TtsQuotaError):
+    """The stage stopped on a provider quota; resume `stage_run_id` at `resume_at`."""
+
+    def __init__(self, message: str, *, resume_at: datetime, stage_run_id: str) -> None:
+        super().__init__(message, resume_at=resume_at)
+        self.stage_run_id = stage_run_id
 
 
 def _next_quota_reset(now: datetime) -> datetime:
@@ -137,23 +147,33 @@ def _next_quota_reset(now: datetime) -> datetime:
     return midnight.astimezone(UTC)
 
 
+def quota_resume_at(exc: BaseException, now: datetime | None = None) -> datetime:
+    current = now or datetime.now(UTC)
+    resume_at = getattr(exc, "resume_at", None)
+    if isinstance(resume_at, datetime):
+        return resume_at
+    if isinstance(exc, GeminiQuotaError):
+        return _next_quota_reset(current)
+    return current + _RATE_LIMIT_RESUME_DELAY
+
+
 def quota_stop_message(
-    exc: GeminiQuotaError,
+    exc: BaseException,
     *,
     paragraphs_saved: int,
     paragraphs_total: int,
     now: datetime | None = None,
 ) -> str:
-    current = now or datetime.now(UTC)
-    resume_at = exc.resume_at or _next_quota_reset(current)
-    reason = (
-        "Request budget for this run reached"
-        if "budget" in str(exc)
-        else "Daily Gemini quota reached"
-    )
+    resume_at = quota_resume_at(exc, now)
+    if "budget" in str(exc):
+        reason = "Request budget for this run reached"
+    elif isinstance(exc, GeminiQuotaError):
+        reason = "Daily Gemini quota reached"
+    else:
+        reason = "Narration provider rate limit reached"
     return (
         f"{reason}. {paragraphs_saved} of {paragraphs_total} paragraphs saved. "
-        f"Run again after {resume_at.strftime('%Y-%m-%d %H:%M')} UTC to continue."
+        f"Resumes after {resume_at.strftime('%Y-%m-%d %H:%M')} UTC."
     )
 
 
@@ -175,112 +195,6 @@ def _saved_paragraph(
     if existing.get("text_hash") != _text_hash(_paragraph_text(row)):
         return None
     return existing
-
-
-_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
-_CLAUSE_BOUNDARY = re.compile(r"(?<=[;,])\s+")
-_FRAGMENT_SILENCE_SECONDS = 0.4
-# Each fragment is a separate request against Gemini's 100/day quota.
-_MAX_FRAGMENT_REQUESTS = 8
-_SILENCE_SAMPLE_RATE = 24000
-
-
-@dataclass(frozen=True)
-class _AudioPiece:
-    audio: bytes
-    words: list[WordTiming]
-    duration_seconds: float
-    character_cost: int
-
-
-def _split_spans(text: str, boundary: re.Pattern[str]) -> list[tuple[int, int]]:
-    """Cover `text` with spans split on whitespace that follows `boundary`."""
-    spans: list[tuple[int, int]] = []
-    start = 0
-    for match in boundary.finditer(text):
-        if match.start() > start:
-            spans.append((start, match.start()))
-        start = match.end()
-    if start < len(text):
-        spans.append((start, len(text)))
-    return spans
-
-
-def _divided_spans(text: str, boundary: re.Pattern[str]) -> list[tuple[int, int]] | None:
-    """Return spans only when the boundary actually cuts `text` into pieces."""
-    spans = _split_spans(text, boundary)
-    if len(spans) <= 1:
-        return None
-    return spans
-
-
-def _silence_wav(seconds: float) -> bytes:
-    frames = max(1, int(seconds * _SILENCE_SAMPLE_RATE))
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wav_file:
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(_SILENCE_SAMPLE_RATE)
-        wav_file.writeframes(b"\x00" * (frames * 2))
-    return buffer.getvalue()
-
-
-def _concat_audio(parts: list[bytes]) -> bytes:
-    present = [part for part in parts if part]
-    if present and all(part.startswith(b"RIFF") for part in present):
-        frames: list[bytes] = []
-        params: tuple[int, int, int] | None = None
-        for part in present:
-            with wave.open(io.BytesIO(part)) as wav_file:
-                if params is None:
-                    params = (
-                        wav_file.getnchannels(),
-                        wav_file.getsampwidth(),
-                        wav_file.getframerate(),
-                    )
-                frames.append(wav_file.readframes(wav_file.getnframes()))
-        buffer = io.BytesIO()
-        with wave.open(buffer, "wb") as wav_file:
-            channels, width, rate = params or (1, 2, _SILENCE_SAMPLE_RATE)
-            wav_file.setnchannels(channels)
-            wav_file.setsampwidth(width)
-            wav_file.setframerate(rate)
-            for frame in frames:
-                wav_file.writeframes(frame)
-        return buffer.getvalue()
-    return b"".join(present)
-
-
-def _shift_words(
-    words: list[WordTiming],
-    *,
-    time_offset: float,
-    char_offset: int,
-) -> list[WordTiming]:
-    shifted: list[WordTiming] = []
-    for word in words:
-        start_char = None if word.start_char is None else word.start_char + char_offset
-        end_char = None if word.end_char is None else word.end_char + char_offset
-        shifted.append(
-            WordTiming(
-                index=word.index,
-                word=word.word,
-                start=word.start + time_offset,
-                end=word.end + time_offset,
-                start_char=start_char,
-                end_char=end_char,
-            )
-        )
-    return shifted
-
-
-def _words_covering(text: str, words: list[WordTiming], duration: float) -> list[WordTiming]:
-    expected = len(tokenize_with_spans(text))
-    if len(words) == expected and all(
-        word.start_char is not None and word.end_char is not None for word in words
-    ):
-        return words
-    return even_word_timings(text, duration)
 
 
 def pack_chapter_clips(
@@ -454,7 +368,7 @@ class NarrationStageExecutor:
         self._max_segment_chars = max_segment_chars
         self._last_progress: dict[str, Any] | None = None
         self._alignment_requests = 0
-        self._fragment_requests_left = _MAX_FRAGMENT_REQUESTS
+        self._billed_before = 0
 
     def _usage_fields(self, character_count: int) -> dict[str, Any]:
         provider = getattr(self.client, "provider", "elevenlabs")
@@ -503,28 +417,40 @@ class NarrationStageExecutor:
         production_run_id: str,
         workspace_id: str,
         source: dict[str, Any],
+        stage_run_id: str | None = None,
     ) -> str:
+        """Narrate one source. Pass `stage_run_id` to resume a paused stage run.
+
+        Raises NarrationPaused (stage run left `queued`) on a provider quota.
+        """
         self._alignment_requests = 0
+        self._billed_before = 0
         self._last_progress = None
         if hasattr(self.client, "requests_made"):
             self.client.requests_made = 0
-        stage_run = self.db.create_stage_run(
-            {
-                "production_run_id": production_run_id,
-                "workspace_id": workspace_id,
-                "stage_id": self.STAGE_ID,
-                "stage_version": self.STAGE_VERSION,
-                "module": self.MODULE,
-                "status": "running",
-                "inputs": {
-                    "source_id": source["id"],
-                    "voice_id": self.client.voice_id,
-                    "model_id": self.client.model_id,
-                },
-                "started_at": utc_now_iso(),
-            }
-        )
-        stage_run_id = stage_run["id"]
+        if stage_run_id:
+            prior = self._stage_run_output(production_run_id, stage_run_id)
+            self._billed_before = int(prior.get("character_count") or 0)
+            self._alignment_requests = int(prior.get("alignment_requests") or 0)
+            self.db.update_stage_run(stage_run_id, {"status": "running", "error": None})
+        else:
+            stage_run = self.db.create_stage_run(
+                {
+                    "production_run_id": production_run_id,
+                    "workspace_id": workspace_id,
+                    "stage_id": self.STAGE_ID,
+                    "stage_version": self.STAGE_VERSION,
+                    "module": self.MODULE,
+                    "status": "running",
+                    "inputs": {
+                        "source_id": source["id"],
+                        "voice_id": self.client.voice_id,
+                        "model_id": self.client.model_id,
+                    },
+                    "started_at": utc_now_iso(),
+                }
+            )
+            stage_run_id = str(stage_run["id"])
 
         try:
             output, character_count, publish_context = self._narrate_source(
@@ -545,7 +471,6 @@ class NarrationStageExecutor:
             if artifact_file:
                 output["files"] = [artifact_file]
                 promoted["artifact_ids"] = [artifact_file["artifact_id"]]
-                self._combine_book_audio(str(artifact_file["artifact_id"]))
             self.db.update_stage_run(
                 stage_run_id,
                 {
@@ -558,20 +483,34 @@ class NarrationStageExecutor:
             )
             return stage_run_id
         except Exception as exc:
-            logger.exception("Narration stage run %s failed", stage_run_id)
+            paused = isinstance(exc, TtsQuotaError)
             progress = self._last_progress or {}
             error = str(exc)
-            if isinstance(exc, GeminiQuotaError):
+            resume_at: datetime | None = None
+            if paused:
+                resume_at = quota_resume_at(exc)
                 error = quota_stop_message(
                     exc,
                     paragraphs_saved=int(progress.get("paragraphs_saved") or 0),
                     paragraphs_total=int(progress.get("paragraphs_total") or 0),
                 )
-            fail_payload: dict[str, Any] = {
-                "status": "failed",
-                "error": error,
-                "completed_at": utc_now_iso(),
-            }
+                logger.warning("Narration stage run %s paused: %s", stage_run_id, error)
+                fail_payload: dict[str, Any] = {
+                    "status": "queued",
+                    "error": None,
+                    "output": {
+                        **progress,
+                        "summary": error,
+                        "resume_at": resume_at.isoformat(),
+                    },
+                }
+            else:
+                logger.exception("Narration stage run %s failed", stage_run_id)
+                fail_payload = {
+                    "status": "failed",
+                    "error": error,
+                    "completed_at": utc_now_iso(),
+                }
             try:
                 artifact_file = self._publish_artifact(
                     workspace_id=workspace_id,
@@ -597,21 +536,18 @@ class NarrationStageExecutor:
                     self._usage_fields(int(progress.get("character_count") or 0))
                 )
             self.db.update_stage_run(stage_run_id, fail_payload)
-            if isinstance(exc, GeminiQuotaError):
-                raise GeminiQuotaError(error, resume_at=exc.resume_at) from exc
+            if paused and resume_at is not None:
+                raise NarrationPaused(
+                    error, resume_at=resume_at, stage_run_id=stage_run_id
+                ) from exc
             raise
 
-    def _combine_book_audio(self, artifact_id: str) -> None:
-        """Build the downloadable MP3. A failure leaves the narration published."""
-        from app.services.narration_combine import combine_narration_artifact
-
-        try:
-            combine_narration_artifact(self.db, self.storage, artifact_id)
-        except Exception:
-            logger.exception(
-                "Could not build the combined MP3 for narration artifact %s",
-                artifact_id,
-            )
+    def _stage_run_output(self, production_run_id: str, stage_run_id: str) -> dict[str, Any]:
+        for row in self.db.list_stage_runs_for_production_run(production_run_id):
+            if str(row.get("id")) == stage_run_id:
+                output = row.get("output") or {}
+                return output if isinstance(output, dict) else {}
+        return {}
 
     def _publish_progress(
         self,
@@ -636,139 +572,71 @@ class NarrationStageExecutor:
             paragraphs_total=paragraphs_total,
             paragraphs_saved=paragraphs_saved,
         )
+        output["alignment_requests"] = self._alignment_requests
         self._last_progress = output
         self.db.update_stage_run(stage_run_id, {"output": output})
         return output
 
-    def _silent_piece(self, text: str, char_offset: int, time_offset: float) -> _AudioPiece:
-        words = _shift_words(
-            even_word_timings(text, _FRAGMENT_SILENCE_SECONDS),
-            time_offset=time_offset,
-            char_offset=char_offset,
-        )
-        logger.warning(
-            "Gemini returned no audio for a %d-character fragment; "
-            "inserting silence so the paragraph stays aligned.",
-            len(text),
-        )
-        return _AudioPiece(
-            audio=_silence_wav(_FRAGMENT_SILENCE_SECONDS),
-            words=words,
-            duration_seconds=_FRAGMENT_SILENCE_SECONDS,
-            character_cost=0,
-        )
-
-    def _speak_divisions(
+    def _ensure_timings(
         self,
+        result: NarrationResult,
         text: str,
-        *,
-        char_offset: int,
-        time_offset: float,
-        depth: int,
-        narrated: int,
-        reused: int,
-    ) -> tuple[list[_AudioPiece], int]:
-        """Speak `text` in sentences, then clauses. Unspeakable pieces are silence."""
-        boundary = _SENTENCE_BOUNDARY if depth == 0 else _CLAUSE_BOUNDARY
-        spans = _divided_spans(text, boundary) if depth < 2 else None
-        if spans is None:
-            if depth < 2:
-                return self._speak_divisions(
-                    text,
-                    char_offset=char_offset,
-                    time_offset=time_offset,
-                    depth=depth + 1,
-                    narrated=narrated,
-                    reused=reused,
-                )
-            return [self._silent_piece(text, char_offset, time_offset)], 0
+        where: str,
+    ) -> NarrationResult:
+        """Return `result` with the best word timings available for `text`.
 
-        pieces: list[_AudioPiece] = []
-        cursor = time_offset
-        billed = 0
-        for start, end in spans:
-            fragment = text[start:end]
-            if self._fragment_requests_left <= 0:
-                silent = self._silent_piece(fragment, char_offset + start, cursor)
-                pieces.append(silent)
-                cursor += silent.duration_seconds
-                continue
-            self._fragment_requests_left -= 1
-            try:
-                result = self.client.synthesize_with_timestamps(fragment)
-            except GeminiTtsError as exc:
-                message = str(exc)
-                if _stops_run(exc):
-                    raise
-                if (
-                    "missing audio inline data" not in message
-                    and not _can_skip_gemini_clip(
-                        exc, narrated=narrated, reused=reused
-                    )
-                ):
-                    raise
-                smaller, smaller_cost = self._speak_divisions(
-                    fragment,
-                    char_offset=char_offset + start,
-                    time_offset=cursor,
-                    depth=depth + 1,
-                    narrated=narrated,
-                    reused=reused,
-                )
-                pieces.extend(smaller)
-                cursor += sum(piece.duration_seconds for piece in smaller)
-                billed += smaller_cost
-                continue
-            words = _shift_words(
-                _words_covering(fragment, result.words, result.duration_seconds),
-                time_offset=cursor,
-                char_offset=char_offset + start,
-            )
-            pieces.append(
-                _AudioPiece(
-                    audio=result.audio,
-                    words=words,
-                    duration_seconds=result.duration_seconds,
-                    character_cost=result.character_cost,
-                )
-            )
-            cursor += result.duration_seconds
-            billed += result.character_cost
-        return pieces, billed
-
-    def _recover_paragraph(
-        self,
-        text: str,
-        *,
-        narrated: int,
-        reused: int,
-    ) -> _AudioPiece:
-        self._fragment_requests_left = _MAX_FRAGMENT_REQUESTS
-        pieces, billed = self._speak_divisions(
+        Estimated or invalid timings go through ElevenLabs forced alignment when
+        a key is set. Invalid provider timings with no estimate to fall back to
+        fail the stage, since the Reader would highlight the wrong words.
+        """
+        quality = result.alignment_quality or timing_quality(
             text,
-            char_offset=0,
-            time_offset=0.0,
-            depth=0,
-            narrated=narrated,
-            reused=reused,
+            result.words,
+            result.duration_seconds,
         )
-        words = [
-            WordTiming(
-                index=i,
-                word=word.word,
-                start=word.start,
-                end=word.end,
-                start_char=word.start_char,
-                end_char=word.end_char,
+        estimated_result = replace(result, alignment_quality=quality)
+        result = estimated_result
+        needs_forced_alignment = (
+            result.alignment_source == "estimated" or not bool(quality.get("valid"))
+        )
+        elevenlabs_key = get_settings().narration.elevenlabs_api_key
+        if needs_forced_alignment and elevenlabs_key:
+            self._alignment_requests += 1
+            try:
+                aligned_words, forced_quality = force_align_audio(
+                    audio=result.audio,
+                    text=text,
+                    api_key=elevenlabs_key,
+                    content_type=getattr(self.client, "audio_content_type", "audio/mpeg"),
+                )
+                if forced_quality.get("valid"):
+                    result = replace(
+                        result,
+                        words=aligned_words,
+                        alignment_source="forced",
+                        alignment_quality=forced_quality,
+                    )
+                    quality = forced_quality
+                else:
+                    logger.warning(
+                        "Forced alignment was invalid for %s; keeping %s timings. %s",
+                        where,
+                        result.alignment_source,
+                        forced_quality,
+                    )
+            except ElevenLabsError:
+                logger.exception("Forced alignment failed for %s.", where)
+        if result.alignment_source != "estimated" and not quality.get("valid"):
+            if estimated_result.alignment_source == "estimated":
+                logger.warning(
+                    "Reverting to estimated alignment for %s. %s", where, quality
+                )
+                return estimated_result
+            raise RuntimeError(
+                f"Invalid {getattr(self.client, 'provider', 'TTS')} alignment "
+                f"for {where}: {quality}"
             )
-            for i, word in enumerate(word for piece in pieces for word in piece.words)
-        ]
-        return _AudioPiece(
-            audio=_concat_audio([piece.audio for piece in pieces]),
-            words=words,
-            duration_seconds=sum(piece.duration_seconds for piece in pieces),
-            character_cost=billed,
-        )
+        return result
 
     def _store_paragraph_audio(
         self,
@@ -835,89 +703,6 @@ class NarrationStageExecutor:
                 "text_hash": text_hash,
             }
 
-    def _speak_group(
-        self,
-        *,
-        workspace_id: str,
-        source: dict[str, Any],
-        source_id: str,
-        chapter: dict[str, Any],
-        chapter_id: str,
-        clip_index: int,
-        rows: list[dict[str, Any]],
-        existing_rows: dict[str, dict[str, Any]],
-        narrated: int,
-        reused: int,
-        known_failures: set[str],
-    ) -> int:
-        """Speak `rows` together, halving the group each time Gemini returns no audio.
-
-        One refused paragraph in a seven-paragraph clip then costs about six
-        requests instead of seven, and the rest of the clip keeps shared audio.
-        """
-        context = {
-            "workspace_id": workspace_id,
-            "source": source,
-            "source_id": source_id,
-            "chapter": chapter,
-            "chapter_id": chapter_id,
-            "clip_index": clip_index,
-            "existing_rows": existing_rows,
-        }
-        if len(rows) == 1:
-            return self._speak_paragraphs_separately(
-                **context,
-                rows=rows,
-                narrated=narrated,
-                reused=reused,
-                known_failures=known_failures,
-            )
-        text = _joined_clip_text(rows)
-        if text not in known_failures:
-            try:
-                result = self.client.synthesize_with_timestamps(text)
-            except GeminiTtsError as exc:
-                message = str(exc)
-                if _stops_run(exc):
-                    raise
-                if "missing audio inline data" not in message and not (
-                    _can_skip_gemini_clip(exc, narrated=narrated, reused=reused)
-                ):
-                    raise
-                logger.warning(
-                    "Gemini returned no audio for %d paragraphs in source %s chapter %s "
-                    "clip %d (%d chars). Splitting them in half.",
-                    len(rows),
-                    source_id,
-                    chapter_id,
-                    clip_index,
-                    len(text),
-                )
-            else:
-                self._store_paragraph_audio(
-                    **context,
-                    rows=rows,
-                    audio=result.audio,
-                    words=_words_covering(text, result.words, result.duration_seconds),
-                    duration_seconds=result.duration_seconds,
-                    character_cost=result.character_cost,
-                    alignment_source=result.alignment_source,
-                    alignment_quality=result.alignment_quality or {},
-                    request_id=result.request_id,
-                )
-                return result.character_cost
-        middle = len(rows) // 2
-        billed = 0
-        for half in (rows[:middle], rows[middle:]):
-            billed += self._speak_group(
-                **context,
-                rows=half,
-                narrated=narrated,
-                reused=reused,
-                known_failures=known_failures,
-            )
-        return billed
-
     def _speak_paragraphs_separately(
         self,
         *,
@@ -931,86 +716,38 @@ class NarrationStageExecutor:
         existing_rows: dict[str, dict[str, Any]],
         narrated: int,
         reused: int,
-        known_failures: set[str] | None = None,
+        refused_texts: set[str],
     ) -> int:
-        """Speak a clip one paragraph at a time after the joined text returns no audio.
+        """Speak `rows` one paragraph at a time after their clip was refused.
 
-        A paragraph that still returns no audio is spoken sentence by sentence,
-        then clause by clause. A fragment that still returns nothing becomes a
-        short silence so the paragraph's word timings stay aligned. Returns the
-        characters billed for the pieces synthesized now.
+        A paragraph the provider still refuses stays missing; it is never
+        replaced with silence. Text in `refused_texts` was already refused and
+        is not sent again. Returns the characters billed now.
         """
-        failed = known_failures or set()
         billed = 0
         for row in rows:
             text = _paragraph_text(row)
-            result = None
-            if text not in failed:
-                try:
-                    result = self.client.synthesize_with_timestamps(text)
-                except GeminiTtsError as exc:
-                    message = str(exc)
-                    if _stops_run(exc):
-                        raise
-                    if "missing audio inline data" not in message and not (
-                        _can_skip_gemini_clip(exc, narrated=narrated, reused=reused)
-                    ):
-                        raise
-                    if "missing audio inline data" not in message:
-                        logger.warning(
-                            "Skipping Gemini paragraph %s in source %s chapter %s "
-                            "clip %d (%d chars): %s",
-                            row.get("id"),
-                            source_id,
-                            chapter_id,
-                            clip_index,
-                            len(text),
-                            exc,
-                        )
-                        continue
-                    logger.warning(
-                        "Gemini returned no audio for paragraph %s in source %s "
-                        "chapter %s clip %d (%d chars). Speaking it in smaller pieces.",
-                        row.get("id"),
-                        source_id,
-                        chapter_id,
-                        clip_index,
-                        len(text),
-                    )
-            else:
-                logger.warning(
-                    "Gemini returned no audio for paragraph %s in source %s "
-                    "chapter %s clip %d (%d chars). Speaking it in smaller pieces.",
-                    row.get("id"),
-                    source_id,
-                    chapter_id,
-                    clip_index,
-                    len(text),
-                )
-            if result is None:
-                recovered = self._recover_paragraph(
-                    text, narrated=narrated, reused=reused
-                )
-                self._store_paragraph_audio(
-                    workspace_id=workspace_id,
-                    source=source,
-                    source_id=source_id,
-                    chapter=chapter,
-                    chapter_id=chapter_id,
-                    clip_index=clip_index,
-                    rows=[row],
-                    existing_rows=existing_rows,
-                    audio=recovered.audio,
-                    words=recovered.words,
-                    duration_seconds=recovered.duration_seconds,
-                    character_cost=recovered.character_cost,
-                    alignment_source="estimated",
-                    alignment_quality={},
-                    request_id=None,
-                )
-                billed += recovered.character_cost
+            where = (
+                f"paragraph {row.get('id')} in source {source_id} chapter {chapter_id} "
+                f"clip {clip_index}"
+            )
+            if text in refused_texts:
+                logger.warning("Leaving refused %s (%d chars) missing.", where, len(text))
                 continue
-
+            try:
+                result = self.client.synthesize_with_timestamps(text)
+            except GeminiTtsError as exc:
+                if _stops_run(exc):
+                    raise
+                if "missing audio inline data" not in str(exc) and not (
+                    _can_skip_gemini_clip(exc, narrated=narrated, reused=reused)
+                ):
+                    raise
+                logger.warning(
+                    "Leaving %s (%d chars) missing: %s", where, len(text), exc
+                )
+                continue
+            result = self._ensure_timings(result, text, where)
             self._store_paragraph_audio(
                 workspace_id=workspace_id,
                 source=source,
@@ -1103,7 +840,7 @@ class NarrationStageExecutor:
         clips_total = len(packed)
         narrated = 0
         reused = 0
-        character_count = 0
+        character_count = self._billed_before
         previous_request_ids: list[str] = []
 
         def publish() -> dict[str, Any]:
@@ -1171,7 +908,7 @@ class NarrationStageExecutor:
                     if "missing audio inline data" in message:
                         logger.warning(
                             "Gemini returned no audio for source %s chapter %s "
-                            "clip %d (%d chars). Splitting it in half.",
+                            "clip %d (%d chars). Trying its paragraphs one at a time.",
                             source_id,
                             chapter_id,
                             clip_index,
@@ -1196,10 +933,7 @@ class NarrationStageExecutor:
                         output = publish()
                         continue
             if result is None:
-                known_failures: set[str] = set()
-                if not any(saved):
-                    known_failures.add(text)
-                spoke = self._speak_group(
+                spoke = self._speak_paragraphs_separately(
                     workspace_id=workspace_id,
                     source=source,
                     source_id=source_id,
@@ -1210,7 +944,7 @@ class NarrationStageExecutor:
                     existing_rows=existing_rows,
                     narrated=narrated,
                     reused=reused,
-                    known_failures=known_failures,
+                    refused_texts=set() if any(saved) else {text},
                 )
                 character_count += spoke
                 if spoke:
@@ -1225,73 +959,12 @@ class NarrationStageExecutor:
                 previous_request_ids = []
                 output = publish()
                 continue
-            quality = result.alignment_quality or timing_quality(
+            result = self._ensure_timings(
+                result,
                 text,
-                result.words,
-                result.duration_seconds,
+                f"source {source_id} chapter {chapter_id} clip {clip_index}",
             )
-            estimated_result = result
-            estimated_quality = quality
-            needs_forced_alignment = (
-                result.alignment_source == "estimated"
-                or not bool(quality.get("valid"))
-            )
-            elevenlabs_key = get_settings().narration.elevenlabs_api_key
-            if needs_forced_alignment and elevenlabs_key:
-                self._alignment_requests += 1
-                try:
-                    aligned_words, forced_quality = force_align_audio(
-                        audio=result.audio,
-                        text=text,
-                        api_key=elevenlabs_key,
-                        content_type=getattr(
-                            self.client,
-                            "audio_content_type",
-                            "audio/mpeg",
-                        ),
-                    )
-                    if forced_quality.get("valid"):
-                        result = replace(
-                            result,
-                            words=aligned_words,
-                            alignment_source="forced",
-                            alignment_quality=forced_quality,
-                        )
-                        quality = forced_quality
-                    else:
-                        logger.warning(
-                            "Forced alignment was invalid for source %s chapter %s "
-                            "clip %d; keeping %s timings. %s",
-                            source_id,
-                            chapter_id,
-                            clip_index,
-                            result.alignment_source,
-                            forced_quality,
-                        )
-                except ElevenLabsError:
-                    logger.exception(
-                        "Forced alignment failed for source %s chapter %s clip %d.",
-                        source_id,
-                        chapter_id,
-                        clip_index,
-                    )
-            if result.alignment_source != "estimated" and not quality.get("valid"):
-                if estimated_result.alignment_source == "estimated":
-                    logger.warning(
-                        "Reverting to estimated alignment for source %s chapter %s "
-                        "clip %d. %s",
-                        source_id,
-                        chapter_id,
-                        clip_index,
-                        quality,
-                    )
-                    result = estimated_result
-                    quality = estimated_quality
-                else:
-                    raise RuntimeError(
-                        f"Invalid {getattr(self.client, 'provider', 'TTS')} alignment "
-                        f"for chapter {chapter_id} clip {clip_index}: {quality}"
-                    )
+            quality = result.alignment_quality
             per_paragraph_words = assign_words_to_paragraphs(clip_rows, result.words)
 
             self.storage.upload(

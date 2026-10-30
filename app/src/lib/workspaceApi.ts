@@ -209,7 +209,11 @@ export async function listSources(workspaceId: string): Promise<Source[]> {
   return apiRequest<Source[]>(`/workspaces/${workspaceId}/sources`)
 }
 
-export async function uploadMultipart<TResponse>(path: string, file: File): Promise<TResponse> {
+export async function uploadMultipart<TResponse>(
+  path: string,
+  file: File,
+  fields?: Record<string, string>,
+): Promise<TResponse> {
   if (!hasApiBaseUrl()) {
     throw new ApiError('Missing VITE_API_BASE_URL.', 0)
   }
@@ -222,6 +226,11 @@ export async function uploadMultipart<TResponse>(path: string, file: File): Prom
 
   const formData = new FormData()
   formData.append('file', file)
+  if (fields) {
+    for (const [key, value] of Object.entries(fields)) {
+      formData.append(key, value)
+    }
+  }
 
   const response = await fetch(apiUrl(path), {
     method: 'POST',
@@ -267,6 +276,39 @@ export async function listArtifacts(workspaceId: string): Promise<Artifact[]> {
 
 export async function uploadArtifact(workspaceId: string, file: File): Promise<Artifact> {
   return uploadMultipart<Artifact>(`/workspaces/${workspaceId}/artifacts`, file)
+}
+
+export type LibraryArtifactKind = 'audiobook' | 'knowledge'
+
+export interface LibraryArtifactUploadRequest {
+  sourceId: string
+  artifactType: LibraryArtifactKind
+  title: string
+  file: File
+}
+
+export interface LibraryArtifactUploadResult {
+  artifact_type: LibraryArtifactKind
+  source_id: string
+  title: string
+  artifact: Artifact | null
+  wiki_entry_count: number
+  question_count: number
+}
+
+export async function uploadLibraryArtifact(
+  workspaceId: string,
+  request: LibraryArtifactUploadRequest,
+): Promise<LibraryArtifactUploadResult> {
+  return uploadMultipart<LibraryArtifactUploadResult>(
+    `/workspaces/${workspaceId}/library-artifacts`,
+    request.file,
+    {
+      source_id: request.sourceId,
+      artifact_type: request.artifactType,
+      title: request.title,
+    },
+  )
 }
 
 export interface ArtifactDownloadResult {

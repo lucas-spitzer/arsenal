@@ -12,6 +12,14 @@ def orchestrate_production_run(production_run_id: str) -> dict[str, Any]:
     return runner.execute(production_run_id)
 
 
+def resume_narration(
+    production_run_id: str,
+    stage_run_ids: dict[str, str | None],
+) -> dict[str, Any]:
+    """Continue narration that paused on a provider quota."""
+    return PipelineRunner().resume_narration(production_run_id, stage_run_ids)
+
+
 def generate_study_material(production_run_id: str) -> dict[str, Any]:
     """Generate components and lay out the draft for a Study Material run."""
     return StudyMaterialRunner().execute(production_run_id)

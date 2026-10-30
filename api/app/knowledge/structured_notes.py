@@ -3,20 +3,29 @@
 Accepted shapes:
 
 - ``{"terms": [...], "key_lists": [...], "elos": [...]}`` (notes export)
+- ``{"abbreviations": [...], "questions": [...]}`` (question pack), alone or beside the notes export
 - ``{"entries": [ ... ], "unparsed_fragments": [ ... ]}`` (model output or a wiki export)
 - a bare array of entries
 - one entry object
 
 A term needs a label and a definition. A list needs a label plus an overview
-or at least one item. An ELO needs ``elo`` and ``response``. ``prerequisites``
-(wiki export) is accepted as ``prerequisite_labels``.
+or at least one item. An ELO needs ``elo`` and ``response``. An abbreviation
+needs ``abbreviation``, ``title``, and ``definition``. A question needs a stem,
+one correct answer, and one distractor. ``prerequisites`` (wiki export) is
+accepted as ``prerequisite_labels``.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+from app.knowledge.answer_pool import BLOOM_LEVELS, TRUE_FALSE, AnswerPool, AnswerPoolError, Distractor, validate_pool
+from app.knowledge.cards import QUESTION_FORMATS
+
+_DOCUMENT_KEYS = ("terms", "key_lists", "elos", "abbreviations", "questions")
+_DIFFICULTIES = ("easy", "medium", "hard")
 
 
 class StructuredNotesError(ValueError):
@@ -27,6 +36,7 @@ class StructuredNotesError(ValueError):
 class StructuredNotes:
     entries: list[dict[str, Any]]
     unparsed_fragments: list[str]
+    questions: list[dict[str, Any]] = field(default_factory=list)
 
 
 def parse_structured_notes(text: str) -> StructuredNotes | None:
@@ -59,7 +69,7 @@ def require_structured_notes(text: str, *, filename: str) -> StructuredNotes:
 
 
 def _notes_from_payload(payload: Any) -> StructuredNotes:
-    if isinstance(payload, dict) and any(key in payload for key in ("terms", "key_lists", "elos")):
+    if isinstance(payload, dict) and any(key in payload for key in _DOCUMENT_KEYS):
         return _notes_from_chapter(payload)
 
     fragments: list[Any]
@@ -78,6 +88,7 @@ def _notes_from_payload(payload: Any) -> StructuredNotes:
     else:
         raise StructuredNotesError(
             "JSON needs an entries array, or terms, key_lists, and elos. "
+            "A question pack needs abbreviations or questions. "
             "Each term needs a label and a definition. Each ELO needs an elo and a response.",
         )
 
@@ -93,11 +104,11 @@ def _notes_from_payload(payload: Any) -> StructuredNotes:
 
 
 def _notes_from_chapter(payload: dict[str, Any]) -> StructuredNotes:
-    raw_terms = payload.get("terms") or []
-    raw_lists = payload.get("key_lists") or []
-    raw_elos = payload.get("elos") or []
-    if not isinstance(raw_terms, list) or not isinstance(raw_lists, list) or not isinstance(raw_elos, list):
-        raise StructuredNotesError("terms, key_lists, and elos must be arrays.")
+    raw_terms = _array(payload, "terms")
+    raw_lists = _array(payload, "key_lists")
+    raw_elos = _array(payload, "elos")
+    raw_abbreviations = _array(payload, "abbreviations")
+    raw_questions = _array(payload, "questions")
 
     entries: list[dict[str, Any]] = []
 
@@ -161,11 +172,15 @@ def _notes_from_chapter(payload: dict[str, Any]) -> StructuredNotes:
         )
         elo_index += 1
 
-    if not entries:
+    entries.extend(_abbreviations(raw_abbreviations))
+    questions = _questions(raw_questions, entries)
+
+    if not entries and not questions:
         raise StructuredNotesError(
-            "JSON needs at least one term with a definition, one list with items, or one ELO with a response.",
+            "JSON needs at least one term with a definition, one list with items, "
+            "one ELO with a response, one abbreviation, or one question.",
         )
-    return StructuredNotes(entries=entries, unparsed_fragments=[])
+    return StructuredNotes(entries=entries, unparsed_fragments=[], questions=questions)
 
 
 def _normalize_entry(raw: Any) -> dict[str, Any] | None:
@@ -252,9 +267,141 @@ def _definition(raw: dict[str, Any]) -> str:
 
 def _entry_kind(entry_kind: str) -> str:
     kind = entry_kind.strip().lower()
-    if kind in {"list", "elo"}:
+    if kind in {"list", "elo", "abbreviation"}:
         return kind
     return "term"
+
+
+def _array(payload: dict[str, Any], key: str) -> list[Any]:
+    raw = payload.get(key) or []
+    if not isinstance(raw, list):
+        raise StructuredNotesError(f"{key} must be an array.")
+    return raw
+
+
+def _abbreviations(raw_items: list[Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(raw_items, start=1):
+        if not isinstance(raw, dict):
+            raise StructuredNotesError(f"Abbreviation {index} must be an object.")
+        label = str(raw.get("abbreviation") or "").strip()
+        title = str(raw.get("title") or "").strip()
+        definition = str(raw.get("definition") or "").strip()
+        if not label or not title or not definition:
+            raise StructuredNotesError(f"Abbreviation {index} needs an abbreviation, a title, and a definition.")
+        key = label.casefold()
+        if key in seen:
+            raise StructuredNotesError(f"Abbreviation '{label}' is repeated.")
+        seen.add(key)
+        entries.append(
+            _entry(
+                label=label,
+                definition=definition,
+                entry_kind="abbreviation",
+                significance=title,
+                category=_optional_text(raw.get("category")),
+                aliases=[title],
+            ),
+        )
+    return entries
+
+
+def _questions(raw_items: list[Any], _entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    questions: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_items, start=1):
+        if not isinstance(raw, dict):
+            raise StructuredNotesError(f"Question {index} must be an object.")
+        stem = " ".join(str(raw.get("question") or "").split())
+        if not stem:
+            raise StructuredNotesError(f"Question {index} needs a question.")
+        fmt = str(raw.get("format") or "multiple_choice").strip().lower()
+        if fmt not in QUESTION_FORMATS:
+            raise StructuredNotesError(f"Question {index} uses an unknown format.")
+        correct = _correct_answers(raw.get("correct"))
+        distractors = _question_distractors(raw.get("distractors"))
+        if not correct:
+            raise StructuredNotesError(f"Question {index} needs a correct answer.")
+        if not distractors:
+            raise StructuredNotesError(f"Question {index} needs a distractor.")
+        difficulty = str(raw.get("difficulty") or "medium").strip().lower()
+        if difficulty not in _DIFFICULTIES:
+            raise StructuredNotesError(f"Question {index} uses an unknown difficulty.")
+        bloom = _optional_text(raw.get("bloom_level"))
+        if bloom and bloom not in BLOOM_LEVELS:
+            raise StructuredNotesError(f"Question {index} uses an unknown cognitive level.")
+        citation = _question_citation(raw, index)
+        pool = AnswerPool(
+            correct=correct,
+            distractors=distractors,
+            show_count=2 if fmt == TRUE_FALSE else 4,
+        )
+        try:
+            validate_pool(pool, fmt)
+        except AnswerPoolError as exc:
+            raise StructuredNotesError(f"Question {index}: {exc}") from exc
+        questions.append(
+            {
+                "question": stem,
+                "format": fmt,
+                "citation": citation,
+                "pool": pool.model_dump(),
+                "explanation": _optional_text(raw.get("explanation")),
+                "difficulty": difficulty,
+                "bloom_level": bloom,
+            },
+        )
+    return questions
+
+
+_CITE_FIELDS = (
+    ("abbreviation", "abbreviation"),
+    ("term", "term"),
+    ("concept", "list"),
+)
+
+
+def _question_citation(raw: dict[str, Any], index: int) -> dict[str, str] | None:
+    found: list[dict[str, str]] = []
+    for field, kind in _CITE_FIELDS:
+        label = _optional_text(raw.get(field))
+        if label:
+            found.append({"kind": kind, "label": label})
+    if len(found) > 1:
+        raise StructuredNotesError(f"Question {index} cites more than one entry.")
+    return found[0] if found else None
+
+
+def _correct_answers(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = " ".join(value.split())
+        return [text] if text else []
+    if not isinstance(value, list):
+        return []
+    answers: list[str] = []
+    for item in value:
+        text = " ".join(str(item).split())
+        if text:
+            answers.append(text)
+    return answers
+
+
+def _question_distractors(value: Any) -> list[Distractor]:
+    if not isinstance(value, list):
+        return []
+    rows: list[Distractor] = []
+    for item in value:
+        if isinstance(item, str):
+            text = " ".join(item.split())
+            misconception = ""
+        elif isinstance(item, dict):
+            text = " ".join(str(item.get("text") or "").split())
+            misconception = " ".join(str(item.get("misconception") or "").split())
+        else:
+            continue
+        if text:
+            rows.append(Distractor(text=text, misconception=misconception))
+    return rows
 
 
 def _kind(raw: dict[str, Any]) -> str:

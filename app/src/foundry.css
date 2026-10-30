@@ -697,6 +697,7 @@ body:has(.as-console--academy),
   gap: 10px;
 }
 .as-console__dialog-form .as-console__field-label { margin: 0; }
+.as-console__dialog-form .as-console__select { width: 100%; }
 .as-console__dialog-form .as-console__alert { margin-bottom: 0; }
 .as-console__menu {
   position: fixed; z-index: 90; min-width: 160px; padding: 4px;

@@ -70,13 +70,13 @@ function LinkForm({
   disabled: boolean
   onSubmit: (label: string, url: string) => Promise<boolean>
 }) {
-  const [label, setLabel] = useState('MarineNet')
+  const [label, setLabel] = useState('MCeLE')
   const [url, setUrl] = useState('')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!url.trim()) return
-    if (await onSubmit(label.trim() || 'MarineNet', url.trim())) setUrl('')
+    if (await onSubmit(label.trim() || 'MCeLE', url.trim())) setUrl('')
   }
 
   return (
@@ -86,7 +86,7 @@ function LinkForm({
         value={label}
         onChange={(event) => setLabel(event.target.value)}
         aria-label="Link label"
-        placeholder="MarineNet"
+        placeholder="MCeLE"
         disabled={disabled}
       />
       <input

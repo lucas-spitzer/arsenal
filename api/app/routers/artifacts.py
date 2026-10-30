@@ -1,27 +1,38 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
 from app.config import Settings, get_settings
 from app.access import can_read_library
-from app.dependencies.auth import require_approved_user
+from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import (
     get_artifact_repository,
+    get_assessment_repository,
+    get_source_repository,
     get_supabase_storage_client,
+    get_wiki_entry_repository,
     get_workspace_repository,
 )
 from app.dependencies.workspace import require_workspace
-from app.models.artifact import ArtifactDownloadResponse, ArtifactResponse
+from app.models.artifact import (
+    ArtifactDownloadResponse,
+    ArtifactResponse,
+    LibraryArtifactUploadResponse,
+)
 from app.models.auth import CurrentUser
 from app.models.workspace import WorkspaceResponse
 from app.repositories.artifacts import ArtifactRepository
+from app.repositories.assessments import AssessmentRepository
+from app.repositories.sources import SourceRepository
+from app.repositories.wiki_entries import WikiEntryRepository
 from app.repositories.workspaces import WorkspaceRepository
+from app.services.library_artifacts import LibraryArtifactError, upload_library_artifact
 from app.services.narration_combine import (
     narration_download_filename,
     narration_download_state,
 )
 from app.services.queue import enqueue_narration_combine
-from app.services.supabase_storage import SupabaseStorageClient
+from app.services.supabase_storage import SupabaseStorageClient, SupabaseStorageError
 
 router = APIRouter(tags=["artifacts"])
 
@@ -64,6 +75,56 @@ async def list_artifacts(
         offset=offset,
     )
     return [ArtifactResponse.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/workspaces/{workspace_id}/library-artifacts",
+    response_model=LibraryArtifactUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_workspace_library_artifact(
+    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
+    user: Annotated[CurrentUser, Depends(require_admin)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    sources: Annotated[SourceRepository, Depends(get_source_repository)],
+    artifacts: Annotated[ArtifactRepository, Depends(get_artifact_repository)],
+    wiki_entries: Annotated[WikiEntryRepository, Depends(get_wiki_entry_repository)],
+    assessments: Annotated[AssessmentRepository, Depends(get_assessment_repository)],
+    storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
+    source_id: Annotated[str, Form()],
+    artifact_type: Annotated[str, Form()],
+    title: Annotated[str, Form()],
+    file: UploadFile = File(...),
+) -> LibraryArtifactUploadResponse:
+    """Attach one audiobook MP3 or knowledge JSON file to an existing source."""
+    source = await sources.get_for_workspace(source_id, workspace.id, user.id)
+    if not source:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found.")
+    content = await file.read()
+    try:
+        result = await upload_library_artifact(
+            workspace_id=workspace.id,
+            workspace_slug=workspace.slug,
+            source=source,
+            artifact_type=artifact_type,
+            title=title,
+            filename=file.filename,
+            content=content,
+            json_max_bytes=settings.max_source_upload_bytes,
+            bucket=settings.sources_bucket,
+            artifacts=artifacts,
+            wiki_entries=wiki_entries,
+            assessments=assessments,
+            storage=storage,
+        )
+    except LibraryArtifactError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except SupabaseStorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not store the audiobook file.",
+        ) from exc
+    return LibraryArtifactUploadResponse.model_validate(result)
 
 
 @router.get("/artifacts/{artifact_id}", response_model=ArtifactResponse)

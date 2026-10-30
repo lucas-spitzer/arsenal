@@ -512,6 +512,8 @@ def test_attach_skips_a_plan_without_a_file_and_clears_a_removed_image() -> None
 class _Projects:
     def __init__(self) -> None:
         self.created: dict[str, Any] | None = None
+        self.plans: list[dict[str, Any]] = []
+        self.quizzes: list[dict[str, Any]] = []
 
     async def create(self, row: dict[str, Any]) -> dict[str, Any]:
         self.created = {**row, "id": "project-1", "created_at": "2026-10-05T00:00:00Z", "updated_at": "2026-10-05T00:00:00Z"}
@@ -523,8 +525,14 @@ class _Projects:
         return self.created
 
     async def insert_plans(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        self.plans = rows
+        self.plans.extend(rows)
         return rows
+
+    async def insert_rows(self, table: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        saved = [{**row, "id": f"quiz-{len(self.quizzes) + index}"} for index, row in enumerate(rows, start=1)]
+        if table == "quizzes":
+            self.quizzes.extend(saved)
+        return saved
 
 
 class _Runs:
@@ -594,10 +602,11 @@ def test_notes_file_is_the_batch_attachment_and_the_book_stays_the_source(monkey
 class _Wiki:
     def __init__(self) -> None:
         self.inserted: list[dict[str, Any]] = []
+        self.existing: list[dict[str, Any]] = []
 
     async def list_for_workspace(self, workspace_id: str, **kwargs: Any) -> list[dict[str, Any]]:
         del workspace_id, kwargs
-        return []
+        return self.existing
 
     async def insert_many(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         saved = [{**row, "id": f"wiki-{index}"} for index, row in enumerate(rows, start=1)]
@@ -714,3 +723,229 @@ def test_json_elos_use_the_project_title_and_are_not_flashcards() -> None:
     assert projects.plans
     assert all(plan["wiki_entry_id"] not in elo_ids for plan in projects.plans)
     assert any(plan["wiki_entry_id"] == term["id"] for plan in projects.plans)
+
+
+def test_question_pack_writes_abbreviations_and_quizzes_without_a_draft() -> None:
+    projects = _Projects()
+    wiki = _Wiki()
+    service = KnowledgeProjectService(
+        projects=projects,
+        production_runs=_Runs(),
+        batches=_Batches(),
+        wiki_entries=wiki,
+        settings=get_settings(),
+    )
+    content = json.dumps(
+        {
+            "metadata": {"document_title": "Warfighting - Abbreviations", "total_questions": 1, "total_abbreviations": 1},
+            "abbreviations": [
+                {
+                    "abbreviation": "MEF",
+                    "title": "Marine Expeditionary Force",
+                    "definition": "The largest MAGTF.",
+                    "category": "MAGTF",
+                },
+            ],
+            "questions": [
+                {
+                    "question": "What does MEF stand for?",
+                    "abbreviation": "MEF",
+                    "correct": ["Marine Expeditionary Force", "A Marine expeditionary force"],
+                    "distractors": [
+                        {"text": "Marine Expeditionary Brigade", "misconception": "MEB is the mid-sized MAGTF."},
+                    ],
+                    "explanation": "MEF is the largest MAGTF.",
+                    "difficulty": "easy",
+                    "bloom_level": "remember",
+                },
+            ],
+        },
+    ).encode()
+
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Abbreviations",
+        source={"id": "book-1", "slug": "warfighting", "status": "ready", "source_kind": "document"},
+        raw_notes="",
+        filename="abbreviations.json",
+        content_type="application/json",
+        content=content,
+        storage=_Storage(),
+    ))
+
+    assert projects.created is not None
+    assert projects.created["status"] == "composing"
+    abbreviation = next(row for row in wiki.inserted if row["entry_kind"] == "abbreviation")
+    assert abbreviation["preferred_label"] == "MEF"
+    assert abbreviation["definition"] == "The largest MAGTF."
+    assert abbreviation["significance"] == "Marine Expeditionary Force"
+    assert abbreviation["aliases"] == ["Marine Expeditionary Force"]
+    assert abbreviation["category"] == "MAGTF"
+    assert projects.quizzes
+    quiz = projects.quizzes[0]
+    assert quiz["question"] == "What does MEF stand for?"
+    assert quiz["correct_answer"] in quiz["options"]
+    assert "Marine Expeditionary Force" in quiz["answer_pool"]["correct"]
+    assert quiz["origin"]["source"] == "structured_notes"
+    assert quiz["citations"] == [{"uri": f"wiki://{abbreviation['id']}", "type": "wiki"}]
+    flashcards = [plan for plan in projects.plans if plan["item_type"] == "flashcard"]
+    questions = [plan for plan in projects.plans if plan["item_type"] == "question"]
+    assert flashcards[0]["wiki_entry_id"] == abbreviation["id"]
+    assert flashcards[0]["enabled"] is True
+    assert questions[0]["assessment_id"] == quiz["id"]
+    assert questions[0]["wiki_entry_id"] == abbreviation["id"]
+
+
+def test_abbreviations_without_questions_stay_composing() -> None:
+    projects = _Projects()
+    wiki = _Wiki()
+    service = KnowledgeProjectService(
+        projects=projects,
+        production_runs=_Runs(),
+        batches=_Batches(),
+        wiki_entries=wiki,
+        settings=get_settings(),
+    )
+    content = json.dumps(
+        {
+            "abbreviations": [
+                {
+                    "abbreviation": "MEB",
+                    "title": "Marine Expeditionary Brigade",
+                    "definition": "The mid-sized MAGTF.",
+                },
+            ],
+        },
+    ).encode()
+
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Abbreviations",
+        source={"id": "book-1", "slug": "warfighting", "status": "ready", "source_kind": "document"},
+        raw_notes="",
+        filename="abbreviations.json",
+        content_type="application/json",
+        content=content,
+        storage=_Storage(),
+    ))
+
+    assert projects.created is not None
+    assert projects.created["status"] == "composing"
+    assert wiki.inserted[0]["entry_kind"] == "abbreviation"
+    assert projects.plans[0]["item_type"] == "flashcard"
+    assert projects.plans[0]["enabled"] is True
+    assert projects.quizzes == []
+
+
+def _question_pack_service(wiki: _Wiki | None = None) -> tuple[KnowledgeProjectService, _Projects, _Wiki]:
+    projects = _Projects()
+    entries = wiki or _Wiki()
+    service = KnowledgeProjectService(
+        projects=projects,
+        production_runs=_Runs(),
+        batches=_Batches(),
+        wiki_entries=entries,
+        settings=get_settings(),
+    )
+    return service, projects, entries
+
+
+def test_questions_without_wiki_entries_open_ready() -> None:
+    service, projects, _wiki = _question_pack_service()
+    content = json.dumps(
+        {
+            "questions": [
+                {
+                    "question": "Which force is the largest MAGTF?",
+                    "correct": ["MEF"],
+                    "distractors": [{"text": "MEB"}],
+                },
+            ],
+        },
+    ).encode()
+
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Questions",
+        source={"id": "book-1", "slug": "warfighting", "status": "ready", "source_kind": "document"},
+        raw_notes="",
+        filename="questions.json",
+        content_type="application/json",
+        content=content,
+        storage=_Storage(),
+    ))
+
+    assert projects.created is not None
+    assert projects.created["status"] == "ready"
+    assert projects.quizzes[0]["citations"] == []
+
+
+def test_question_can_cite_an_existing_term() -> None:
+    wiki = _Wiki()
+    wiki.existing = [
+        {"id": "wiki-friction", "preferred_label": "Friction", "entry_kind": "term", "definition": "Resistance."},
+    ]
+    service, projects, _wiki = _question_pack_service(wiki)
+    content = json.dumps(
+        {
+            "questions": [
+                {
+                    "question": "What resists action in war?",
+                    "term": "Friction",
+                    "correct": ["Friction"],
+                    "distractors": [{"text": "Tempo"}],
+                },
+            ],
+        },
+    ).encode()
+
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Questions",
+        source={"id": "book-1", "slug": "warfighting", "status": "ready", "source_kind": "document"},
+        raw_notes="",
+        filename="questions.json",
+        content_type="application/json",
+        content=content,
+        storage=_Storage(),
+    ))
+
+    assert projects.quizzes[0]["citations"] == [{"uri": "wiki://wiki-friction", "type": "wiki"}]
+
+
+def test_unknown_question_citation_is_rejected() -> None:
+    service, _projects, _wiki = _question_pack_service()
+    content = json.dumps(
+        {
+            "questions": [
+                {
+                    "question": "What does MEF stand for?",
+                    "abbreviation": "MEF",
+                    "correct": ["Marine Expeditionary Force"],
+                    "distractors": [{"text": "Marine Expeditionary Brigade"}],
+                },
+            ],
+        },
+    ).encode()
+
+    with pytest.raises(KnowledgeProjectError, match="not in this file or the wiki"):
+        asyncio.run(service.create(
+            workspace_id="ws-1",
+            owner_id="user-1",
+            workspace_slug="acme",
+            title="Questions",
+            source={"id": "book-1", "slug": "warfighting", "status": "ready", "source_kind": "document"},
+            raw_notes="",
+            filename="questions.json",
+            content_type="application/json",
+            content=content,
+            storage=_Storage(),
+        ))

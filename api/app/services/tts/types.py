@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal
 
 AlignmentSource = Literal["provider", "forced", "estimated"]
+
+
+class TtsQuotaError(RuntimeError):
+    """The provider will not take more requests until `resume_at`."""
+
+    def __init__(self, message: str, *, resume_at: datetime | None = None) -> None:
+        super().__init__(message)
+        self.resume_at = resume_at
 
 
 @dataclass(frozen=True)

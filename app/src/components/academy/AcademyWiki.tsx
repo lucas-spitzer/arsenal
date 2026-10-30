@@ -12,11 +12,11 @@ import {
 import type { WikiEntry, WikiListItem } from '../../lib/workspaceApi'
 import { StudyHead } from './StudySessionChrome'
 
-const ENTRY_KINDS = ['term', 'list', 'elo'] as const
+const ENTRY_KINDS = ['term', 'list', 'elo', 'abbreviation'] as const
 const IMPORTANCE_LEVELS = ['essential', 'supporting', 'contextual'] as const
 
 function asEntryKind(value: string): (typeof ENTRY_KINDS)[number] {
-  if (value === 'list' || value === 'elo') return value
+  if (value === 'list' || value === 'elo' || value === 'abbreviation') return value
   return 'term'
 }
 

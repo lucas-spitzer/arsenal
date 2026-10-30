@@ -13,6 +13,7 @@ from app.llm_defaults import (
     MODEL_FAMILIES,
     OPENAI_IMAGE_SUNBURST_MODEL,
 )
+from app.services.tts.catalog import voice_for_model
 from app.tts_defaults import (
     CARTESIA_MAX_SEGMENT_CHARS,
     DEFAULT_NARRATION_MODEL,
@@ -213,6 +214,8 @@ class NarrationSettings:
     speechify_max_segment_chars: int
     cartesia_max_segment_chars: int
     google_tts_max_segment_chars: int
+    # Each Gemini retry is a request against the daily quota.
+    google_tts_max_retries: int = 2
     # Gemini allows 10 requests/minute and 100/day per model on Tier 1.
     google_tts_min_request_interval_seconds: float = 6.5
     google_tts_request_budget: int = 90
@@ -333,6 +336,9 @@ class Settings:
 
 @lru_cache
 def _get_settings_cached() -> Settings:
+    narration_model = resolve_model_family(
+        os.getenv("AUDIO_NARRATION_MODEL", DEFAULT_NARRATION_MODEL),
+    )
     return Settings(
         supabase=SupabaseSettings(
             url=get_required_env("SUPABASE_URL").rstrip("/"),
@@ -411,13 +417,15 @@ def _get_settings_cached() -> Settings:
             elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY"),
             cartesia_api_key=os.getenv("CARTESIA_API_KEY"),
             google_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
-            model_id=resolve_model_family(
-                os.getenv("AUDIO_NARRATION_MODEL", DEFAULT_NARRATION_MODEL),
+            model_id=narration_model,
+            voice_id=voice_for_model(
+                os.getenv("AUDIO_NARRATION_VOICE_ID", DEFAULT_NARRATION_VOICE_ID),
+                narration_model,
             ),
-            voice_id=os.getenv("AUDIO_NARRATION_VOICE_ID", DEFAULT_NARRATION_VOICE_ID),
             output_format=os.getenv("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128"),
             request_timeout_seconds=int(os.getenv("ELEVENLABS_REQUEST_TIMEOUT_SECONDS", "600")),
             max_retries=int(os.getenv("ELEVENLABS_MAX_RETRIES", "3")),
+            google_tts_max_retries=int(os.getenv("GOOGLE_TTS_MAX_RETRIES", "2")),
             elevenlabs_max_segment_chars=int(os.getenv("ELEVENLABS_MAX_SEGMENT_CHARS", "9500")),
             speechify_max_segment_chars=int(
                 os.getenv("SPEECHIFY_MAX_SEGMENT_CHARS", str(SPEECHIFY_STREAM_MAX_CHARS)),

@@ -16,8 +16,7 @@
   --read-chrome: #e8e2d4;
   --read-line: #ddd6c4;
   --read-muted: #8a8475;
-  --read-word: rgba(132, 117, 78, 0.34);
-  --read-band: rgba(132, 117, 78, 0.12);
+  --read-band: rgba(132, 117, 78, 0.18);
 
   /* Bookerly is licensed and not bundled — fall back to a screen serif. */
   --font-read: 'Bookerly', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
@@ -822,29 +821,21 @@
   color: var(--color-scarlet);
 }
 
-.reader__word {
-  border-radius: 6px;
-  transition: background-color 120ms ease, color 120ms ease;
+/* Narration highlights whole sentences; the span never changes shape while
+   the sentence is spoken, so the band holds steady instead of flickering. */
+.reader__sentence {
+  border-radius: 0.2em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-color 180ms ease, color 180ms ease;
 }
 
-.reader__word.is-read {
+.reader__sentence.is-read {
   color: var(--read-muted);
 }
 
 .reader__band {
   background: var(--read-band);
-  border-radius: 0.2em;
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-}
-
-.reader__band .reader__word {
-  border-radius: 0;
-}
-
-.reader__word.is-speaking {
-  background: var(--read-word);
-  box-shadow: 0 0 0 2px var(--read-word);
 }
 
 /* Inline emphasis recovered from the markdown-faithful segment copy. */
@@ -856,8 +847,8 @@
   font-weight: 600;
 }
 
-/* Wiki term links: subtle dotted underline; the word inherits all reading
-   states (band/read/speaking) from its wrapping .reader__word span.
+/* Wiki term links: subtle dotted underline; the word inherits the reading
+   states (band/read) from its wrapping .reader__sentence span.
    Underlines track chrome visibility — fade with the header/footer. */
 .reader__term {
   all: unset;
@@ -1931,7 +1922,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reader__word,
+  .reader__sentence,
   .academy__nav-btn,
   .reader__play,
   .study__btn,
@@ -2072,12 +2063,6 @@
   border-top-color: var(--color-gold);
 }
 
-.academy--v2 .reader__word.is-speaking {
-  background: rgba(132, 117, 78, 0.2);
-  color: var(--color-dark-scarlet);
-  box-shadow: 0 0 0 2px rgba(132, 117, 78, 0.2);
-}
-
 /* ---- variant 3 · Night Ops (dark mode) ------------------------------------ */
 .academy--v3 {
   --academy-paper: #06121a;
@@ -2094,11 +2079,6 @@
   --color-dark-scarlet: #c0463b;
   --color-navy: #6fa0c6;
   --color-gold: #c2a878;
-}
-
-.academy--v3 .reader__word.is-speaking {
-  background: rgba(227, 93, 81, 0.22);
-  box-shadow: 0 0 0 2px rgba(227, 93, 81, 0.22);
 }
 
 .academy--v3 .pill--easy {
@@ -2311,6 +2291,33 @@
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: var(--space-3);
   margin-bottom: var(--space-5);
+}
+
+.lib__play-error {
+  margin: 0 0 var(--space-3);
+  color: var(--color-scarlet);
+}
+
+.lib__player {
+  position: sticky;
+  bottom: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.lib__player-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.lib__player audio {
+  width: 100%;
 }
 
 .lib__card {

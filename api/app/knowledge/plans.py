@@ -9,7 +9,7 @@ from app.knowledge.visuals import cited_wiki_id, storage_path_of
 
 def flashcard_enabled_by_default(entry: dict[str, Any]) -> bool:
     kind = str(entry.get("entry_kind") or "")
-    return kind in {"term", "list"}
+    return kind in {"term", "list", "abbreviation"}
 
 
 def flashcard_plan_rows(

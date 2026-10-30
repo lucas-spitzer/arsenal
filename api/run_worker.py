@@ -30,7 +30,9 @@ def main() -> None:
     # default forking Worker for per-job process isolation.
     worker_cls = SimpleWorker if sys.platform == "darwin" else Worker
     worker = worker_cls(queues, connection=redis_conn)
-    worker.work(with_scheduler=False)
+    # The scheduler runs jobs queued with enqueue_at, such as narration that
+    # paused on a provider quota.
+    worker.work(with_scheduler=True)
 
 
 if __name__ == "__main__":

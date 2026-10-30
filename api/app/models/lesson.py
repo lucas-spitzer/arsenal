@@ -91,13 +91,13 @@ class LessonObjectivesReplace(BaseModel):
 
 
 class LessonLinkCreate(BaseModel):
-    label: str = Field(default="MarineNet", max_length=200)
+    label: str = Field(default="MCeLE", max_length=200)
     url: str = Field(min_length=1, max_length=2000)
 
     @field_validator("label")
     @classmethod
     def _strip_label(cls, value: str) -> str:
-        return value.strip() or "MarineNet"
+        return value.strip() or "MCeLE"
 
     @field_validator("url")
     @classmethod

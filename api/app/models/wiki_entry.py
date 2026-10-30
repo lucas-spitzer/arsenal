@@ -14,7 +14,7 @@ class WikiEntryCreate(BaseModel):
 
     preferred_label: str = Field(min_length=1)
     definition: str = ""
-    entry_kind: Literal["term", "list", "elo"] = "term"
+    entry_kind: Literal["term", "list", "elo", "abbreviation"] = "term"
     importance: Literal["essential", "supporting", "contextual"] = "supporting"
     aliases: list[str] = Field(default_factory=list)
     pronunciation: str | None = None
@@ -46,7 +46,7 @@ class WikiReviseProposal(BaseModel):
 class WikiEntryUpdate(BaseModel):
     preferred_label: str | None = None
     definition: str | None = None
-    entry_kind: Literal["term", "list", "elo"] | None = None
+    entry_kind: Literal["term", "list", "elo", "abbreviation"] | None = None
     importance: Literal["essential", "supporting", "contextual"] | None = None
     aliases: list[str] | None = None
     pronunciation: str | None = None

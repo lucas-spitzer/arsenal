@@ -26,7 +26,7 @@ from app.services.tts.audio import (
     pcm_s16le_to_wav,
     sample_rate_from_mime,
 )
-from app.services.tts.types import NarrationResult
+from app.services.tts.types import NarrationResult, TtsQuotaError
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +45,12 @@ _RETRYABLE_MARKERS = (
     "missing audio inline data",
 )
 # A refusal (finish_reason OTHER) repeats for the same text, so retrying only
-# spends the per-day request quota; the narration stage splits the text instead.
+# spends the per-day request quota; the narration stage retries per paragraph.
 _MAX_EMPTY_AUDIO_ATTEMPTS = 1
+# Every retry counts against the daily quota, so a generic 400/500 flake gets
+# one more try at most.
+_FLAKE_MARKERS = ("INVALID_ARGUMENT", "INTERNAL")
+_MAX_FLAKE_RETRIES = 1
 _MAX_RATE_LIMIT_WAITS = 3
 _RATE_LIMIT_PADDING_SECONDS = 2.0
 _MAX_RATE_LIMIT_WAIT_SECONDS = 90.0
@@ -58,12 +62,8 @@ class GeminiTtsError(RuntimeError):
     pass
 
 
-class GeminiQuotaError(GeminiTtsError):
+class GeminiQuotaError(GeminiTtsError, TtsQuotaError):
     """No more requests can be made today (Google's daily cap or our run budget)."""
-
-    def __init__(self, message: str, *, resume_at: datetime | None = None) -> None:
-        super().__init__(message)
-        self.resume_at = resume_at
 
 
 def _is_rate_limited(message: str) -> bool:
@@ -164,7 +164,7 @@ class GeminiTtsClient:
         self.request_timeout_seconds = (
             request_timeout_seconds or narration.request_timeout_seconds
         )
-        self.max_retries = max_retries or narration.max_retries
+        self.max_retries = max_retries or narration.google_tts_max_retries
         self.max_segment_chars = (
             max_segment_chars or narration.google_tts_max_segment_chars
         )
@@ -223,6 +223,7 @@ class GeminiTtsClient:
         last_error: str | None = None
         attempt = 0
         empty_audio_attempts = 0
+        flake_attempts = 0
         rate_limit_waits = 0
         while attempt < self.max_retries:
             try:
@@ -238,9 +239,10 @@ class GeminiTtsClient:
                     wait_seconds = self._rate_limit_wait(last_error, len(text), exc)
                     rate_limit_waits += 1
                     if rate_limit_waits > _MAX_RATE_LIMIT_WAITS:
-                        raise GeminiTtsError(
-                            f"Gemini TTS synthesis failed ({len(text)} chars): "
+                        raise GeminiQuotaError(
+                            f"Gemini TTS per-minute limit kept failing ({len(text)} chars): "
                             f"{last_error}",
+                            resume_at=datetime.now(UTC) + timedelta(seconds=wait_seconds),
                         ) from exc
                     logger.warning(
                         "Gemini TTS per-minute limit hit for %s; waiting %.0fs "
@@ -254,10 +256,13 @@ class GeminiTtsClient:
                     continue
                 if "missing audio inline data" in last_error:
                     empty_audio_attempts += 1
+                if any(marker in last_error for marker in _FLAKE_MARKERS):
+                    flake_attempts += 1
                 give_up = (
                     not _is_retryable(exc)
                     or attempt >= self.max_retries - 1
                     or empty_audio_attempts >= _MAX_EMPTY_AUDIO_ATTEMPTS
+                    or flake_attempts > _MAX_FLAKE_RETRIES
                 )
                 if give_up:
                     if isinstance(exc, GeminiTtsError):

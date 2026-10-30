@@ -300,7 +300,7 @@ export function ObjectivesView({ focusLessonId = null, focusResourceId = null, o
       <StudyHead
         eyebrow="Enabling learning objectives"
         title="ELOs"
-        description="Every class's ELOs, with the lecture slides and MarineNet material to study them."
+        description="Every class's ELOs, with the lecture slides and MCeLE material to study them."
         stats={[
           { value: stats.classes, label: 'classes' },
           { value: stats.elos, label: 'ELOs' },

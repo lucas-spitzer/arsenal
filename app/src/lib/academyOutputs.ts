@@ -28,6 +28,8 @@ export interface OutputItem {
   isAudio: boolean
   isEbook: boolean
   isNarration: boolean
+  /** A finished MP3 uploaded for the source, separate from generated narration. */
+  isAudiobook: boolean
   /** Narration MP3 readiness. Null for every other library item. */
   narrationDownload: NarrationDownloadState | null
   /** Knowledge run this batch belongs to. Study opens only that run. */
@@ -114,11 +116,14 @@ export function artifactLibraryCard(artifact: Pick<
   isEbook: boolean
   isStudyMaterial: boolean
   isNarration: boolean
+  isAudiobook: boolean
 } {
   const format = (artifact.format || '').toLowerCase()
+  const isAudiobook = artifact.artifact_type === 'audiobook'
   const isNarration = artifact.artifact_type === 'narration_audio'
   const isAudio =
     !isNarration &&
+    !isAudiobook &&
     (artifact.artifact_type.includes('audio') || AUDIO_FORMATS.has(format))
   const isEbook =
     artifact.artifact_type === 'electronic_book' || format.startsWith('epub')
@@ -128,6 +133,9 @@ export function artifactLibraryCard(artifact: Pick<
   let title = ''
   if (isStudyMaterial) {
     chipLabel = 'Material'
+    title = typeof artifact.manifest.title === 'string' ? artifact.manifest.title : ''
+  } else if (isAudiobook) {
+    chipLabel = 'Audiobook'
     title = typeof artifact.manifest.title === 'string' ? artifact.manifest.title : ''
   } else if (isNarration) {
     chipLabel = 'Audio'
@@ -140,7 +148,15 @@ export function artifactLibraryCard(artifact: Pick<
     title = countLabel(artifact.manifest.chapter_count, 'chapter')
   }
 
-  return { chipLabel, title, isAudio, isEbook, isStudyMaterial, isNarration }
+  return {
+    chipLabel,
+    title,
+    isAudio: isAudio || isAudiobook,
+    isEbook,
+    isStudyMaterial,
+    isNarration,
+    isAudiobook,
+  }
 }
 
 export function narrationDownloadState(
@@ -159,6 +175,7 @@ export function isStudyMaterialArtifact(artifact: Pick<Artifact, 'artifact_type'
 }
 
 export function outputChipLabel(item: OutputItem): string {
+  if (item.isAudiobook) return 'Audiobook'
   return KIND_CHIP[item.kind]
 }
 
@@ -248,6 +265,7 @@ export function wikiEntriesToOutputItems(
       isAudio: false,
       isEbook: false,
       isNarration: false,
+      isAudiobook: false,
       narrationDownload: null,
       projectId: null,
       searchText: entries.map((entry) => entry.preferred_label).join(' '),
@@ -318,6 +336,7 @@ export function knowledgeRunOutputItems<T extends KnowledgeRecord>(
       isAudio: false,
       isEbook: false,
       isNarration: false,
+      isAudiobook: false,
       narrationDownload: null,
       searchText: batch.map(searchOf).join(' '),
     } satisfies OutputItem
@@ -339,6 +358,7 @@ export function knowledgeRunOutputItems<T extends KnowledgeRecord>(
       isAudio: false,
       isEbook: false,
       isNarration: false,
+      isAudiobook: false,
       narrationDownload: null,
     } satisfies OutputItem
   })
@@ -396,7 +416,7 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
           ? 'material'
           : card.isEbook
             ? 'book'
-            : card.isAudio || card.isNarration
+            : card.isAudio || card.isNarration || card.isAudiobook
               ? 'audio'
               : 'artifact'
         const sourceName = card.isStudyMaterial ? STUDY_MATERIAL_GROUP : nameOf(a.source_id)
@@ -414,6 +434,7 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
           isAudio: card.isAudio,
           isEbook: card.isEbook,
           isNarration: card.isNarration,
+          isAudiobook: card.isAudiobook,
           narrationDownload: card.isNarration ? narrationDownloadState(a.manifest) : null,
           projectId: null,
         }

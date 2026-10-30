@@ -484,8 +484,8 @@ button.dsn-page__section:hover { background: rgba(132, 117, 78, 0.08); }
   font-weight: 600;
   color: #fff;
 }
-.kproj-setup { display: grid; gap: 22px; max-width: 640px; }
-.kproj-field { display: grid; gap: 6px; }
+.kproj-setup { display: grid; gap: 22px; max-width: 640px; align-content: start; }
+.kproj-field { display: grid; gap: 6px; align-content: start; }
 .kproj-label {
   margin: 0;
   font-family: var(--as-grotesk);

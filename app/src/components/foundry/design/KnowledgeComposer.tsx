@@ -897,6 +897,33 @@ function QuestionEditor({
       <Field label="Explanation">
         <textarea className="as-wiki__input" rows={3} value={draft.explanation} onChange={(event) => update({ explanation: event.target.value })} />
       </Field>
+      {question.visual?.url ? <img src={question.visual.url} alt={question.visual.alt || draft.question} /> : null}
+      <Field label={question.visual ? 'Replace image' : 'Image'}>
+        <p className="dsn-hint">Shown above the question.</p>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          aria-label={`Image for ${draft.question}`}
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (!file) return
+            void act(
+              () => uploadPlanVisual(projectId, question.plan_id, { file, kind: 'diagram', placement: 'stem', alt: '' }),
+              'Could not upload the image.',
+            )
+          }}
+        />
+      </Field>
+      {question.visual ? (
+        <button
+          type="button"
+          className="as-console__cta as-console__cta--ghost"
+          disabled={busy}
+          onClick={() => void act(() => deletePlanVisual(projectId, question.plan_id), 'Could not remove the image.')}
+        >
+          Remove image
+        </button>
+      ) : null}
       {preview ? (
         <div className="kcomp__preview" aria-live="polite">
           <span className="kproj-entry__meta">Sample draw</span>

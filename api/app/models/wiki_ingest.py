@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-EntryKind = Literal["term", "list", "elo"]
+EntryKind = Literal["term", "list", "elo", "abbreviation"]
 Importance = Literal["essential", "supporting", "contextual"]
 Resolution = Literal["new", "merge", "conflict"]
 EvidenceStatus = Literal["linked", "weak", "unlinked"]

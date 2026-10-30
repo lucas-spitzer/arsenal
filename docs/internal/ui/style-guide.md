@@ -253,7 +253,7 @@ Rules:
 
 ### ELOs (TBS classes)
 
-The ELO tab lists each TBS class with its Enabling Learning Objectives and lecture materials. Academy ELO (`ObjectivesView`, `elo__*` in `academy.css`) is read-only for students. Foundry ELO (`FoundryObjectives`, `as-console__elo-*` in `foundry.css`) is where the Academics officer adds classes, pastes ELOs, uploads files, and adds MarineNet links. A class links straight to `/app/elo/:lessonId`, and `?resource=` highlights one material.
+The ELO tab lists each TBS class with its Enabling Learning Objectives and lecture materials. Academy ELO (`ObjectivesView`, `elo__*` in `academy.css`) is read-only for students. Foundry ELO (`FoundryObjectives`, `as-console__elo-*` in `foundry.css`) is where the Academics officer adds classes, pastes ELOs, uploads files, and adds MCeLE links. A class links straight to `/app/elo/:lessonId`, and `?resource=` highlights one material.
 
 Rules:
 

@@ -271,6 +271,98 @@ def test_speechify_batch_parse(monkeypatch: pytest.MonkeyPatch) -> None:
     get_settings.cache_clear()
 
 
+class _SpeechifyHttp:
+    """Return the scripted (status, headers) responses in order, then audio."""
+
+    def __init__(self, responses: list[tuple[int, dict[str, str]]]) -> None:
+        self.responses = responses
+        self.calls = 0
+
+    def post(self, url: str, *, headers: Any, json: dict[str, Any]) -> Any:
+        del url, headers, json
+        self.calls += 1
+        status, response_headers = self.responses.pop(0) if self.responses else (200, {})
+
+        class _Response:
+            status_code = status
+            headers = response_headers
+            text = "Too Many Requests"
+
+            def json(self) -> dict[str, Any]:
+                return {
+                    "audio_data": base64.b64encode(b"mp3").decode(),
+                    "speech_marks": {
+                        "end_time": 400,
+                        "chunks": [{"value": "Hello", "start_time": 0, "end_time": 400}],
+                    },
+                }
+
+        return _Response()
+
+
+def _speechify(max_retries: int = 3) -> SpeechifyClient:
+    return SpeechifyClient(
+        api_key="k", voice_id="hugh_32", model_id="simba-3.2", max_retries=max_retries
+    )
+
+
+def test_speechify_waits_out_a_short_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("app.services.speechify_client.time.sleep", sleeps.append)
+    http = _SpeechifyHttp([(429, {"retry-after": "3"})])
+
+    result = _speechify().synthesize_with_timestamps("Hello", client=http)  # type: ignore[arg-type]
+
+    assert http.calls == 2
+    assert sleeps == [3.0]
+    assert result.audio == b"mp3"
+
+
+def test_speechify_long_retry_after_raises_quota_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.speechify_client import SpeechifyQuotaError
+    from app.services.tts.types import TtsQuotaError
+
+    monkeypatch.setattr("app.services.speechify_client.time.sleep", lambda _: None)
+    http = _SpeechifyHttp([(429, {"retry-after": "600"})])
+    before = datetime.now(UTC)
+
+    with pytest.raises(SpeechifyQuotaError) as raised:
+        _speechify().synthesize_with_timestamps("Hello", client=http)  # type: ignore[arg-type]
+
+    assert http.calls == 1
+    assert isinstance(raised.value, TtsQuotaError)
+    assert raised.value.resume_at is not None
+    assert raised.value.resume_at - before >= timedelta(seconds=600)
+
+
+def test_speechify_429_on_last_attempt_raises_quota_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.speechify_client import SpeechifyQuotaError
+
+    sleeps: list[float] = []
+    monkeypatch.setattr("app.services.speechify_client.time.sleep", sleeps.append)
+    http = _SpeechifyHttp([(429, {}), (429, {})])
+
+    with pytest.raises(SpeechifyQuotaError):
+        _speechify(max_retries=2).synthesize_with_timestamps("Hello", client=http)  # type: ignore[arg-type]
+
+    assert http.calls == 2
+    assert sleeps == [5]
+
+
+def test_voice_for_model_swaps_voices_from_another_provider() -> None:
+    from app.services.tts.catalog import default_voice_for_model, voice_for_model
+
+    assert voice_for_model("Sadaltager", "simba-3.2") == default_voice_for_model("simba-3.2")
+    assert voice_for_model("", "simba-3.2") == default_voice_for_model("simba-3.2")
+    assert voice_for_model("Sadaltager", "gemini-3.8-flash-tts") == "Sadaltager"
+    assert voice_for_model("hugh_32", "simba-3.2") == "hugh_32"
+    assert voice_for_model("custom-cloned-voice", "simba-3.2") == "custom-cloned-voice"
+
+
 def test_even_word_timings_spreads_tokens() -> None:
     words = even_word_timings("Hello world", 1.0)
     assert [word.word for word in words] == ["Hello", "world"]
@@ -677,6 +769,45 @@ def test_gemini_tts_paces_requests(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert len(sleeps) == 1
     assert 6.0 < sleeps[0] <= 6.5
+
+
+def test_gemini_tts_retries_a_flake_only_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.gemini_tts_client import GeminiTtsError
+
+    monkeypatch.setattr("app.services.gemini_tts_client.time.sleep", lambda _: None)
+    flake = "500 INTERNAL. {'error': {'code': 500, 'status': 'INTERNAL'}}"
+    genai = _ScriptedGenai([RuntimeError(flake) for _ in range(3)])
+
+    with pytest.raises(GeminiTtsError, match="INTERNAL"):
+        _gemini_client(genai).synthesize_with_timestamps("Hello world")
+    assert genai.calls == 2
+
+
+def test_gemini_tts_max_retries_comes_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GOOGLE_TTS_MAX_RETRIES", "4")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        client = GeminiTtsClient(api_key="k", client=_ScriptedGenai([]))
+        assert client.max_retries == 4
+    finally:
+        get_settings.cache_clear()
+
+
+def test_gemini_tts_repeated_per_minute_limits_pause_with_resume_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.gemini_tts_client import GeminiQuotaError
+    from app.services.tts.types import TtsQuotaError
+
+    monkeypatch.setattr("app.services.gemini_tts_client.time.sleep", lambda _: None)
+    genai = _ScriptedGenai([RuntimeError(_PER_MINUTE_429) for _ in range(10)])
+
+    with pytest.raises(GeminiQuotaError) as raised:
+        _gemini_client(genai).synthesize_with_timestamps("Hello world")
+    assert isinstance(raised.value, TtsQuotaError)
+    assert raised.value.resume_at is not None
 
 
 def test_gemini_tts_does_not_retry_empty_audio(monkeypatch: pytest.MonkeyPatch) -> None:

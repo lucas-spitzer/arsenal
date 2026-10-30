@@ -8,6 +8,7 @@ from app.config import Settings
 from app.repositories.artifacts import ArtifactRepository
 from app.repositories.narration_segments import NarrationSegmentRepository
 from app.services.supabase_storage import SupabaseStorageClient
+from app.services.tts.catalog import voice_for_model
 from app.services.tts.factory import narration_override_from_rows
 
 
@@ -18,7 +19,7 @@ def configured_narration_voice(
     """Model and voice the narration worker will use for this workspace."""
     override = narration_override_from_rows(stage_rows)
     if override is not None:
-        return override.model, override.voice_id
+        return override.model, voice_for_model(override.voice_id, override.model)
     narration = settings.narration
     return narration.model_id, narration.voice_id
 

@@ -33,6 +33,7 @@ class SupabaseStorageClient:
         content: bytes,
         content_type: str,
         upsert: bool = False,
+        timeout: float = 120,
     ) -> dict[str, Any]:
         headers = self._headers(content_type=content_type)
 
@@ -40,7 +41,7 @@ class SupabaseStorageClient:
             headers["x-upsert"] = "true"
 
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     f"{self.base_url}/object/{bucket}/{path}",
                     headers=headers,

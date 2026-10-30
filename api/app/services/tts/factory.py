@@ -15,7 +15,7 @@ from app.services.cartesia_client import CartesiaClient
 from app.services.elevenlabs_client import ElevenLabsClient
 from app.services.gemini_tts_client import GeminiTtsClient
 from app.services.speechify_client import SpeechifyClient
-from app.services.tts.catalog import TTS_SELECTABLE_PROVIDERS
+from app.services.tts.catalog import TTS_SELECTABLE_PROVIDERS, voice_for_model
 from app.services.tts.types import NarrationResult
 from app.tts_defaults import AUDIO_NARRATION_ACTION, tts_provider_for_model
 
@@ -94,10 +94,11 @@ def get_tts_client(
         or (override.model if override is not None else "")
         or settings.model_id
     )
-    resolved_voice = (
+    resolved_voice = voice_for_model(
         (voice_id or "").strip()
         or (override.voice_id if override is not None else "")
-        or settings.voice_id
+        or settings.voice_id,
+        resolved_model,
     )
     provider = tts_provider_for_model(resolved_model)
 

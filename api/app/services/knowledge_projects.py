@@ -30,7 +30,7 @@ from app.knowledge.cards import (
     flashcard_sides,
     layout_needs_image,
 )
-from app.knowledge.plans import enabled_flashcard_wiki_ids, flashcard_plan_rows
+from app.knowledge.plans import enabled_flashcard_wiki_ids, flashcard_plan_rows, item_plan_rows
 from app.knowledge.structured_notes import StructuredNotes, StructuredNotesError, require_structured_notes
 from app.knowledge.visuals import (
     VisualError,
@@ -249,23 +249,44 @@ class KnowledgeProjectService:
                 upsert=True,
             )
             notes = require_structured_notes(text, filename=filename)
-            saved = await self._write_wiki_entries(
-                workspace_id=str(project["workspace_id"]),
-                source_id=str(source["id"]),
-                project_id=str(project["id"]),
-                section_title=str(project.get("title") or "").strip(),
-                notes=notes,
-            )
-            await self.projects.insert_plans(
-                flashcard_plan_rows(
+            saved: list[dict[str, Any]] = []
+            if notes.entries:
+                saved = await self._write_wiki_entries(
+                    workspace_id=str(project["workspace_id"]),
+                    source_id=str(source["id"]),
+                    project_id=str(project["id"]),
+                    section_title=str(project.get("title") or "").strip(),
+                    notes=notes,
+                )
+                plans = flashcard_plan_rows(
                     project_id=project_id,
                     workspace_id=str(project["workspace_id"]),
                     entries=saved,
-                ),
+                )
+                if plans:
+                    await self.projects.insert_plans(plans)
+            if notes.questions:
+                catalog = await self._citation_catalog(str(project["workspace_id"]), saved)
+                rows = _imported_question_rows(project, notes.questions, catalog)
+                saved_rows = await self.projects.insert_rows("quizzes", rows)
+                await self.projects.insert_plans(
+                    item_plan_rows(
+                        project_id=project_id,
+                        workspace_id=str(project["workspace_id"]),
+                        rows=saved_rows,
+                        item_type="question",
+                    ),
+                )
+            composable = any(
+                str(entry.get("entry_kind") or "") in {"term", "list", "abbreviation"} for entry in notes.entries
             )
             updated = await self.projects.update(
                 project_id,
-                {"notes_storage_path": path, "status": "composing", "error": None},
+                {
+                    "notes_storage_path": path,
+                    "status": "ready" if notes.questions and not composable else "composing",
+                    "error": None,
+                },
             )
             return updated or project
         except KnowledgeProjectError:
@@ -314,6 +335,11 @@ class KnowledgeProjectService:
         if not saved:
             raise KnowledgeProjectError("The JSON matched wiki entries that already disagree, so nothing was written.")
         return saved
+
+    async def _citation_catalog(self, workspace_id: str, saved: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Entries a question may cite: this file first, then the canonical wiki."""
+        existing = await self.wiki_entries.list_for_workspace(workspace_id, status="canonical", limit=1000)
+        return citation_catalog(saved, existing)
 
     async def update_switches(
         self,
@@ -802,6 +828,7 @@ class KnowledgeProjectService:
         )
         previous = storage_path_of(plan.get("visual") if isinstance(plan.get("visual"), dict) else None)
         updated = await self.projects.update_plan(str(plan["id"]), {"visual": visual})
+        await self._write_question_visual(plan, visual)
         if previous and previous != path:
             try:
                 await storage.delete(bucket=self.settings.sources_bucket, path=previous)
@@ -819,6 +846,7 @@ class KnowledgeProjectService:
         self._require_visual_edit(project, plan)
         previous = storage_path_of(plan.get("visual") if isinstance(plan.get("visual"), dict) else None)
         updated = await self.projects.update_plan(str(plan["id"]), {"visual": None})
+        await self._write_question_visual(plan, None)
         if previous:
             try:
                 await storage.delete(bucket=self.settings.sources_bucket, path=previous)
@@ -901,7 +929,11 @@ class KnowledgeProjectService:
             if not row or not entry_id:
                 continue
             if item_type == "question":
-                questions_by_entry.setdefault(entry_id, []).append(_question_view(plan, row))
+                question_visual = visual_for_response(
+                    plan.get("visual") if isinstance(plan.get("visual"), dict) else None,
+                    signed.get(storage_path_of(plan.get("visual")) or ""),
+                )
+                questions_by_entry.setdefault(entry_id, []).append(_question_view(plan, row, question_visual))
             elif item_type == "scenario":
                 scenarios_by_entry.setdefault(entry_id, []).append(_scenario_view(plan, row))
         for plan in plans:
@@ -1036,6 +1068,11 @@ class KnowledgeProjectService:
             return project.get("draft_run_id") or project.get("structure_run_id")
         return project.get("visual_run_id") or project.get("draft_run_id") or project.get("structure_run_id")
 
+    async def _write_question_visual(self, plan: dict[str, Any], visual: dict[str, Any] | None) -> None:
+        if plan.get("item_type") != "question" or not plan.get("assessment_id"):
+            return
+        await self.projects.update_row("quizzes", str(plan["assessment_id"]), {"visual": visual})
+
     @staticmethod
     def _require_status(project: dict[str, Any], expected: str) -> None:
         if project.get("status") != expected:
@@ -1045,11 +1082,11 @@ class KnowledgeProjectService:
     def _require_visual_edit(project: dict[str, Any], plan: dict[str, Any]) -> None:
         status = project.get("status")
         item_type = plan.get("item_type")
-        if status == "composing" and item_type == "flashcard":
+        if status == "composing" and item_type in {"flashcard", "question"}:
             return
         if status == "ready":
             return
-        raise KnowledgeProjectError("Images can be added while composing flashcards or after a draft is ready.")
+        raise KnowledgeProjectError("Images can be added while composing flashcards or questions, or after a draft is ready.")
 
 
 def _concept(entry: dict[str, Any]) -> ConceptCard:
@@ -1125,6 +1162,71 @@ def _assessment_rows(
                 },
             )
     return rows
+
+
+def _imported_question_rows(
+    project: dict[str, Any],
+    questions: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Quiz rows for questions that arrived in the notes file."""
+    by_key = {
+        (str(entry.get("entry_kind") or ""), str(entry.get("preferred_label") or "").strip().casefold()): str(entry["id"])
+        for entry in entries
+        if entry.get("id") and str(entry.get("preferred_label") or "").strip()
+    }
+    rows: list[dict[str, Any]] = []
+    for item in questions:
+        pool = AnswerPool.model_validate(item["pool"])
+        subtype = str(item["format"])
+        rendered = draw(pool, subtype)
+        citations: list[dict[str, str]] = []
+        cite = item.get("citation") if isinstance(item.get("citation"), dict) else None
+        if cite:
+            kind = str(cite.get("kind") or "")
+            label = str(cite.get("label") or "").strip()
+            wiki_id = by_key.get((kind, label.casefold()))
+            if not wiki_id:
+                raise KnowledgeProjectError(f"Question cites {kind} '{label}', which is not in this file or the wiki.")
+            citations = [{"uri": f"wiki://{wiki_id}", "type": "wiki"}]
+        row = {
+            "workspace_id": project["workspace_id"],
+            "source_id": project["source_id"],
+            "difficulty": item.get("difficulty") or "medium",
+            "bloom_level": item.get("bloom_level"),
+            "citations": citations,
+            "origin": {"source": "structured_notes", "format": subtype},
+            "question": rendered.question or item["question"],
+            "question_type": subtype,
+            "options": rendered.options,
+            "correct_answer": rendered.correct_answer,
+            "answer_pool": pool.model_dump(),
+            "explanation": item.get("explanation"),
+            "subtype": subtype,
+        }
+        project_id = project.get("id")
+        if project_id:
+            row["knowledge_project_id"] = project_id
+        rows.append(row)
+    return rows
+
+
+def citation_catalog(
+    saved: list[dict[str, Any]],
+    existing: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Entries a question may cite: this file first, then the canonical wiki."""
+    catalog = list(saved)
+    known = {
+        (str(entry.get("entry_kind") or ""), str(entry.get("preferred_label") or "").strip().casefold())
+        for entry in saved
+    }
+    for entry in existing:
+        key = (str(entry.get("entry_kind") or "term"), str(entry.get("preferred_label") or "").strip().casefold())
+        if key[1] and key not in known:
+            catalog.append(entry)
+            known.add(key)
+    return catalog
 
 
 def _flashcard_row(project: dict[str, Any], plan: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
@@ -1241,7 +1343,7 @@ def _scenario_changes(payload: dict[str, Any], *, item_format: str) -> dict[str,
     }
 
 
-def _question_view(plan: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+def _question_view(plan: dict[str, Any], row: dict[str, Any], visual: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "plan_id": str(plan["id"]),
         "assessment_id": str(row["id"]),
@@ -1255,6 +1357,7 @@ def _question_view(plan: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
         "explanation": row.get("explanation"),
         "difficulty": str(row.get("difficulty") or "medium"),
         "draft": plan.get("draft") if isinstance(plan.get("draft"), dict) else None,
+        "visual": visual,
     }
 
 
@@ -1303,7 +1406,7 @@ def _candidates(
     notes: StructuredNotes,
     source_id: str,
     *,
-    knowledge_project_id: str,
+    knowledge_project_id: str | None,
     section_title: str,
 ) -> list[WikiCandidate]:
     evidence = [{"source_id": source_id}]
@@ -1314,9 +1417,10 @@ def _candidates(
             importance = "supporting"
         origin: dict[str, Any] = {
             "source": "structured_notes",
-            "knowledge_project_id": knowledge_project_id,
             "section_title": section_title,
         }
+        if knowledge_project_id:
+            origin["knowledge_project_id"] = knowledge_project_id
         elo_index = entry.get("elo_index")
         if isinstance(elo_index, int) and not isinstance(elo_index, bool):
             origin["elo_index"] = elo_index

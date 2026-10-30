@@ -66,9 +66,20 @@ class FakeJob:
         self.cancelled = True
 
 
+class FakeScheduledRegistry:
+    def __init__(self, job_ids: list[str]) -> None:
+        self.job_ids = job_ids
+
+    def get_job_ids(self) -> list[str]:
+        return self.job_ids
+
+
 class FakeQueue:
-    def __init__(self, jobs: list[FakeJob]) -> None:
+    connection = None
+
+    def __init__(self, jobs: list[FakeJob], scheduled_ids: list[str] | None = None) -> None:
         self.jobs = jobs
+        self.scheduled_job_registry = FakeScheduledRegistry(scheduled_ids or [])
 
 
 def _run_row(**overrides: Any) -> dict[str, Any]:
@@ -182,8 +193,32 @@ def test_cancel_queued_jobs_only_for_this_run(monkeypatch: pytest.MonkeyPatch) -
         lambda _settings: FakeQueue([match, other, empty]),
     )
 
+    monkeypatch.setattr(
+        "app.services.queue.Job.fetch_many",
+        lambda job_ids, connection: [],
+    )
+
     cancel_queued_jobs_for_run(object(), "run-1")  # type: ignore[arg-type]
 
     assert match.cancelled is True
     assert other.cancelled is False
     assert empty.cancelled is False
+
+
+def test_cancel_also_drops_scheduled_narration_resume(monkeypatch: pytest.MonkeyPatch) -> None:
+    resume = FakeJob(("run-1", {"src-1": "sr-1"}))
+    other = FakeJob(("run-2", {"src-2": "sr-2"}))
+    scheduled = {"job-a": resume, "job-b": other}
+    monkeypatch.setattr(
+        "app.services.queue.get_task_queue",
+        lambda _settings: FakeQueue([], scheduled_ids=["job-a", "job-b", "job-gone"]),
+    )
+    monkeypatch.setattr(
+        "app.services.queue.Job.fetch_many",
+        lambda job_ids, connection: [scheduled.get(job_id) for job_id in job_ids],
+    )
+
+    cancel_queued_jobs_for_run(object(), "run-1")  # type: ignore[arg-type]
+
+    assert resume.cancelled is True
+    assert other.cancelled is False

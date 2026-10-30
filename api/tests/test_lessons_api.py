@@ -250,7 +250,7 @@ def test_list_nests_objectives_and_resources() -> None:
         objectives=[
             {"id": "obj-1", "lesson_id": "lesson-1", "position": 1, "text": "Identify OODA.", "code": "MCS-CMBH-1002a", "is_async": True}
         ],
-        resources=[_resource(), _resource(id="res-2", kind="link", label="MarineNet", url="https://elearning.mcele.usmc.mil/x", storage_path=None, filename=None)],
+        resources=[_resource(), _resource(id="res-2", kind="link", label="MCeLE", url="https://elearning.mcele.usmc.mil/x", storage_path=None, filename=None)],
     )
 
     result = asyncio.run(list_lessons(_workspace(), repo))  # type: ignore[arg-type]
@@ -315,7 +315,7 @@ def test_link_must_be_https() -> None:
     with pytest.raises(ValidationError):
         LessonLinkCreate(url="javascript:alert(1)")
     link = LessonLinkCreate(label="  ", url=" https://elearning.mcele.usmc.mil/moodle/mod/h5pactivity/view.php?id=672795#h5pbookid=40930 ")
-    assert link.label == "MarineNet"
+    assert link.label == "MCeLE"
     assert link.url.startswith("https://elearning.mcele.usmc.mil/")
 
 

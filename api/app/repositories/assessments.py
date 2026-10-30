@@ -35,6 +35,11 @@ class AssessmentRepository:
             },
         )
 
+    async def insert_quizzes(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        return await self.db.insert("quizzes", rows)
+
     async def list_quizzes(
         self,
         workspace_id: str,

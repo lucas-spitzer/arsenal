@@ -2,11 +2,12 @@ from copy import deepcopy
 from typing import Any
 
 # Intellex ingest, structure-based. Replaces the old prepare-document +
-# deconstruct-document with four explicit structuring stages:
-#   normalize -> trim -> structure -> validate
+# deconstruct-document with three structuring stages:
+#   normalize -> trim -> structure
 # Structure produces the chapter/section model (taking over chapter grouping
 # from the removed deconstruct-document), and the chunk step turns that model
-# into both ndr_segments and document_chapters.
+# into both ndr_segments and document_chapters. Structure validation runs only
+# when an electronic book is requested, immediately before web enrichment.
 #
 # Knowledge no longer comes from an extraction stage: wiki entries are
 # produced by the wiki_knowledge production-run stages, then managed in Academy.
@@ -50,14 +51,6 @@ BASE_PIPELINE: list[dict[str, Any]] = [
         "status": "pending",
     },
     {
-        "step": "validate-structure",
-        "type": "stage",
-        "module": "intellex",
-        "stage_id": "validate-structure",
-        "stage_version": "1.0",
-        "status": "pending",
-    },
-    {
         "step": "chunk",
         "type": "deterministic",
         "module": "intellex",
@@ -72,6 +65,18 @@ BASE_PIPELINE: list[dict[str, Any]] = [
         "status": "pending",
     },
 ]
+
+# Cross-checks the structured book against the PDF text layer. A figure-heavy
+# chapter often fails this, so ingest finishes without it. An electronic book
+# still stops here before web enrichment.
+VALIDATE_STRUCTURE_STEP: dict[str, Any] = {
+    "step": "validate-structure",
+    "type": "stage",
+    "module": "intellex",
+    "stage_id": "validate-structure",
+    "stage_version": "1.0",
+    "status": "pending",
+}
 
 # Verifies the extracted profile against the public record (status,
 # canonical URL, public publication date) via LLM web search. Inserted
@@ -194,6 +199,7 @@ def build_pipeline(target_artifacts: list[str]) -> list[dict[str, Any]]:
     )
     if ebook_index is not None:
         pipeline.insert(ebook_index, deepcopy(WEB_ENRICHMENT_STEP))
+        pipeline.insert(ebook_index, deepcopy(VALIDATE_STRUCTURE_STEP))
 
     return pipeline
 

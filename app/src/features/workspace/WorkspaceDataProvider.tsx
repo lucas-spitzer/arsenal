@@ -9,6 +9,7 @@ import {
   uploadSource as uploadSourceRequest,
   uploadStructuredData as uploadStructuredDataRequest,
   uploadArtifact as uploadArtifactRequest,
+  uploadLibraryArtifact as uploadLibraryArtifactRequest,
   type Artifact,
   type Flashcard,
   type ProductionRun,
@@ -17,6 +18,7 @@ import {
   type StageRun,
   type Source,
   type KnowledgeRunTitle,
+  type LibraryArtifactUploadRequest,
   type WikiEntry,
 } from '../../lib/workspaceApi'
 import { collapseDuplicateNarrationArtifacts } from '../../lib/foundryMappers'
@@ -186,6 +188,19 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
     [workspaceId, refresh],
   )
 
+  const uploadLibraryArtifact = useCallback(
+    async (request: LibraryArtifactUploadRequest) => {
+      if (!workspaceId) {
+        throw new Error('No active workspace.')
+      }
+
+      const result = await uploadLibraryArtifactRequest(workspaceId, request)
+      await refresh()
+      return result
+    },
+    [workspaceId, refresh],
+  )
+
   const uploadArtifact = useCallback(
     async (file: File) => {
       if (!workspaceId) {
@@ -290,6 +305,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       activeRunCount,
       uploadSource,
       uploadStructuredData,
+      uploadLibraryArtifact,
       uploadArtifact,
       createProductionRun,
       deleteProductionRun,
@@ -315,6 +331,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       activeRunCount,
       uploadSource,
       uploadStructuredData,
+      uploadLibraryArtifact,
       uploadArtifact,
       createProductionRun,
       deleteProductionRun,

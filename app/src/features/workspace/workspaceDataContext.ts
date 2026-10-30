@@ -9,6 +9,8 @@ import type {
   Source,
   WikiEntry,
   KnowledgeRunTitle,
+  LibraryArtifactUploadRequest,
+  LibraryArtifactUploadResult,
 } from '../../lib/workspaceApi'
 
 export interface WorkspaceDataContextValue {
@@ -28,6 +30,7 @@ export interface WorkspaceDataContextValue {
   activeRunCount: number
   uploadSource: (file: File) => Promise<Source>
   uploadStructuredData: (file: File) => Promise<Source>
+  uploadLibraryArtifact: (request: LibraryArtifactUploadRequest) => Promise<LibraryArtifactUploadResult>
   uploadArtifact: (file: File) => Promise<Artifact>
   createProductionRun: (payload: {
     source_ids: string[]
