@@ -21,9 +21,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.artifact_paths import (
-    OUTPUT_FILENAMES,
     book_work_path,
     downloadable_artifact_path,
+    epub_download_name,
     normalized_work_path,
     trimmed_work_path,
 )
@@ -401,7 +401,7 @@ class CreateEbookStageExecutor(_ExecutorBase):
                 chapters=book_to_epub_chapters(book),
             )
 
-            filename = OUTPUT_FILENAMES["electronic_book"]
+            filename = epub_download_name(str(meta["title"]))
             storage_path = downloadable_artifact_path(source, "electronic_book")
             artifact = self.db.create_artifact(
                 {

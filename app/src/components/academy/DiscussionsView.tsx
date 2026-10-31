@@ -14,11 +14,12 @@ import {
   type DiscussionSubmode,
   type DiscussionThread,
 } from '../../lib/assistantApi'
-import { ChatRichText } from './ChatRichText'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { useOutputs } from '../../lib/academyOutputs'
 import { discussionSections } from '../../lib/discussionPrompts'
 import { useLessons } from '../../lib/useLessons'
+import { FoundryLoader } from '../foundry/FoundryLoader'
+import { ChatRichText } from './ChatRichText'
 import {
   StudyHead,
   StudyLessonReference,
@@ -361,7 +362,7 @@ export function DiscussionsView({
         ) : (
           <div className="disc-starters">
             {!threadsLoaded ? (
-              <p className="disc__sub">Loading conversations…</p>
+              <FoundryLoader label="Loading conversations" size="sm" />
             ) : (
               <>
                 {sections.length > 0 ? (

@@ -105,6 +105,7 @@ Run these only on databases that already have a Foundry schema and need a target
 | `../maintenance/delete-production-run.sql` | Operator utility. Deletes one production run and the rows it created. Refuses Study Material runs. Storage files cannot be deleted from SQL. |
 | `../maintenance/delete-study-material-run.sql` | Operator utility. Deletes one Study Material production run, its material, components, versions, artifacts, and stage runs. Storage files cannot be deleted from SQL. |
 | `../maintenance/delete-source.sql` | Operator utility. Deletes one source and the rows it created. Storage files cannot be deleted from SQL. |
+| `../maintenance/delete-audio-runs.sql` | Operator utility. Deletes narration runs, narration files, and uploaded audiobooks in The Basic School only. Leaves other workspaces, tables, stages, sources, and non-audio runs. Storage files cannot be deleted from SQL. |
 
 ### Delete a production run
 
@@ -142,6 +143,22 @@ If the run is still queued or running, stop the worker job first.
 
 ```bash
 supabase db execute --file supabase/maintenance/delete-study-material-run.sql
+```
+
+### Delete audio runs in The Basic School
+
+Narration and audiobook rows are what the Library and Foundry show as audio. This removes those rows, and the runs that exist only to produce narration, for the workspace named The Basic School. Other workspaces stay. Tables, the generate-narration stage, TTS settings, sources, books, wiki, assessments, and study material stay.
+
+1. Stop the worker if any narration run in that workspace is queued or running.
+2. Open `supabase/maintenance/delete-audio-runs.sql`.
+3. Leave `dry_run true` and run it. That run errors on purpose and lists what would be removed.
+4. Set `dry_run false` and run it again.
+5. Delete the listed keys from the `sources` bucket. SQL cannot delete storage objects.
+
+A run that also produced a book, wiki, or assessment stays. Only its narration stage and `narration_audio` target are removed. Uploaded audiobook MP3s are removed with generated narration.
+
+```bash
+supabase db execute --file supabase/maintenance/delete-audio-runs.sql
 ```
 
 ### Delete a source

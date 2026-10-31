@@ -7,6 +7,8 @@ from app.artifact_paths import (
     audiobook_object_path,
     downloadable_artifact_path,
     drafts_path,
+    electronic_book_download_name,
+    epub_download_name,
     narration_clip_path,
     next_available_slug,
     original_path,
@@ -23,6 +25,21 @@ from app.artifact_paths import (
 
 def _source() -> dict[str, str]:
     return {"workspace_slug": "ocs-prep", "slug": "mcdp-1-3-tactics"}
+
+
+def test_epub_download_name_uses_the_book_title() -> None:
+    assert epub_download_name("Warfighting") == "Warfighting.epub"
+    assert epub_download_name("Warfighting / MCDP 1") == "Warfighting MCDP 1.epub"
+    assert epub_download_name("A New Conception of War: John Boyd") == (
+        "A New Conception of War John Boyd.epub"
+    )
+    assert epub_download_name("   ") == "Book.epub"
+    assert electronic_book_download_name(
+        {"filename": "book.epub", "manifest": {"title": "Warfighting"}}
+    ) == "Warfighting.epub"
+    assert electronic_book_download_name(
+        {"filename": "Already Named.epub", "manifest": {}}
+    ) == "Already Named.epub"
 
 
 def test_storage_slug_and_filename() -> None:

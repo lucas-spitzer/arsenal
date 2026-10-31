@@ -28,6 +28,34 @@ OUTPUT_FILENAMES = {
     "wiki_json": "wiki.json",
 }
 
+_DOWNLOAD_NAME_CHARS = set(" ._-'" )
+
+
+def epub_download_name(title: str) -> str:
+    """Browser filename for a finished EPUB. Storage stays at book.epub."""
+    cleaned = "".join(
+        character if character.isalnum() or character in _DOWNLOAD_NAME_CHARS else " "
+        for character in title
+    )
+    cleaned = " ".join(cleaned.split()).strip(" .")
+    return f"{cleaned or 'Book'}.epub"
+
+
+def electronic_book_download_name(artifact: dict[str, Any]) -> str:
+    manifest = artifact.get("manifest")
+    title = ""
+    if isinstance(manifest, dict):
+        raw = manifest.get("title")
+        if isinstance(raw, str):
+            title = raw.strip()
+    if title:
+        return epub_download_name(title)
+    stored = str(artifact.get("filename") or "").strip()
+    if stored.lower().endswith(".epub") and stored.lower() != "book.epub":
+        return stored
+    return epub_download_name("Book")
+
+
 STUDY_MATERIAL_DRAFT = "draft.html"
 STUDY_MATERIAL_FINAL_HTML = "material.html"
 STUDY_MATERIAL_FINAL_PDF = "material.pdf"

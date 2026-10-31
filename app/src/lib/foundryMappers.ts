@@ -95,6 +95,30 @@ export function artifactCardTitle(artifact: Artifact, source: Source | undefined
   return `${name} ${artifactKindShortLabel(artifact.artifact_type)}`
 }
 
+const DOWNLOAD_NAME_CHARS = new Set([' ', '.', '_', '-', "'"])
+
+function epubDownloadName(title: string): string {
+  const cleaned = Array.from(title)
+    .map((character) =>
+      DOWNLOAD_NAME_CHARS.has(character) || /^[\p{L}\p{N}]$/u.test(character) ? character : ' ',
+    )
+    .join('')
+  const collapsed = cleaned.split(/\s+/).join(' ').replace(/^[ .]+|[ .]+$/g, '')
+  return `${collapsed || 'Book'}.epub`
+}
+
+/** Filename shown for an artifact. EPUBs use the book title, not the storage key book.epub. */
+export function artifactFileLabel(
+  artifact: Pick<Artifact, 'artifact_type' | 'filename' | 'manifest'>,
+): string {
+  if (artifact.artifact_type !== 'electronic_book') return artifact.filename
+  const title = artifact.manifest.title
+  if (typeof title === 'string' && title.trim()) return epubDownloadName(title)
+  const stored = artifact.filename.trim()
+  if (stored.toLowerCase().endsWith('.epub') && stored.toLowerCase() !== 'book.epub') return stored
+  return 'Book.epub'
+}
+
 export function narrationArtifactStatusLabel(artifact: Artifact): string | null {
   if (artifact.artifact_type !== 'narration_audio') return null
   if (artifact.manifest.status !== 'in_progress') return null

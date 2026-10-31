@@ -63,7 +63,7 @@ def test_create_ebook_prefers_prior_manifest_publication_metadata() -> None:
     assert created["manifest"]["title"] == "Warfighting"
     assert created["manifest"]["author"] == "United States Marine Corps"
     assert created["manifest"]["identifier"] == "MCDP 1"
-    assert created["filename"] == "book.epub"
+    assert created["filename"] == "Warfighting.epub"
     assert storage.upload.call_args.args[0] == "ocs-prep/src-1/book.epub"
 
 
@@ -101,6 +101,8 @@ def test_create_ebook_falls_back_to_research_when_no_prior_snapshot() -> None:
     created = db.create_artifact.call_args.args[0]
     assert created["manifest"]["title"] == "Warfighting"
     assert created["manifest"]["author"] == "US Marine Corps"
+    assert created["filename"] == "Warfighting.epub"
+    assert created["storage_path"] == "ocs-prep/src-1/book.epub"
 
 
 def test_normalize_reloads_structured_pages_when_parse_was_reused() -> None:

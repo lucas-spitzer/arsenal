@@ -8,6 +8,7 @@ import {
 } from '../../lib/foundryFormat'
 import {
   artifactCardTitle,
+  artifactFileLabel,
   pipelineStepDetail,
   pipelineStepDisplayStatus,
   pipelineStepLabel,
@@ -131,7 +132,7 @@ export function FoundryDetail({ run }: FoundryDetailProps) {
                   <div className="t">{artifactCardTitle(artifact, source)}</div>
                   <div className="s">
                     {narrationArtifactStatusLabel(artifact)
-                      ?? artifact.filename}
+                      ?? artifactFileLabel(artifact)}
                   </div>
                 </span>
               </button>

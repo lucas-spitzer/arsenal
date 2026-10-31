@@ -2,8 +2,9 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
-from app.config import Settings, get_settings
 from app.access import can_read_library
+from app.artifact_paths import electronic_book_download_name
+from app.config import Settings, get_settings
 from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import (
     get_artifact_repository,
@@ -171,15 +172,22 @@ async def download_artifact(
             storage=storage,
         )
 
+    filename = str(row["filename"])
+    download_name = None
+    if row.get("artifact_type") == "electronic_book":
+        filename = electronic_book_download_name(row)
+        download_name = filename
+
     download_url = await storage.create_signed_url(
         bucket=settings.sources_bucket,
         path=row["storage_path"],
         expires_in=settings.signed_url_expires_seconds,
+        download_name=download_name,
     )
 
     return ArtifactDownloadResponse(
         artifact_id=artifact_id,
-        filename=row["filename"],
+        filename=filename,
         download_url=download_url,
         expires_in=settings.signed_url_expires_seconds,
         status="ready",

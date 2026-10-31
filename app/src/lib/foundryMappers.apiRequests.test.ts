@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isApiRequestStageRun, stageRunApiToolLabel } from './foundryMappers'
+import { artifactFileLabel, isApiRequestStageRun, stageRunApiToolLabel } from './foundryMappers'
 import type { StageRun } from './workspaceApi'
 
 function stageRun(overrides: Partial<StageRun> = {}): StageRun {
@@ -103,5 +103,27 @@ describe('API request capture', () => {
       inputs: { model_id: 'simba-3.2' },
     })
     expect(isApiRequestStageRun(run)).toBe(false)
+  })
+})
+
+describe('EPUB file labels', () => {
+  it('names a finished book from its title instead of book.epub', () => {
+    expect(
+      artifactFileLabel({
+        artifact_type: 'electronic_book',
+        filename: 'book.epub',
+        manifest: { title: 'Warfighting / MCDP 1' },
+      }),
+    ).toBe('Warfighting MCDP 1.epub')
+  })
+
+  it('keeps a non-book filename', () => {
+    expect(
+      artifactFileLabel({
+        artifact_type: 'narration_audio',
+        filename: 'narration.json',
+        manifest: { title: 'Warfighting' },
+      }),
+    ).toBe('narration.json')
   })
 })
