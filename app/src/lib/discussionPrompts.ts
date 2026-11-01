@@ -10,8 +10,18 @@ export type DiscussionPrompt = {
 export type DiscussionSection = {
   key: string
   title: string
+  sourceId: string | null
+  createdAt: string
   prompts: DiscussionPrompt[]
 }
+
+export type DiscussionSourceGroup = {
+  sourceId: string | null
+  name: string
+  sections: DiscussionSection[]
+}
+
+export const UNASSIGNED_SOURCE_NAME = 'Unassigned'
 
 function originString(origin: Record<string, unknown>, key: string): string | null {
   const value = origin[key]
@@ -31,14 +41,12 @@ function sourceIdOf(entry: WikiEntry): string | null {
 }
 
 /** Canonical ELOs grouped by the knowledge upload that introduced them. */
-export function discussionSections(
-  entries: WikiEntry[],
-  sourceId: string | null = null,
-): DiscussionSection[] {
+export function discussionSections(entries: WikiEntry[]): DiscussionSection[] {
   type Bucket = {
     key: string
     title: string
     titleUpdatedAt: string
+    sourceId: string | null
     createdAt: string
     prompts: Array<DiscussionPrompt & { order: number; createdAt: string }>
   }
@@ -47,7 +55,6 @@ export function discussionSections(
   for (const entry of entries) {
     if (entry.entry_kind !== 'elo' || entry.status !== 'canonical') continue
     const entrySourceId = sourceIdOf(entry)
-    if (sourceId && entrySourceId !== sourceId) continue
     const prompt = entry.preferred_label.trim()
     if (!prompt) continue
 
@@ -71,6 +78,7 @@ export function discussionSections(
         key,
         title,
         titleUpdatedAt: entry.updated_at,
+        sourceId: entrySourceId,
         createdAt: entry.created_at,
         prompts: [item],
       })
@@ -81,6 +89,7 @@ export function discussionSections(
       existing.title = title
       existing.titleUpdatedAt = entry.updated_at
     }
+    existing.sourceId ??= entrySourceId
     existing.prompts.push(item)
   }
 
@@ -89,6 +98,8 @@ export function discussionSections(
     .map((group) => ({
       key: group.key,
       title: group.title,
+      sourceId: group.sourceId,
+      createdAt: group.createdAt,
       prompts: group.prompts
         .sort(
           (left, right) =>
@@ -103,4 +114,34 @@ export function discussionSections(
           prompt,
         })),
     }))
+}
+
+/**
+ * Batches grouped under their source, sources sorted by name. Batches keep the
+ * order from `discussionSections` (oldest first). A batch whose source is
+ * missing or unknown falls under "Unassigned", listed last.
+ */
+export function discussionSourceGroups(
+  sections: DiscussionSection[],
+  sources: ReadonlyArray<{ id: string; name: string }>,
+): DiscussionSourceGroup[] {
+  const names = new Map(sources.map((source) => [source.id, source.name]))
+  const groups = new Map<string | null, DiscussionSourceGroup>()
+
+  for (const section of sections) {
+    const name = section.sourceId ? names.get(section.sourceId) : undefined
+    const sourceId = name ? section.sourceId : null
+    const existing = groups.get(sourceId)
+    if (existing) {
+      existing.sections.push(section)
+      continue
+    }
+    groups.set(sourceId, { sourceId, name: name ?? UNASSIGNED_SOURCE_NAME, sections: [section] })
+  }
+
+  return [...groups.values()].sort((left, right) => {
+    if (left.sourceId === null) return 1
+    if (right.sourceId === null) return -1
+    return left.name.localeCompare(right.name)
+  })
 }

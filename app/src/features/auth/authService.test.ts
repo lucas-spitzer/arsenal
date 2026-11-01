@@ -10,7 +10,12 @@ vi.mock('../../lib/supabaseClient', () => ({
 }))
 
 import { supabase } from '../../lib/supabaseClient'
-import { getAccessToken, rememberSession } from './authService'
+import {
+  getAccessToken,
+  rememberSession,
+  SESSION_LOOKUP_TIMEOUT_MS,
+  SessionLookupTimeoutError,
+} from './authService'
 
 const getSession = vi.mocked(supabase.auth.getSession)
 
@@ -71,5 +76,41 @@ describe('getAccessToken', () => {
 
     await expect(Promise.all([first, second])).resolves.toEqual(['shared', 'shared'])
     expect(getSession).toHaveBeenCalledOnce()
+  })
+
+  it('retries getSession once when the first lookup times out', async () => {
+    vi.useFakeTimers()
+    try {
+      let calls = 0
+      getSession.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            calls += 1
+            if (calls === 1) return
+            resolve({ data: { session: session('fresh', 3600) }, error: null })
+          }),
+      )
+
+      const pending = getAccessToken()
+      await vi.advanceTimersByTimeAsync(SESSION_LOOKUP_TIMEOUT_MS)
+      await expect(pending).resolves.toBe('fresh')
+      expect(getSession).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects when both session lookups time out', async () => {
+    vi.useFakeTimers()
+    try {
+      getSession.mockImplementation(() => new Promise(() => {}))
+      const pending = getAccessToken()
+      const rejected = expect(pending).rejects.toBeInstanceOf(SessionLookupTimeoutError)
+      await vi.advanceTimersByTimeAsync(SESSION_LOOKUP_TIMEOUT_MS * 2)
+      await rejected
+      expect(getSession).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

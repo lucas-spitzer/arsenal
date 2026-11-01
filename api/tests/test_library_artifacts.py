@@ -160,6 +160,18 @@ def test_audiobook_upload_stores_a_playable_mp3_on_the_source() -> None:
     assert storage.deleted == []
 
 
+def test_audiobook_upload_records_the_mp3_length() -> None:
+    frame = bytes([0xFF, 0xFB, 0x90, 0x00])
+    content = frame + b"\x00" * (16_000 - len(frame))
+    _result, artifacts, _wiki, _quizzes, _storage = _upload(
+        artifact_type="audiobook",
+        filename="Warfighting.mp3",
+        content=content,
+    )
+    assert artifacts.created[0]["manifest"]["duration_seconds"] == 1
+    assert artifacts.created[0]["manifest"]["title"] == "Warfighting"
+
+
 def test_second_audiobook_with_the_same_title_gets_a_new_path() -> None:
     existing = _Artifacts(
         [

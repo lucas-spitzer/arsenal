@@ -21,6 +21,7 @@ from app.services.assistant import (
     AssistantService,
     discussion_history,
     elo_check_for_entry,
+    short_thread_title,
 )
 
 
@@ -140,9 +141,17 @@ class _Threads:
         }
 
     async def append_message(self, payload: dict[str, object]) -> dict[str, object]:
-        row = {"id": "msg-1", "created_at": "2026-10-28T00:00:00Z", "citations": [], **payload}
+        row = {
+            "id": f"msg-{len(self.messages) + 1}",
+            "created_at": "2026-10-28T00:00:00Z",
+            "citations": [],
+            **payload,
+        }
         self.messages.append(row)
         return row
+
+    async def touch_thread(self, thread_id: str, workspace_id: str, user_id: str) -> None:
+        return None
 
 
 class _Wiki:
@@ -174,7 +183,44 @@ def _user() -> CurrentUser:
     return CurrentUser(id="student-1", email="s@example.com", role="student")
 
 
-def test_elo_thread_opens_with_the_question() -> None:
+def test_thread_title_keeps_five_words() -> None:
+    question = (
+        "Explain the obligations of loyal subordination and how junior "
+        "officers maintain forthright dialogue with superiors."
+    )
+
+    assert short_thread_title(question) == "Explain the obligations of loyal"
+    assert short_thread_title("Patrol base") == "Patrol base"
+    assert short_thread_title("  Explain the commission.  ") == "Explain the commission"
+
+    entry = {
+        "id": "elo-1",
+        "workspace_id": "ws-1",
+        "entry_kind": "elo",
+        "status": "canonical",
+        "preferred_label": question,
+        "definition": "A commission is a grant of authority.",
+    }
+    threads = _Threads()
+
+    detail = asyncio.run(
+        create_discussion_thread(
+            CreateDiscussionThreadRequest(title=question, wiki_entry_id="elo-1"),
+            _workspace(),
+            _user(),
+            threads,  # type: ignore[arg-type]
+            _Wiki(entry),  # type: ignore[arg-type]
+            _RecordingAssistant(),  # type: ignore[arg-type]
+        )
+    )
+
+    assert threads.created is not None
+    assert threads.created["title"] == "Explain the obligations of loyal"
+    assert detail.title == "Explain the obligations of loyal"
+    assert detail.messages[0].content == question
+
+
+def test_elo_thread_opens_with_the_students_question() -> None:
     entry = {
         "id": "elo-1",
         "workspace_id": "ws-1",
@@ -184,6 +230,7 @@ def test_elo_thread_opens_with_the_question() -> None:
         "definition": "A commission is a grant of authority.",
     }
     threads = _Threads()
+    assistant = _RecordingAssistant()
 
     detail = asyncio.run(
         create_discussion_thread(
@@ -192,14 +239,18 @@ def test_elo_thread_opens_with_the_question() -> None:
             _user(),
             threads,  # type: ignore[arg-type]
             _Wiki(entry),  # type: ignore[arg-type]
+            assistant,  # type: ignore[arg-type]
         )
     )
 
     assert threads.created is not None
     assert threads.created["wiki_entry_id"] == "elo-1"
-    assert detail.messages[0].role == "assistant"
+    assert [message.role for message in detail.messages] == ["user", "assistant"]
     assert detail.messages[0].content == "Explain the commission."
     assert "grant of authority" not in detail.messages[0].content
+    assert assistant.check is None
+    assert assistant.messages[0].role == "user"
+    assert detail.messages[1].content == "Name the missing part."
 
 
 def test_non_elo_cannot_open_a_checked_discussion() -> None:
@@ -220,6 +271,7 @@ def test_non_elo_cannot_open_a_checked_discussion() -> None:
                 _user(),
                 _Threads(),  # type: ignore[arg-type]
                 _Wiki(entry),  # type: ignore[arg-type]
+                _RecordingAssistant(),  # type: ignore[arg-type]
             )
         )
 

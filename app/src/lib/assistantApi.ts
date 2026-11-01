@@ -61,7 +61,7 @@ export interface DiscussionThread {
   source_id: string | null
   /** Academy ELO class this thread focuses on ("Discuss this class"). */
   lesson_id?: string | null
-  /** Wiki ELO whose question opened this thread. The expected answer stays on the server. */
+  /** Wiki ELO the student asked about. The expected answer stays on the server. */
   wiki_entry_id?: string | null
   created_at: string
   updated_at: string
@@ -93,6 +93,12 @@ export interface SendThreadMessageResponse {
   user_message: DiscussionMessage
   assistant_message: DiscussionMessage
   grounded: boolean
+}
+
+/** Thread names stay at five words. Longer text keeps its first five. */
+export function threadTitle(value: string): string {
+  const title = value.trim().split(/\s+/).filter(Boolean).slice(0, 5).join(' ')
+  return title.replace(/[.,;:!?]+$/, '') || title
 }
 
 export async function listThreads(workspaceId: string): Promise<DiscussionThread[]> {

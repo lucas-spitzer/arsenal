@@ -87,9 +87,10 @@ class CreateDiscussionThreadRequest(BaseModel):
     submode: DiscussionSubmode = "tbs"
     source_id: str | None = None
     lesson_id: str | None = None
-    # Canonical ELO whose question opens the thread. The stored definition stays server-side.
+    # Canonical ELO. Its question is the student's first message; the tutor answers it.
+    # The stored definition stays server-side.
     wiki_entry_id: str | None = None
-    # Optional assistant-authored opener persisted as the first message.
+    # Assistant welcome for a thread the student starts without an ELO.
     seed_prompt: str | None = None
 
 

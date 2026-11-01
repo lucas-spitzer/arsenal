@@ -5,6 +5,36 @@ import { supabase } from '../../lib/supabaseClient'
 
 // Refresh a little early so a request does not leave with a token that expires in flight.
 const EXPIRY_SKEW_SECONDS = 60
+// A tab frozen mid-refresh can hold the auth lock until its timers resume.
+// Bound the wait so the reader can fail and retry instead of spinning.
+export const SESSION_LOOKUP_TIMEOUT_MS = 8_000
+
+export class SessionLookupTimeoutError extends Error {
+  constructor() {
+    super('Session lookup timed out.')
+    this.name = 'SessionLookupTimeoutError'
+  }
+}
+
+function isSessionLookupTimeout(error: unknown): boolean {
+  return error instanceof SessionLookupTimeoutError
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new SessionLookupTimeoutError()), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
 
 type CachedToken = {
   token: string
@@ -89,8 +119,11 @@ export async function getAccessToken(): Promise<string | null> {
   return pendingSession
 }
 
-async function readSessionToken(): Promise<string | null> {
-  const { data, error } = await supabase.auth.getSession()
+async function readSessionOnce(): Promise<string | null> {
+  const { data, error } = await withTimeout(
+    supabase.auth.getSession(),
+    SESSION_LOOKUP_TIMEOUT_MS,
+  )
 
   if (error) {
     throw error
@@ -98,4 +131,13 @@ async function readSessionToken(): Promise<string | null> {
 
   rememberSession(data.session)
   return data.session?.access_token ?? null
+}
+
+async function readSessionToken(): Promise<string | null> {
+  try {
+    return await readSessionOnce()
+  } catch (error: unknown) {
+    if (!isSessionLookupTimeout(error)) throw error
+    return await readSessionOnce()
+  }
 }

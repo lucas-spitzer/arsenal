@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js'
 import { ApiError, getCurrentUser, hasApiBaseUrl } from '../../lib/apiClient'
 import type { CurrentUserResponse } from '../../lib/apiClient'
 import { supabase } from '../../lib/supabaseClient'
+import { settleQuietRecheck } from './approvalRecheck'
 import { rememberSession } from './authService'
 import { AuthContext } from './authContext'
 import type { ApprovalStatus, AuthContextValue } from './authContext'
@@ -75,19 +76,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
       } catch (error) {
         if (!isCurrent) return
 
-        wasApprovedRef.current = false
+        const status = error instanceof ApiError ? error.status : null
+        const outcome = settleQuietRecheck(quiet, status)
 
-        if (error instanceof ApiError && error.status === 403) {
+        if (outcome.kind === 'rejected') {
+          wasApprovedRef.current = false
           setApprovedUser(null)
           setApprovalStatus('rejected')
-          setApprovalError('This Google account is not approved for Arsenal access.')
-          return
-        }
-
-        if (error instanceof ApiError && error.status === 401) {
-          setApprovedUser(null)
-          setApprovalStatus('rejected')
-          setApprovalError('Your session could not be verified. Sign in again.')
+          setApprovalError(
+            status === 403
+              ? 'This Google account is not approved for Arsenal access.'
+              : 'Your session could not be verified. Sign in again.',
+          )
           return
         }
 
@@ -95,10 +95,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
           'Arsenal approval check failed:',
           error instanceof Error ? error.message : error,
         )
-        // Keep an already-approved session usable if a transient network blip
-        // hits during a quiet recheck (e.g. tab focus token refresh).
-        if (quiet) return
+        // A blip during a tab-focus refresh keeps the approved session mounted.
+        if (outcome.kind === 'keep-approved') return
 
+        wasApprovedRef.current = false
         setApprovedUser(null)
         setApprovalStatus('unavailable')
         setApprovalError('Arsenal could not reach the approval service.')

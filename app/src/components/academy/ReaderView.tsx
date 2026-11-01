@@ -30,18 +30,41 @@ import { isAdminAccess } from '../../features/auth/access'
 import { useAuth } from '../../features/auth/authContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import {
-  buildBlocks,
   buildNarration,
   buildNarrationClips,
   globalsFromDomSelection,
   matchWikiTerms,
-  pickNarrationSet,
   resolveReaderSelection,
   sentenceCueAt,
   type Block,
   type NarrationClip,
   type SpokenWord,
 } from '../../lib/readerContent'
+import {
+  chapterIndexForSeq,
+  columnCountFromExtent,
+  columnStride,
+  globalSpread,
+  locateSpread,
+  nextUnmeasuredChapter,
+  seqForSpoken,
+  splitReaderChapters,
+  spreadsForColumns,
+  totalColumns,
+  wordBlocksForChapter,
+} from '../../lib/readerChapters'
+import {
+  createReaderLoadSignal,
+  isAbortError,
+  liveAfterMissingScope,
+  loadReaderNarration,
+  loadReaderText,
+  narrationFailureWarning,
+  readReaderCache,
+  shouldResumeReaderLoad,
+  writeReaderCache,
+  type ReaderCacheEntry,
+} from '../../lib/readerLoad'
 import { defineReaderTerm, type ReaderDefineMode } from '../../lib/readerDefineApi'
 import { ApiError } from '../../lib/apiClient'
 import { createWikiEntry } from '../../lib/wikiApi'
@@ -49,13 +72,7 @@ import { sourceDisplayName } from '../../lib/sourceDisplay'
 import type { AcademyPage, AcademyScope } from './types'
 import { useIdleChrome } from './useIdleChrome'
 import { useReaderFlip } from './useReaderFlip'
-import {
-  getNarrationAudioUrl,
-  listAllSourceSegments,
-  listSourceChapters,
-  listSourceNarration,
-  type NarrationSegment,
-} from '../../lib/sourcesApi'
+import { getNarrationAudioUrl, type NarrationSegment } from '../../lib/sourcesApi'
 
 const SESSION_SECONDS = 25 * 60
 // Gap between the two pages of a spread (and between overflow columns). Must
@@ -95,6 +112,44 @@ type LiveContent = {
 }
 
 const NO_NARRATION = new Map<string, NarrationSegment>()
+const NO_TERMS = new Map<number, string>()
+const EMPTY_BLOCKS: Block[] = []
+
+// The offscreen measurer mounts the same blocks so line breaks match the
+// visible chapter. Those blocks are not interactive.
+function ignoreTermClick(): void {}
+const EMPTY_LIVE: LiveContent = {
+  blocks: [],
+  narration: NO_NARRATION,
+  loading: false,
+  error: null,
+  narrationWarning: null,
+}
+
+function liveFromCache(entry: ReaderCacheEntry): LiveContent {
+  return {
+    blocks: entry.blocks,
+    narration: entry.narration,
+    loading: false,
+    error: null,
+    narrationWarning: entry.narrationWarning,
+  }
+}
+
+function scheduleIdle(callback: () => void): number {
+  if (typeof window.requestIdleCallback === 'function') {
+    return window.requestIdleCallback(callback)
+  }
+  return window.setTimeout(callback, 1)
+}
+
+function cancelIdle(id: number): void {
+  if (typeof window.cancelIdleCallback === 'function') {
+    window.cancelIdleCallback(id)
+    return
+  }
+  window.clearTimeout(id)
+}
 
 // Deep links land here as /app/reader/:sourceId?seg=N where `seg` is the
 // segment's stable sequence_index (see api build_reader_link) — never a page
@@ -116,84 +171,168 @@ export function ReaderView({
   const activeSource = sources.find((source) => source.id === sourceId)
   const ebookTitle = activeSource ? sourceDisplayName(activeSource) : 'Ebook'
 
-  const [live, setLive] = useState<LiveContent>({
-    blocks: [],
-    narration: NO_NARRATION,
-    loading: false,
-    error: null,
-    narrationWarning: null,
+  const [live, setLive] = useState<LiveContent>(() => {
+    if (!sourceId || !workspaceId) return EMPTY_LIVE
+    const cached = readReaderCache(workspaceId, sourceId)
+    if (cached) return liveFromCache(cached)
+    return { ...EMPTY_LIVE, loading: true }
+  })
+  const [resumeNonce, setResumeNonce] = useState(0)
+  const failedWhileHiddenRef = useRef(false)
+  const liveRef = useRef(live)
+  useEffect(() => {
+    liveRef.current = live
   })
 
-  // Fetch is keyed on (workspace, source); the sync setLive puts the viewport
-  // into its loading state for the whole request, same pattern as the
-  // measurement effect below. Narration is optional — a failure there never
-  // blocks reading, but we surface a soft warning instead of silent fallback.
+  // Text opens the book. Narration fills in afterward and never puts the
+  // opening animation back up. A cached book paints immediately; a refresh
+  // keeps those pages on screen. A fetch that dies while the tab is hidden
+  // stays in loading so the visible-tab handler can start one new attempt.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!sourceId || !workspaceId) return
+    if (!sourceId || !workspaceId) {
+      setLive((prev) => liveAfterMissingScope(prev))
+      return
+    }
+    const cached = readReaderCache(workspaceId, sourceId)
     let cancelled = false
-    setLive({
-      blocks: [],
-      narration: NO_NARRATION,
-      loading: true,
-      error: null,
-      narrationWarning: null,
-    })
-    Promise.all([
-      listAllSourceSegments(workspaceId, sourceId),
-      listSourceChapters(workspaceId, sourceId),
-      listSourceNarration(workspaceId, sourceId).then(
-        (rows) => ({ rows, warning: null as string | null }),
-        (error: unknown) => ({
-          rows: [] as NarrationSegment[],
-          warning:
-            error instanceof Error
-              ? `Couldn’t load narration audio (${error.message}). Using estimated pacing.`
-              : 'Couldn’t load narration audio. Using estimated pacing.',
-        }),
-      ),
-    ])
-      .then(([segments, chapters, narrationResult]) => {
+    let showedText = cached != null
+    let stage: 'text' | 'narration' = 'text'
+    const parent = new AbortController()
+    const loadSignal = createReaderLoadSignal(parent.signal)
+    if (cached) {
+      setLive(liveFromCache(cached))
+    } else if (liveRef.current.blocks.length === 0) {
+      setLive({
+        blocks: [],
+        narration: NO_NARRATION,
+        loading: true,
+        error: null,
+        narrationWarning: null,
+      })
+    }
+
+    const remember = (entry: ReaderCacheEntry) => {
+      writeReaderCache(workspaceId, sourceId, entry)
+    }
+
+    const failOpen = (error: unknown) => {
+      if (cancelled || showedText) return
+      const message = isAbortError(error)
+        ? 'The book took too long to load.'
+        : error instanceof Error
+          ? error.message
+          : 'Failed to load the source.'
+      setLive({
+        blocks: [],
+        narration: NO_NARRATION,
+        loading: false,
+        error: message,
+        narrationWarning: null,
+      })
+    }
+
+    void loadReaderText(workspaceId, sourceId, loadSignal.signal)
+      .then((blocks) => {
         if (cancelled) return
-        const narration = new Map<string, NarrationSegment>()
-        const timed = narrationResult.rows.filter((row) => row.words.length > 0)
-        for (const row of pickNarrationSet(timed)) {
-          narration.set(row.segment_id, row)
-        }
+        showedText = true
+        stage = 'narration'
+        failedWhileHiddenRef.current = false
+        const narration = cached?.narration ?? NO_NARRATION
+        const narrationWarning = cached?.narrationWarning ?? null
+        const entry = { blocks, narration, narrationWarning }
+        remember(entry)
         setLive({
-          blocks: buildBlocks(segments, chapters),
+          blocks,
           narration,
           loading: false,
           error: null,
-          narrationWarning: narrationResult.warning,
+          narrationWarning,
+        })
+        return loadReaderNarration(workspaceId, sourceId, loadSignal.signal)
+      })
+      .then((narrationResult) => {
+        if (cancelled || !narrationResult) return
+        setLive((prev) => {
+          const entry = {
+            blocks: prev.blocks,
+            narration: narrationResult.narration,
+            narrationWarning: narrationResult.warning,
+          }
+          remember(entry)
+          return { ...prev, ...entry, loading: false, error: null }
         })
       })
-      .catch((err: unknown) => {
+      .catch((error: unknown) => {
         if (cancelled) return
-        const message = err instanceof Error ? err.message : 'Failed to load the source.'
-        setLive({
-          blocks: [],
-          narration: NO_NARRATION,
-          loading: false,
-          error: message,
-          narrationWarning: null,
-        })
+        if (isAbortError(error) && document.hidden) {
+          failedWhileHiddenRef.current = true
+          return
+        }
+        if (stage === 'narration') {
+          const warning = narrationFailureWarning(
+            isAbortError(error) ? new Error('the request timed out') : error,
+          )
+          setLive((prev) => {
+            if (prev.blocks.length > 0) {
+              remember({
+                blocks: prev.blocks,
+                narration: prev.narration,
+                narrationWarning: warning,
+              })
+            }
+            return { ...prev, loading: false, narrationWarning: warning }
+          })
+          return
+        }
+        failOpen(error)
       })
+      .finally(() => {
+        loadSignal.cancelTimer()
+      })
+
     return () => {
       cancelled = true
+      parent.abort()
+      loadSignal.cancelTimer()
     }
-  }, [sourceId, workspaceId])
+  }, [sourceId, workspaceId, resumeNonce])
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const isLive = sourceId != null
-  const blocks = isLive ? live.blocks : []
-  const { wordBlocks, total } = useMemo(() => buildNarration(blocks), [blocks])
+  useEffect(() => {
+    const onVisibility = () => {
+      if (
+        !shouldResumeReaderLoad({
+          visible: document.visibilityState === 'visible',
+          loading: liveRef.current.loading,
+          failedWhileHidden: failedWhileHiddenRef.current,
+        })
+      ) {
+        return
+      }
+      failedWhileHiddenRef.current = false
+      setResumeNonce((nonce) => nonce + 1)
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
 
-  const [spread, setSpread] = useState(0)
-  const [spreadCount, setSpreadCount] = useState(1)
-  const [pageCount, setPageCount] = useState(1)
+  const isLive = sourceId != null
+  const blocks = useMemo(
+    () => (isLive ? live.blocks : EMPTY_BLOCKS),
+    [isLive, live.blocks],
+  )
+  const { wordBlocks, total } = useMemo(() => buildNarration(blocks), [blocks])
+  const chapters = useMemo(() => splitReaderChapters(blocks), [blocks])
+
+  const [chapterIndex, setChapterIndex] = useState(0)
+  const [localSpread, setLocalSpread] = useState(0)
+  const [geometry, setGeometry] = useState<{
+    width: number
+    height: number
+    counts: (number | undefined)[]
+  }>({ width: 0, height: 0, counts: [] })
   const [colStride, setColStride] = useState(0)
-  const [chapterCols, setChapterCols] = useState<{ col: number; title: string }[]>([])
   const [tocOpen, setTocOpen] = useState(false)
   const [viewportTick, setViewportTick] = useState(0)
 
@@ -233,11 +372,16 @@ export function ReaderView({
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const readerRootRef = useRef<HTMLElement | null>(null)
   const flowRef = useRef<HTMLDivElement | null>(null)
+  const measureFlowRef = useRef<HTMLDivElement | null>(null)
   const blockRefs = useRef<Map<number, HTMLElement>>(new Map())
+  const measureRefs = useRef<Map<number, HTMLElement>>(new Map())
 
-  // Mirror of the (clamped) spread for event handlers, so rapid successive
-  // turns in the same frame never read a stale value.
-  const spreadRef = useRef(0)
+  // Mirrors of the clamped position so rapid turns in the same frame never
+  // read a stale value.
+  const chapterIndexRef = useRef(0)
+  const localSpreadRef = useRef(0)
+  const columnCountsRef = useRef<(number | undefined)[]>([])
+  const pendingEdgeRef = useRef<'end' | null>(null)
 
   const [reducedMotion, setReducedMotion] = useState(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -260,8 +404,11 @@ export function ReaderView({
   useEffect(() => {
     pendingTargetRef.current = seg
     cancelFlip()
-    spreadRef.current = 0
-    setSpread(0)
+    chapterIndexRef.current = 0
+    localSpreadRef.current = 0
+    setChapterIndex(0)
+    setLocalSpread(0)
+    setGeometry({ width: 0, height: 0, counts: [] })
     setPlaying(false)
     setSpoken(-1)
     setActiveSentence(-1)
@@ -287,9 +434,20 @@ export function ReaderView({
   // Match canonical wiki entry labels/aliases against the word stream; matched
   // words become tappable links. Free-text selection opens the same popup for
   // wiki hits or contextual/general define assists.
+  const columnCounts = useMemo<(number | undefined)[]>(() => {
+    if (geometry.counts.length === chapters.length) return geometry.counts
+    return Array.from({ length: chapters.length }, () => undefined)
+  }, [geometry.counts, chapters.length])
+  const visibleChapter = chapters[Math.min(chapterIndex, Math.max(chapters.length - 1, 0))]
+  const visibleWordBlocks = useMemo(
+    () => wordBlocksForChapter(wordBlocks, visibleChapter),
+    [wordBlocks, visibleChapter],
+  )
+  // Wiki matching walks every word. Limit it to the mounted chapter so the
+  // rest of the book is not on the path to the first page.
   const termByWord = useMemo(
-    () => matchWikiTerms(wordBlocks, wikiEntries),
-    [wordBlocks, wikiEntries],
+    () => matchWikiTerms(visibleWordBlocks, wikiEntries),
+    [visibleWordBlocks, wikiEntries],
   )
   const entryById = useMemo(
     () => new Map(wikiEntries.map((entry) => [entry.id, entry])),
@@ -505,118 +663,194 @@ export function ReaderView({
   }, [blocks])
 
   // --- Pagination measurement ---------------------------------------------
-  // The browser lays the stream into fixed-height columns (two visible per
-  // spread); we only measure how many columns/spreads exist and where chapter
-  // starts land, for nav + the running header. Recomputed on resize.
+  // The on-screen flow is one chapter. Its column count is measured here.
+  // The other chapters are measured one at a time offscreen so the first page
+  // does not wait on the rest of the book. column-width only accepts lengths.
   /* eslint-disable react-hooks/set-state-in-effect */
   useLayoutEffect(() => {
-    if (blocks.length === 0) {
-      setSpreadCount(1)
-      setPageCount(1)
+    if (chapters.length === 0) {
       setColStride(0)
-      setChapterCols([])
       return
     }
     const vp = viewportRef.current
     const flow = flowRef.current
-    if (!vp || !flow) return
+    const chapter = visibleChapter
+    if (!vp || !flow || !chapter) return
     const width = vp.clientWidth
-    if (width <= 0) return
+    const height = vp.clientHeight
+    if (width <= 0 || height <= 0) return
 
-    // column-width only accepts lengths (percentage calc() is invalid CSS and
-    // gets dropped), so the two-page column width must be set in pixels here,
-    // before the column extent below is measured.
     flow.style.columnWidth = `${(width - GAP) / 2}px`
-
-    const stride = (width + GAP) / 2 // one column + one gap
-    const lastEl = blockRefs.current.get(blocks[blocks.length - 1].seq)
+    const stride = columnStride(width, GAP)
+    const last = chapter.blocks[chapter.blocks.length - 1]
+    const lastEl = blockRefs.current.get(last.seq)
     const lastRight = lastEl ? lastEl.offsetLeft + lastEl.offsetWidth : 0
     const extent = Math.max(flow.scrollWidth, lastRight)
-    const totalColumns = Math.max(1, Math.round((extent + GAP) / stride))
-    const spreads = Math.max(1, Math.ceil(totalColumns / 2))
-
-    const cols: { col: number; title: string }[] = []
-    for (const b of blocks) {
-      if (!b.isChapterStart) continue
-      const el = blockRefs.current.get(b.seq)
-      if (!el) continue
-      cols.push({ col: Math.round(el.offsetLeft / stride), title: b.chapterTitle })
-    }
-
+    const columns = columnCountFromExtent(extent, width, GAP)
     setColStride(stride)
-    setPageCount(totalColumns)
-    setSpreadCount(spreads)
-    setChapterCols(cols)
-  }, [blocks, viewportTick])
+
+    const edgeLocal = pendingEdgeRef.current === 'end' ? spreadsForColumns(columns) - 1 : null
+    if (edgeLocal != null) pendingEdgeRef.current = null
+
+    setGeometry((prev) => {
+      const sameBox = prev.width === width && prev.height === height
+      const counts =
+        sameBox && prev.counts.length === chapters.length
+          ? prev.counts.slice()
+          : Array.from({ length: chapters.length }, () => undefined)
+      if (counts[chapter.index] === columns && sameBox) return prev
+      counts[chapter.index] = columns
+      return { width, height, counts }
+    })
+    if (edgeLocal != null && edgeLocal !== localSpreadRef.current) {
+      localSpreadRef.current = edgeLocal
+      setLocalSpread(edgeLocal)
+    }
+  }, [chapters, visibleChapter, viewportTick])
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  const measureAt = nextUnmeasuredChapter(chapters.length, columnCounts, chapterIndex)
+  const measureChapter = measureAt >= 0 ? chapters[measureAt] : undefined
+
+  useEffect(() => {
+    if (!measureChapter || geometry.width <= 0 || geometry.height <= 0) return
+    let cancelled = false
+    const width = geometry.width
+    const idle = scheduleIdle(() => {
+      if (cancelled) return
+      const flow = measureFlowRef.current
+      if (!flow) return
+      const last = measureChapter.blocks[measureChapter.blocks.length - 1]
+      const lastEl = measureRefs.current.get(last.seq)
+      const lastRight = lastEl ? lastEl.offsetLeft + lastEl.offsetWidth : 0
+      const extent = Math.max(flow.scrollWidth, lastRight)
+      const columns = columnCountFromExtent(extent, width, GAP)
+      setGeometry((prev) => {
+        if (prev.width !== width || prev.counts.length !== chapters.length) return prev
+        if (prev.counts[measureChapter.index] === columns) return prev
+        const counts = prev.counts.slice()
+        counts[measureChapter.index] = columns
+        return { ...prev, counts }
+      })
+    })
+    return () => {
+      cancelled = true
+      cancelIdle(idle)
+    }
+  }, [measureChapter, geometry.width, geometry.height, chapters.length])
 
   useEffect(() => {
     const vp = viewportRef.current
     if (!vp) return
+    const size = { width: vp.clientWidth, height: vp.clientHeight }
     const ro = new ResizeObserver(() => {
+      const width = vp.clientWidth
+      const height = vp.clientHeight
+      if (width === size.width && height === size.height) return
+      size.width = width
+      size.height = height
       // Reflow invalidates the flip overlay's frozen page clones.
       cancelFlip()
-      setViewportTick((t) => t + 1)
+      setViewportTick((tick) => tick + 1)
     })
     ro.observe(vp)
     return () => ro.disconnect()
   }, [cancelFlip])
 
-  const lastSpread = Math.max(spreadCount - 1, 0)
-  const safeSpread = Math.min(spread, lastSpread)
+  const activeChapterIndex = visibleChapter?.index ?? 0
+  const knownColumns = columnCounts[activeChapterIndex]
+  const localSpreadCount = knownColumns == null ? 1 : spreadsForColumns(knownColumns)
+  const safeLocal = Math.min(localSpread, Math.max(localSpreadCount - 1, 0))
+  const spreadIndex = globalSpread(columnCounts, activeChapterIndex, safeLocal)
+  const measuredPages = totalColumns(columnCounts)
+  const geometryReady = measuredPages != null
+  const pageCount = measuredPages ?? knownColumns ?? 0
+  const atStart = activeChapterIndex === 0 && safeLocal === 0
+  const atEnd =
+    chapters.length === 0 ||
+    (activeChapterIndex === chapters.length - 1 &&
+      knownColumns != null &&
+      safeLocal >= localSpreadCount - 1)
 
   useEffect(() => {
-    spreadRef.current = safeSpread
+    chapterIndexRef.current = chapterIndex
+    localSpreadRef.current = safeLocal
+    columnCountsRef.current = columnCounts
   })
 
-  // Every spread change funnels through here; `mode` picks the motion.
-  // 'flip' is only honest for single-page turns — jumps use 'fade' (a short
-  // opacity dip) or 'none' (instant snap). Reduced motion always snaps.
-  const goToSpread = useCallback(
-    (target: number, mode: 'flip' | 'fade' | 'none') => {
-      const clamped = Math.min(Math.max(target, 0), lastSpread)
-      const current = spreadRef.current
-      if (clamped === current) return
-      spreadRef.current = clamped
-      setSpread(clamped)
-      if (reducedMotion || mode === 'none') {
+  // Every position change funnels through here. 'flip' is only honest for a
+  // single page turn inside one chapter. Chapter changes and jumps snap or fade.
+  const goToLocal = useCallback(
+    (chapter: number, local: number, mode: 'flip' | 'fade' | 'none') => {
+      const maxChapter = Math.max(chapters.length - 1, 0)
+      const nextChapter = Math.min(Math.max(chapter, 0), maxChapter)
+      const nextLocal = Math.max(0, local)
+      const currentChapter = chapterIndexRef.current
+      const currentLocal = localSpreadRef.current
+      if (nextChapter === currentChapter && nextLocal === currentLocal) return
+      const sameChapter = nextChapter === currentChapter
+      chapterIndexRef.current = nextChapter
+      localSpreadRef.current = nextLocal
+      setChapterIndex(nextChapter)
+      setLocalSpread(nextLocal)
+      if (reducedMotion || mode === 'none' || !sameChapter) {
         cancelFlip()
+        if (!reducedMotion && mode === 'fade') {
+          viewportRef.current?.animate(
+            { opacity: [0.25, 1] },
+            { duration: 180, easing: 'ease-out' },
+          )
+        }
         return
       }
       if (mode === 'flip') {
-        flipTo(clamped > current ? 1 : -1, current)
-      } else {
-        cancelFlip()
-        viewportRef.current?.animate({ opacity: [0.25, 1] }, { duration: 180, easing: 'ease-out' })
+        flipTo(nextLocal > currentLocal ? 1 : -1, currentLocal)
+        return
       }
+      cancelFlip()
+      viewportRef.current?.animate({ opacity: [0.25, 1] }, { duration: 180, easing: 'ease-out' })
     },
-    [lastSpread, reducedMotion, cancelFlip, flipTo],
+    [chapters.length, reducedMotion, cancelFlip, flipTo],
   )
 
-  // Land on the deep-link target once columns have been measured.
+  // Land on the deep-link target once that chapter is mounted and measured.
   useEffect(() => {
     const target = pendingTargetRef.current
-    if (target == null || colStride <= 0 || blocks.length === 0) return
+    if (target == null || blocks.length === 0) return
+    const index = chapterIndexForSeq(chapters, target)
+    if (chapterIndexRef.current !== index) {
+      goToLocal(index, 0, 'none')
+      return
+    }
+    if (colStride <= 0) return
     const el = blockRefs.current.get(target)
-    pendingTargetRef.current = null
     if (!el) return
+    pendingTargetRef.current = null
     const col = Math.round(el.offsetLeft / colStride)
-    goToSpread(Math.floor(col / 2), 'none')
+    goToLocal(index, Math.floor(col / 2), 'none')
     setTargetSeq(target)
-  }, [colStride, blocks, goToSpread])
+  }, [colStride, blocks, chapters, chapterIndex, goToLocal])
 
-  // Restore the saved bookmark once columns are measured. A deep-link target
-  // (opening to a specific segment) always takes precedence. Reads storage
-  // directly to avoid racing the async bookmark-state load.
+  // Restore the saved bookmark once enough chapters are measured to know which
+  // spread it is. A deep-link target always takes precedence.
   useEffect(() => {
     if (bookmarkRestoredRef.current) return
-    if (colStride <= 0 || blocks.length === 0) return
-    bookmarkRestoredRef.current = true
-    if (seg != null || !bookmarkKey) return
+    if (blocks.length === 0 || !bookmarkKey) return
+    if (seg != null) {
+      bookmarkRestoredRef.current = true
+      return
+    }
     const raw = window.localStorage.getItem(bookmarkKey)
     const val = raw != null ? Number(raw) : NaN
-    if (Number.isFinite(val)) goToSpread(val, 'none')
-  }, [colStride, blocks, seg, bookmarkKey, goToSpread])
+    if (!Number.isFinite(val)) {
+      bookmarkRestoredRef.current = true
+      return
+    }
+    const location = locateSpread(columnCounts, val)
+    if (!location) return
+    bookmarkRestoredRef.current = true
+    goToLocal(location.chapterIndex, location.localSpread, 'none')
+  }, [columnCounts, blocks, seg, bookmarkKey, goToLocal])
 
   useEffect(() => {
     if (targetSeq == null) return
@@ -637,37 +871,61 @@ export function ReaderView({
   const turn = useCallback(
     (delta: 1 | -1) => {
       setDefinePop(null)
-      goToSpread(spreadRef.current + delta, 'flip')
+      const currentChapter = chapterIndexRef.current
+      const currentLocal = localSpreadRef.current
+      const columns = columnCountsRef.current[currentChapter]
+      if (columns == null) return
+      const spreads = spreadsForColumns(columns)
+      const nextLocal = currentLocal + delta
+      if (nextLocal >= 0 && nextLocal < spreads) {
+        goToLocal(currentChapter, nextLocal, 'flip')
+        return
+      }
+      const nextChapter = currentChapter + delta
+      if (nextChapter < 0 || nextChapter >= chapters.length) return
+      const nextColumns = columnCountsRef.current[nextChapter]
+      if (delta === -1 && nextColumns == null) pendingEdgeRef.current = 'end'
+      const landing = delta === 1 || nextColumns == null ? 0 : spreadsForColumns(nextColumns) - 1
+      goToLocal(nextChapter, landing, 'fade')
     },
-    [goToSpread],
+    [chapters.length, goToLocal],
   )
 
   const jumpToSeq = useCallback(
     (target: number) => {
-      const el = blockRefs.current.get(target)
-      if (el && colStride > 0) {
-        const col = Math.round(el.offsetLeft / colStride)
-        goToSpread(Math.floor(col / 2), 'fade')
+      pendingTargetRef.current = target
+      const index = chapterIndexForSeq(chapters, target)
+      if (chapterIndexRef.current !== index) {
+        goToLocal(index, 0, 'fade')
+      } else if (colStride > 0) {
+        const el = blockRefs.current.get(target)
+        if (el) {
+          const col = Math.round(el.offsetLeft / colStride)
+          pendingTargetRef.current = null
+          goToLocal(index, Math.floor(col / 2), 'fade')
+        }
       }
       setTocOpen(false)
       setDefinePop(null)
     },
-    [colStride, goToSpread],
+    [chapters, colStride, goToLocal],
   )
 
   // Toggle a bookmark at the current spread. Saving again on the bookmarked
   // page removes it; otherwise the bookmark moves to the current page.
+  // The stored value stays a book-wide spread, so it waits until earlier
+  // chapters have been measured.
   const toggleBookmark = useCallback(() => {
-    if (!bookmarkKey) return
+    if (!bookmarkKey || spreadIndex == null) return
     setBookmarkSpread((prev) => {
-      if (prev === safeSpread) {
+      if (prev === spreadIndex) {
         window.localStorage.removeItem(bookmarkKey)
         return null
       }
-      window.localStorage.setItem(bookmarkKey, String(safeSpread))
-      return safeSpread
+      window.localStorage.setItem(bookmarkKey, String(spreadIndex))
+      return spreadIndex
     })
-  }, [bookmarkKey, safeSpread])
+  }, [bookmarkKey, spreadIndex])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -929,29 +1187,26 @@ export function ReaderView({
     if (audioRef.current) audioRef.current.playbackRate = speed
   }, [speed])
 
-  // Keep the spoken word on screen: when narration crosses into a column beyond
-  // the current spread, turn the page to follow it.
-  useEffect(() => {
+  // Keep the spoken word on screen. A chapter change snaps; a single column
+  // step inside the chapter flips. Layout effect so the correction lands
+  // before paint when the word is already mounted.
+  useLayoutEffect(() => {
     if (!playing || spoken < 0 || colStride <= 0) return
-    let seq = -1
-    for (const wb of wordBlocks) {
-      const hit = wb.words.find((w) => w.global === spoken)
-      if (hit) {
-        seq = hit.seq
-        break
-      }
-    }
+    const seq = seqForSpoken(wordBlocks, spoken)
     if (seq < 0) return
+    const index = chapterIndexForSeq(chapters, seq)
+    if (index !== chapterIndexRef.current) {
+      goToLocal(index, 0, 'none')
+      return
+    }
     const el = blockRefs.current.get(seq)
     if (!el) return
-    const targetSpread = Math.floor(Math.round(el.offsetLeft / colStride) / 2)
-    if (targetSpread > spreadRef.current) {
-      // Turn the page like the user would, but never cut short a flip the
-      // user started, and don't fake a flip across a multi-spread jump.
-      const single = targetSpread === spreadRef.current + 1
-      goToSpread(targetSpread, single && !isFlipping() ? 'flip' : 'none')
+    const targetLocal = Math.floor(Math.round(el.offsetLeft / colStride) / 2)
+    if (targetLocal > localSpreadRef.current) {
+      const single = targetLocal === localSpreadRef.current + 1
+      goToLocal(index, targetLocal, single && !isFlipping() ? 'flip' : 'none')
     }
-  }, [spoken, playing, colStride, wordBlocks, goToSpread, isFlipping])
+  }, [spoken, playing, colStride, wordBlocks, chapters, chapterIndex, goToLocal, isFlipping])
 
   const togglePlay = useCallback(() => {
     if (!playing) setAudioError(null)
@@ -965,6 +1220,11 @@ export function ReaderView({
   const registerBlock = useCallback((seq: number, el: HTMLElement | null) => {
     if (el) blockRefs.current.set(seq, el)
     else blockRefs.current.delete(seq)
+  }, [])
+
+  const registerMeasure = useCallback((seq: number, el: HTMLElement | null) => {
+    if (el) measureRefs.current.set(seq, el)
+    else measureRefs.current.delete(seq)
   }, [])
 
   const restartNarration = useCallback(() => {
@@ -1061,21 +1321,16 @@ export function ReaderView({
   }
 
   // --- Render -------------------------------------------------------------
-  let runningChapter = ''
-  const leftCol = safeSpread * 2
-  for (const c of chapterCols) {
-    if (c.col <= leftCol) runningChapter = c.title
-    else break
-  }
-
-  const leftNum = safeSpread * 2 + 1
-  const rightNum = Math.min(safeSpread * 2 + 2, pageCount)
+  const runningChapter = visibleChapter?.title ?? ''
+  const leftNum = (spreadIndex ?? safeLocal) * 2 + 1
+  const rightNum = Math.min((spreadIndex ?? safeLocal) * 2 + 2, Math.max(pageCount, leftNum))
 
   const opening = (isLive && live.loading) || (!isLive && isLoading)
   const noBook = !isLive && !isLoading
   const emptyState = isLive && !live.loading && !live.error && blocks.length === 0
   const showBook = isLive && !live.loading && live.error == null && !emptyState
-  const progressPct = pageCount > 0 ? Math.round((rightNum / pageCount) * 100) : 0
+  const progressPct =
+    geometryReady && pageCount > 0 ? Math.round((rightNum / pageCount) * 100) : 0
 
   return (
     <section
@@ -1098,17 +1353,23 @@ export function ReaderView({
           <button
             type="button"
             className={`reader__timer-btn${
-              bookmarkSpread === safeSpread ? ' is-active' : ''
+              spreadIndex != null && bookmarkSpread === spreadIndex ? ' is-active' : ''
             }`}
             onClick={toggleBookmark}
-            disabled={!bookmarkKey}
-            aria-pressed={bookmarkSpread === safeSpread}
+            disabled={!bookmarkKey || spreadIndex == null}
+            aria-pressed={spreadIndex != null && bookmarkSpread === spreadIndex}
             aria-label={
-              bookmarkSpread === safeSpread ? 'Remove bookmark' : 'Bookmark this page'
+              spreadIndex != null && bookmarkSpread === spreadIndex
+                ? 'Remove bookmark'
+                : 'Bookmark this page'
             }
-            title={bookmarkSpread === safeSpread ? 'Remove bookmark' : 'Bookmark this page'}
+            title={
+              spreadIndex != null && bookmarkSpread === spreadIndex
+                ? 'Remove bookmark'
+                : 'Bookmark this page'
+            }
           >
-            {bookmarkSpread === safeSpread ? (
+            {spreadIndex != null && bookmarkSpread === spreadIndex ? (
               <BookmarkCheck size={14} />
             ) : (
               <Bookmark size={14} />
@@ -1200,33 +1461,69 @@ export function ReaderView({
               </p>
             </div>
           ) : (
-            <div
-              className="reader__flow"
-              ref={flowRef}
-              onMouseUp={openSelectionDefine}
-              onTouchEnd={openSelectionDefine}
-              style={
-                {
-                  '--reader-spread': safeSpread,
-                  '--reader-gap': `${GAP}px`,
-                } as CSSProperties
-              }
-            >
-              {wordBlocks.map(({ block, words }, i) => (
-                <ReaderBlock
-                  key={block.id}
-                  block={block}
-                  words={words}
-                  progress={sentenceProgress(words, activeSentence)}
-                  narrated={words.length > 0 && narratedGlobals.has(words[0].global)}
-                  chapterStart={block.isChapterStart && i > 0}
-                  isTarget={targetSeq != null && block.seq === targetSeq}
-                  termByWord={termByWord}
-                  onTermClick={onTermClick}
-                  registerRef={registerBlock}
-                />
-              ))}
-            </div>
+            <>
+              <div
+                className="reader__flow"
+                ref={flowRef}
+                onMouseUp={openSelectionDefine}
+                onTouchEnd={openSelectionDefine}
+                style={
+                  {
+                    '--reader-spread': safeLocal,
+                    '--reader-gap': `${GAP}px`,
+                  } as CSSProperties
+                }
+              >
+                {visibleWordBlocks.map(({ block, words }) => (
+                  <ReaderBlock
+                    key={block.id}
+                    block={block}
+                    words={words}
+                    progress={sentenceProgress(words, activeSentence)}
+                    narrated={words.length > 0 && narratedGlobals.has(words[0].global)}
+                    chapterStart={false}
+                    isTarget={targetSeq != null && block.seq === targetSeq}
+                    termByWord={termByWord}
+                    onTermClick={onTermClick}
+                    registerRef={registerBlock}
+                  />
+                ))}
+              </div>
+              {measureChapter && geometry.width > 0 && geometry.height > 0 && (
+                <div
+                  className="reader__measure"
+                  aria-hidden="true"
+                  style={{ width: geometry.width, height: geometry.height }}
+                >
+                  <div
+                    ref={measureFlowRef}
+                    className="reader__flow"
+                    style={
+                      {
+                        columnWidth: `${(geometry.width - GAP) / 2}px`,
+                        '--reader-spread': 0,
+                        '--reader-gap': `${GAP}px`,
+                      } as CSSProperties
+                    }
+                  >
+                    {wordBlocksForChapter(wordBlocks, measureChapter).map(({ block, words }) => (
+                      <ReaderBlock
+                        key={block.id}
+                        block={block}
+                        words={words}
+                        progress={-1}
+                        narrated={false}
+                        chapterStart={false}
+                        isTarget={false}
+                        termByWord={NO_TERMS}
+                        onTermClick={ignoreTermClick}
+                        registerRef={registerMeasure}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {showBook && <div className="reader__spine" aria-hidden="true" />}
@@ -1293,7 +1590,7 @@ export function ReaderView({
           type="button"
           className="reader__zone reader__zone--prev"
           onClick={() => turn(-1)}
-          disabled={safeSpread === 0}
+          disabled={atStart}
           aria-label="Previous page"
         >
           <ChevronLeft size={22} aria-hidden="true" />
@@ -1302,7 +1599,7 @@ export function ReaderView({
           type="button"
           className="reader__zone reader__zone--next"
           onClick={() => turn(1)}
-          disabled={safeSpread >= lastSpread}
+          disabled={atEnd}
           aria-label="Next page"
         >
           <ChevronRight size={22} aria-hidden="true" />
@@ -1357,19 +1654,23 @@ export function ReaderView({
             type="button"
             className="reader__turn"
             onClick={() => turn(-1)}
-            disabled={safeSpread === 0}
+            disabled={atStart}
             aria-label="Previous pages"
           >
             <ChevronLeft size={22} />
           </button>
           <span className="reader__pageinfo" aria-label="Progress through the book">
-            {pageCount > 0 ? `${progressPct}% · ${pageCount} pages` : 'No content'}
+            {pageCount > 0
+              ? geometryReady
+                ? `${progressPct}% · ${pageCount} pages`
+                : `Page ${leftNum}`
+              : 'No content'}
           </span>
           <button
             type="button"
             className="reader__turn"
             onClick={() => turn(1)}
-            disabled={safeSpread >= lastSpread}
+            disabled={atEnd}
             aria-label="Next pages"
           >
             <ChevronRight size={22} />

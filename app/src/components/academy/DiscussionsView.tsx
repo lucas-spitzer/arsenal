@@ -1,5 +1,5 @@
 import { MessageCircle, MessagesSquare, Plus, Send, Trash2, X } from 'lucide-react'
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { isAdminAccess } from '../../features/auth/access'
 import { useAuth } from '../../features/auth/authContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
@@ -9,6 +9,7 @@ import {
   getThread,
   listThreads,
   sendThreadMessage,
+  threadTitle,
   updateThread,
   type DiscussionMessage,
   type DiscussionSubmode,
@@ -16,7 +17,12 @@ import {
 } from '../../lib/assistantApi'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { useOutputs } from '../../lib/academyOutputs'
-import { discussionSections } from '../../lib/discussionPrompts'
+import {
+  discussionSections,
+  discussionSourceGroups,
+  type DiscussionSourceGroup,
+} from '../../lib/discussionPrompts'
+import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { useLessons } from '../../lib/useLessons'
 import { FoundryLoader } from '../foundry/FoundryLoader'
 import { ChatRichText } from './ChatRichText'
@@ -47,15 +53,29 @@ export function DiscussionsView({
   const { approvedUser } = useAuth()
   const { activeWorkspace } = useWorkspace()
   const canChooseStyle = isAdminAccess(approvedUser?.role)
-  const { wikiEntries } = useWorkspaceData()
+  const { wikiEntries, sources: workspaceSources } = useWorkspaceData()
   const { sources } = useOutputs()
   const { fullscreen, toggle } = useStudyFullscreen()
 
-  const sections = useMemo(
-    () => discussionSections(wikiEntries, initialSource),
-    [wikiEntries, initialSource],
+  const sourceGroups = useMemo(
+    () =>
+      discussionSourceGroups(
+        discussionSections(wikiEntries),
+        workspaceSources.map((source) => ({ id: source.id, name: sourceDisplayName(source) })),
+      ),
+    [wikiEntries, workspaceSources],
   )
-  const prompts = useMemo(() => sections.flatMap((section) => section.prompts), [sections])
+  const [pickedSourceKey, setPickedSourceKey] = useState<string | null>(null)
+  const [pickedBatchKey, setPickedBatchKey] = useState<string | null>(null)
+  const sourceGroup =
+    findSourceGroup(sourceGroups, pickedSourceKey) ??
+    (initialSource ? findSourceGroup(sourceGroups, initialSource) : undefined) ??
+    newestSourceGroup(sourceGroups)
+  const batch = sourceGroup
+    ? (sourceGroup.sections.find((section) => section.key === pickedBatchKey) ??
+      sourceGroup.sections[sourceGroup.sections.length - 1])
+    : undefined
+  const prompts = batch?.prompts ?? []
 
   const [threads, setThreads] = useState<DiscussionThread[]>([])
   const [threadsLoaded, setThreadsLoaded] = useState(false)
@@ -190,25 +210,59 @@ export function DiscussionsView({
     setCreating(true)
     setError(null)
     const wikiEntryId = options.wikiEntryId ?? null
-    try {
-      const detail = await createThread(workspaceId, {
-        title: options.title,
+    const previousThread = activeThread
+    const previousMessages = messages
+    const now = new Date().toISOString()
+    if (wikiEntryId) {
+      setPanelOpen(false)
+      setActiveThread({
+        id: 'pending',
+        workspace_id: workspaceId,
+        title: threadTitle(options.title),
         submode: canChooseStyle ? (activeThread?.submode ?? 'tbs') : 'tbs',
         source_id: options.sourceId ?? null,
         wiki_entry_id: wikiEntryId,
-        // An ELO question is the tutor's opener, filled in on the server from the
-        // stored entry. seed_prompt is only the blank-thread welcome.
+        created_at: now,
+        updated_at: now,
+      })
+      setMessages([
+        {
+          id: 'pending-user',
+          thread_id: 'pending',
+          role: 'user',
+          content: options.title,
+          citations: [],
+          created_at: now,
+        },
+      ])
+      setSending(true)
+    }
+    try {
+      const detail = await createThread(workspaceId, {
+        title: threadTitle(options.title),
+        submode: canChooseStyle ? (activeThread?.submode ?? 'tbs') : 'tbs',
+        source_id: options.sourceId ?? null,
+        wiki_entry_id: wikiEntryId,
+        // An ELO starter is the student's first message. The server answers it.
+        // seed_prompt is only the blank-thread welcome.
         seed_prompt: wikiEntryId ? null : DEFAULT_SEED_PROMPT,
       })
       setThreads((rows) => [detail, ...rows])
       setActiveThread(detail)
       setMessages(detail.messages)
+      const reply = [...detail.messages].reverse().find((message) => message.role === 'assistant')
+      if (wikiEntryId && reply) setAnimatingMessageId(reply.id)
       setNewTitle('')
       setPanelOpen(false)
     } catch (err) {
+      if (wikiEntryId) {
+        setActiveThread(previousThread)
+        setMessages(previousMessages)
+      }
       setError(err instanceof Error ? err.message : 'Could not start the conversation.')
     } finally {
       setCreating(false)
+      if (wikiEntryId) setSending(false)
     }
   }
 
@@ -365,35 +419,66 @@ export function DiscussionsView({
               <FoundryLoader label="Loading conversations" size="sm" />
             ) : (
               <>
-                {sections.length > 0 ? (
-                  sections.map((section) => (
-                    <Fragment key={section.key}>
-                      <div className="disc__label">
-                        <h3>{section.title}</h3>
-                        <span className="disc__label-line" aria-hidden />
-                      </div>
-                      <div className="disc__grid">
-                        {section.prompts.map((prompt) => (
-                          <button
-                            key={prompt.key}
-                            type="button"
-                            className="disc__prompt"
-                            disabled={creating}
-                            onClick={() =>
-                              void startThread({
-                                title: prompt.title,
-                                wikiEntryId: prompt.key,
-                                sourceId: prompt.sourceId,
-                              })
-                            }
-                          >
-                            <MessageCircle size={16} aria-hidden />
-                            {prompt.title}
-                          </button>
-                        ))}
-                      </div>
-                    </Fragment>
-                  ))
+                {sourceGroup && batch ? (
+                  <>
+                    <div className="disc__controls">
+                      <label className="lib__select">
+                        <span className="lib__select-label">Source</span>
+                        <select
+                          value={sourceGroupKey(sourceGroup)}
+                          onChange={(e) => {
+                            setPickedSourceKey(e.target.value)
+                            setPickedBatchKey(null)
+                          }}
+                          aria-label="Discussion source"
+                        >
+                          {sourceGroups.map((group) => (
+                            <option key={sourceGroupKey(group)} value={sourceGroupKey(group)}>
+                              {group.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="lib__select">
+                        <span className="lib__select-label">Batch</span>
+                        <select
+                          value={batch.key}
+                          onChange={(e) => setPickedBatchKey(e.target.value)}
+                          aria-label="Discussion batch"
+                        >
+                          {sourceGroup.sections.map((section) => (
+                            <option key={section.key} value={section.key}>
+                              {section.title} ({section.prompts.length})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="disc__label">
+                      <h3>{batch.title}</h3>
+                      <span className="disc__label-line" aria-hidden />
+                    </div>
+                    <div className="disc__grid">
+                      {batch.prompts.map((prompt) => (
+                        <button
+                          key={prompt.key}
+                          type="button"
+                          className="disc__prompt"
+                          disabled={creating}
+                          onClick={() =>
+                            void startThread({
+                              title: prompt.title,
+                              wikiEntryId: prompt.key,
+                              sourceId: prompt.sourceId,
+                            })
+                          }
+                        >
+                          <MessageCircle size={16} aria-hidden />
+                          {prompt.title}
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 ) : (
                   <p className="disc__sub">
                     ELOs from a knowledge upload appear here. Begin your own conversation below.
@@ -502,9 +587,9 @@ export function DiscussionsView({
                 </div>
               )}
 
-              {prompts.length > 0 && (
+              {batch && prompts.length > 0 && (
                 <div className="disc-threads__suggestions">
-                  <span className="disc-threads__section-label">Suggested topics</span>
+                  <span className="disc-threads__section-label">{batch.title}</span>
                   {prompts.map((prompt) => (
                     <button
                       key={prompt.key}
@@ -535,6 +620,32 @@ export function DiscussionsView({
       {threadLesson && <StudyLessonReference lesson={threadLesson} />}
     </section>
   )
+}
+
+/** Select value for a source group; the unassigned group uses the empty string. */
+function sourceGroupKey(group: DiscussionSourceGroup): string {
+  return group.sourceId ?? ''
+}
+
+function findSourceGroup(
+  groups: DiscussionSourceGroup[],
+  key: string | null,
+): DiscussionSourceGroup | undefined {
+  if (key === null) return undefined
+  return groups.find((group) => sourceGroupKey(group) === key)
+}
+
+function newestSourceGroup(groups: DiscussionSourceGroup[]): DiscussionSourceGroup | undefined {
+  let newest: DiscussionSourceGroup | undefined
+  let newestAt = ''
+  for (const group of groups) {
+    const latest = group.sections[group.sections.length - 1]
+    if (latest && (!newest || latest.createdAt > newestAt)) {
+      newest = group
+      newestAt = latest.createdAt
+    }
+  }
+  return newest
 }
 
 function messagePlaceholder(submode: DiscussionSubmode, checkingAnswer: boolean): string {

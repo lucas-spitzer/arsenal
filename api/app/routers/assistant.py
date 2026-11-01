@@ -16,6 +16,7 @@ from app.models.assistant import (
     AssistantMessage,
     CreateDiscussionThreadRequest,
     DiscussionMessageResponse,
+    DiscussionSubmode,
     DiscussionThreadDetailResponse,
     DiscussionThreadResponse,
     SendDiscussionMessageRequest,
@@ -26,7 +27,7 @@ from app.models.auth import CurrentUser
 from app.models.workspace import WorkspaceResponse
 from app.repositories.discussions import DiscussionRepository
 from app.repositories.wiki_entries import WikiEntryRepository
-from app.services.assistant import AssistantService, elo_check_for_entry
+from app.services.assistant import AssistantService, elo_check_for_entry, short_thread_title
 
 router = APIRouter(
     prefix="/workspaces/{workspace_id}/assistant",
@@ -47,8 +48,12 @@ async def assistant_chat(
 # --- Persisted discussion threads ------------------------------------------
 
 
+def _thread_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {**row, "title": short_thread_title(str(row.get("title") or ""))}
+
+
 def _thread_model(row: dict[str, Any]) -> DiscussionThreadResponse:
-    return DiscussionThreadResponse(**row)
+    return DiscussionThreadResponse(**_thread_row(row))
 
 
 def _message_model(row: dict[str, Any]) -> DiscussionMessageResponse:
@@ -91,8 +96,9 @@ async def create_discussion_thread(
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     threads: Annotated[DiscussionRepository, Depends(get_discussion_repository)],
     wiki_entries: Annotated[WikiEntryRepository, Depends(get_wiki_entry_repository)],
+    assistant: Annotated[AssistantService, Depends(get_assistant_service)],
 ) -> DiscussionThreadDetailResponse:
-    title = request.title.strip()
+    title = short_thread_title(request.title)
     if not title:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -112,12 +118,13 @@ async def create_discussion_thread(
         wiki_entry_id = request.wiki_entry_id
         opener = check.question
 
+    submode: DiscussionSubmode = request.submode if is_admin(user) else "tbs"
     row = await threads.create_thread(
         {
             "workspace_id": workspace.id,
             "user_id": user.id,
             "title": title,
-            "submode": request.submode if is_admin(user) else "tbs",
+            "submode": submode,
             "source_id": request.source_id,
             "wiki_entry_id": wiki_entry_id,
             **({"lesson_id": request.lesson_id} if request.lesson_id else {}),
@@ -125,7 +132,39 @@ async def create_discussion_thread(
     )
 
     messages: list[DiscussionMessageResponse] = []
-    if opener:
+    if wiki_entry_id and opener:
+        asked = await threads.append_message(
+            {
+                "thread_id": row["id"],
+                "role": "user",
+                "content": opener,
+                "citations": [],
+            }
+        )
+        messages.append(_message_model(asked))
+        # The student asked the ELO. Answer it as a normal turn. The private
+        # expected answer is only for judging a later reply, not this prompt.
+        reply = await assistant.chat(
+            AssistantChatRequest(
+                mode="discussion",
+                submode=submode,
+                source_ids=[request.source_id] if request.source_id else None,
+                lesson_ids=[request.lesson_id] if request.lesson_id else None,
+                messages=[AssistantMessage(role="user", content=opener)],
+            ),
+            workspace.id,
+        )
+        answered = await threads.append_message(
+            {
+                "thread_id": row["id"],
+                "role": "assistant",
+                "content": reply.answer,
+                "citations": [citation.model_dump() for citation in reply.citations],
+            }
+        )
+        messages.append(_message_model(answered))
+        await threads.touch_thread(row["id"], workspace.id, user.id)
+    elif opener:
         seeded = await threads.append_message(
             {
                 "thread_id": row["id"],
@@ -136,7 +175,7 @@ async def create_discussion_thread(
         )
         messages.append(_message_model(seeded))
 
-    return DiscussionThreadDetailResponse(**row, messages=messages)
+    return DiscussionThreadDetailResponse(**_thread_row(row), messages=messages)
 
 
 @router.get("/threads/{thread_id}", response_model=DiscussionThreadDetailResponse)
@@ -149,7 +188,7 @@ async def get_discussion_thread(
     thread = await _require_thread(threads, thread_id, workspace.id, user.id)
     rows = await threads.list_messages(thread_id)
     return DiscussionThreadDetailResponse(
-        **thread,
+        **_thread_row(thread),
         messages=[_message_model(row) for row in rows],
     )
 
@@ -165,8 +204,8 @@ async def update_discussion_thread(
     await _require_thread(threads, thread_id, workspace.id, user.id)
 
     payload: dict[str, Any] = {}
-    if request.title is not None and request.title.strip():
-        payload["title"] = request.title.strip()
+    if request.title is not None and short_thread_title(request.title):
+        payload["title"] = short_thread_title(request.title)
     if request.submode is not None:
         if not is_admin(user):
             raise HTTPException(

@@ -264,6 +264,30 @@ Rules:
 - In Foundry every file shows its Discussions index status (`Queued`, `Indexing`, `Searchable`, `Index failed` with the error on hover, or `Not searchable` for types that cannot be read). Links always read `Not searchable (login required)`.
 - `Discuss this class` opens a tutor thread scoped to the class. The thread shows a class reference block with an `Open ELOs` link.
 
+### Library
+
+Academy Library (`LibraryView`, `lib__*` in `academy.css`) lists every output in the workspace. The view caps at 1440px wide and stays left-aligned.
+
+Rules:
+
+- With the `All` tab and the `Source` sort, show one shelf per source in a single bordered panel. The source name and `2 outputs · Updated Oct 28` sit on the left. Output tiles flow right and wrap, always in the same kind order (book, audio, wiki, then the admin kinds) so kinds line up across shelves. Write `1 output` in the singular.
+- A single type tab, or any other sort, shows a flat tile grid instead. Do not show shelves holding one tile each.
+- Each tile has a kind-colored icon square, two text lines, the download and focus buttons, and an action link. On a shelf, the first line is the kind (`Book`) and the second is the fact (`10 chapters`, `1h 42m`), plus the run title for knowledge batches. In the flat grid, the first line is the source (or the run or study material title). The second line holds the fact, with the kind added only under `All`.
+- Text lines clamp at two lines. Skip the separate download button when the action itself is `Download`.
+- The whole tile opens the output. Action verbs: `Read` for books, `Browse` for wikis, `Listen` for narration, `Play` for audiobooks, `Download` for other audio and study material, and `Study` for flashcards. Everything else uses `Open`.
+- Below 980px the shelf header stacks above its tiles. Below 720px tiles go full width.
+
+### Discussions
+
+Academy Discussions (`DiscussionsView`, `disc__*` in `academy.css`) opens on a starter screen when no conversation is selected. Starters are canonical ELOs grouped by the knowledge batch that introduced them.
+
+Rules:
+
+- Pick starters with two selects in a `disc__controls` row, built with the `lib__select` pattern: `Source` first, then `Batch` (for example `AFO`, then `Chapter 1 (6)`). Batch options show the batch title and its ELO count.
+- Render only the selected batch's prompts: one `disc__label` heading with the batch title, then the `disc__grid` of gold-ruled `disc__prompt` buttons. Do not stack every batch on one screen.
+- Sources sort by name, with `Unassigned` last. Batches keep upload order, oldest first. The default is the newest batch, in the source passed to the view if it has any, otherwise in the source with the newest batch. Changing the source resets the batch to that source's newest.
+- The conversations side panel lists the same selected batch's prompts under its title.
+
 ### Alerts
 
 | Type | Treatment |

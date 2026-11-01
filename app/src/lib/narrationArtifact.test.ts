@@ -227,22 +227,30 @@ describe('library artifact cards', () => {
     ).toMatchObject({ chipLabel: 'Material', title: 'Land Navigation', isStudyMaterial: true })
   })
 
-  it('names an uploaded mp3 as an Audiobook', () => {
+  it('names an uploaded mp3 as an Audiobook and describes it by length', () => {
     const card = artifactLibraryCard(
       artifact({
         artifact_type: 'audiobook',
         format: 'mp3',
         filename: 'Warfighting.mp3',
-        manifest: { title: 'Warfighting' },
+        manifest: { title: 'Warfighting', duration_seconds: 12 * 3600 + 5 * 60 },
       }),
     )
     expect(card).toMatchObject({
       chipLabel: 'Audiobook',
-      title: 'Warfighting',
+      title: '12 hours 5 mins',
       isAudiobook: true,
       isNarration: false,
       isAudio: true,
     })
+    expect(
+      artifactLibraryCard(
+        artifact({
+          artifact_type: 'audiobook',
+          manifest: { duration_seconds: 3660 },
+        }),
+      ).title,
+    ).toBe('1 hour 1 min')
     expect(
       outputChipLabel({
         kind: 'audio',

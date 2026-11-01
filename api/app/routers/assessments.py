@@ -35,6 +35,7 @@ from app.repositories.knowledge_projects import KnowledgeProjectRepository
 from app.repositories.sources import SourceRepository
 from app.repositories.wiki_entries import WikiEntryRepository
 from app.repositories.workspaces import WorkspaceRepository
+from app.services.mp3_duration import with_audiobook_durations
 from app.services.supabase_storage import SupabaseStorageClient
 
 router = APIRouter(tags=["assessments"])
@@ -127,7 +128,13 @@ async def load_library_catalog(
         assessments.list_scenarios(workspace_id),
         projects.list_titles(workspace_id),
     )
-    signed_flashcards, signed_quizzes, signed_scenarios = await asyncio.gather(
+    artifact_rows, signed_flashcards, signed_quizzes, signed_scenarios = await asyncio.gather(
+        with_audiobook_durations(
+            artifact_rows,
+            artifacts=artifacts,
+            storage=storage,
+            bucket=settings.sources_bucket,
+        ),
         _with_signed_visuals(flashcard_rows, storage, settings),
         _with_signed_visuals(quiz_rows, storage, settings),
         _with_signed_visuals(scenario_rows, storage, settings),

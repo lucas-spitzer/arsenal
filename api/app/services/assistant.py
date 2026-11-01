@@ -72,6 +72,16 @@ SYSTEM_PROMPTS: dict[str, str] = {
 }
 
 
+def short_thread_title(value: str) -> str:
+    """Thread names stay at five words. Longer text keeps its first five."""
+    words = value.split()
+    if not words:
+        return ""
+    title = " ".join(words[:5])
+    trimmed = title.rstrip(".,;:!?")
+    return trimmed or title
+
+
 def elo_check_for_entry(entry: dict[str, Any] | None) -> EloCheck | None:
     """Rubric for a canonical ELO. None when the row cannot be checked."""
     if not entry:

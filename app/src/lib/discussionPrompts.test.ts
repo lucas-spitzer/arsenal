@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { discussionSections } from './discussionPrompts'
+import { discussionSections, discussionSourceGroups } from './discussionPrompts'
 import type { WikiEntry } from './workspaceApi'
 
 function entry(overrides: Partial<WikiEntry>): WikiEntry {
@@ -85,27 +85,61 @@ describe('discussionSections', () => {
       'Explain the oath.',
     ])
     expect(sections[0].prompts[0].sourceId).toBe('book-1')
+    expect(sections.map((section) => section.sourceId)).toEqual(['book-1', 'book-2'])
     expect(sections[1].prompts.map((prompt) => prompt.prompt)).toEqual(['Explain friction.'])
   })
+})
 
-  it('keeps only the selected book', () => {
-    const sections = discussionSections(
-      [
-        entry({ id: 'a' }),
-        entry({
-          id: 'b',
-          preferred_label: 'Explain friction.',
-          evidence: [{ source_id: 'book-2' }],
-          origin: {
-            knowledge_project_id: 'project-2',
-            section_title: 'Chapter 1 - Warfighting',
-            elo_index: 0,
-          },
-        }),
-      ],
-      'book-2',
-    )
+describe('discussionSourceGroups', () => {
+  const sections = discussionSections([
+    entry({
+      id: 'afo-2',
+      origin: { knowledge_project_id: 'afo-ch2', section_title: 'Chapter 2', elo_index: 0 },
+      created_at: '2026-10-03T00:00:00Z',
+    }),
+    entry({
+      id: 'war-1',
+      evidence: [{ source_id: 'book-2' }],
+      origin: { knowledge_project_id: 'war-ch1', section_title: 'Chapter 1', elo_index: 0 },
+      created_at: '2026-10-02T00:00:00Z',
+    }),
+    entry({
+      id: 'afo-1',
+      origin: { knowledge_project_id: 'afo-ch1', section_title: 'Chapter 1', elo_index: 0 },
+      created_at: '2026-10-01T00:00:00Z',
+    }),
+    entry({
+      id: 'orphan',
+      evidence: [],
+      origin: { knowledge_project_id: 'orphan-batch', section_title: 'Loose notes', elo_index: 0 },
+      created_at: '2026-10-04T00:00:00Z',
+    }),
+    entry({
+      id: 'deleted-source',
+      evidence: [{ source_id: 'book-gone' }],
+      origin: { knowledge_project_id: 'gone-batch', section_title: 'Old notes', elo_index: 0 },
+      created_at: '2026-10-05T00:00:00Z',
+    }),
+  ])
+  const sources = [
+    { id: 'book-2', name: 'Warfighting' },
+    { id: 'book-1', name: 'AFO' },
+  ]
 
-    expect(sections.map((section) => section.title)).toEqual(['Chapter 1 - Warfighting'])
+  it('groups batches under their source, sorted by name, oldest batch first', () => {
+    const groups = discussionSourceGroups(sections, sources)
+
+    expect(groups.map((group) => group.name)).toEqual(['AFO', 'Warfighting', 'Unassigned'])
+    expect(groups[0].sourceId).toBe('book-1')
+    expect(groups[0].sections.map((section) => section.title)).toEqual(['Chapter 1', 'Chapter 2'])
+    expect(groups[1].sections.map((section) => section.key)).toEqual(['war-ch1'])
+  })
+
+  it('puts batches without a known source under Unassigned', () => {
+    const groups = discussionSourceGroups(sections, sources)
+    const unassigned = groups[groups.length - 1]
+
+    expect(unassigned.sourceId).toBeNull()
+    expect(unassigned.sections.map((section) => section.key)).toEqual(['orphan-batch', 'gone-batch'])
   })
 })

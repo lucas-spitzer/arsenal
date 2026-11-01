@@ -2,9 +2,9 @@ import { useMemo } from 'react'
 import { useWorkspaceData } from '../features/workspace/workspaceDataContext'
 import type { AcademyPage } from '../components/academy/types'
 import { collapseDuplicateNarrationArtifacts } from './foundryMappers'
-import { formatDuration } from './foundryFormat'
+import { formatDuration, formatSpokenDuration } from './foundryFormat'
 import { sourceDisplayName } from './sourceDisplay'
-import type { Artifact, KnowledgeRunTitle, Source, WikiEntry } from './workspaceApi'
+import type { Artifact, Source, WikiEntry } from './workspaceApi'
 
 export type OutputKind = 'audio' | 'book' | 'artifact' | 'material' | 'flashcard' | 'question' | 'scenario' | 'wiki'
 export type NarrationDownloadState = 'ready' | 'preparing' | 'failed' | 'absent'
@@ -20,7 +20,7 @@ export interface OutputItem {
   title: string
   sourceId: string | null
   sourceName: string
-  /** Source title for a book, audio file, or wiki. Run title for a knowledge batch. Material title for study material. */
+  /** Source title. Material title for study material. */
   footer: string
   badge: string // difficulty for assessments, format for artifacts
   createdAt: string
@@ -32,7 +32,7 @@ export interface OutputItem {
   isAudiobook: boolean
   /** Narration MP3 readiness. Null for every other library item. */
   narrationDownload: NarrationDownloadState | null
-  /** Knowledge run this batch belongs to. Study opens only that run. */
+  /** Knowledge run to open. Library cards leave this empty and open the whole source. */
   projectId: string | null
   /** Member text for a grouped card. Included in Library search only. */
   searchText?: string
@@ -97,6 +97,12 @@ function durationTitle(manifest: Record<string, unknown>): string {
   return formatDuration(Math.round(seconds))
 }
 
+function audiobookLength(manifest: Record<string, unknown>): string {
+  const seconds = Number(manifest.duration_seconds)
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
+  return formatSpokenDuration(seconds)
+}
+
 function narrationInstanceTitle(manifest: Record<string, unknown>): string {
   const parts: string[] = []
   const voice = displayVoice(String(manifest.voice_id ?? ''))
@@ -136,7 +142,7 @@ export function artifactLibraryCard(artifact: Pick<
     title = typeof artifact.manifest.title === 'string' ? artifact.manifest.title : ''
   } else if (isAudiobook) {
     chipLabel = 'Audiobook'
-    title = typeof artifact.manifest.title === 'string' ? artifact.manifest.title : ''
+    title = audiobookLength(artifact.manifest)
   } else if (isNarration) {
     chipLabel = 'Audio'
     title = durationTitle(artifact.manifest)
@@ -204,16 +210,12 @@ export function defaultReaderSourceId({
   return first?.sourceId ?? null
 }
 
-const RUN_FOOTER_KINDS = new Set<OutputKind>(['flashcard', 'question', 'scenario', 'material'])
+const TITLE_FOOTER_KINDS = new Set<OutputKind>(['material'])
 
 export function outputFooter(kind: OutputKind, sourceName: string, runTitle: string | null | undefined): string {
   const title = runTitle?.trim() ?? ''
-  if (RUN_FOOTER_KINDS.has(kind) && title) return title
+  if (TITLE_FOOTER_KINDS.has(kind) && title) return title
   return sourceName
-}
-
-function titleByProjectId(titles: KnowledgeRunTitle[]): Map<string, string> {
-  return new Map(titles.map((run) => [run.id, run.title]))
 }
 
 function sourceLabel(source: Source | undefined): string {
@@ -276,60 +278,50 @@ export function wikiEntriesToOutputItems(
 interface KnowledgeRecord {
   id: string
   source_id?: string | null
-  knowledge_project_id?: string | null
   difficulty: string
   created_at: string
 }
 
-export function knowledgeRunOutputItems<T extends KnowledgeRecord>(
+export function knowledgeLibraryItems<T extends KnowledgeRecord>(
   records: T[],
   {
     kind,
     runnerPage,
     unit,
     plural,
-    titleOf,
     searchOf,
     nameOf,
-    projectTitle,
   }: {
     kind: 'flashcard' | 'question' | 'scenario'
     runnerPage: AcademyPage
     unit: string
     plural: string
-    titleOf: (record: T) => string
     searchOf: (record: T) => string
     nameOf: (id: string | null | undefined) => string
-    projectTitle: Map<string, string>
   },
 ): OutputItem[] {
   const grouped = new Map<string, T[]>()
-  const loose: T[] = []
   for (const record of records) {
-    const projectId = record.knowledge_project_id
-    if (!projectId) {
-      loose.push(record)
-      continue
-    }
-    const list = grouped.get(projectId) ?? []
+    const key = record.source_id ?? ''
+    const list = grouped.get(key) ?? []
     list.push(record)
-    grouped.set(projectId, list)
+    grouped.set(key, list)
   }
 
-  const batches = [...grouped.entries()].map(([projectId, batch]) => {
-    const sourceId = batch.find((record) => record.source_id)?.source_id ?? null
+  return [...grouped.entries()].map(([key, batch]) => {
+    const sourceId = key || null
     const sourceName = nameOf(sourceId)
     const newest = batch.reduce((latest, record) =>
       record.created_at > latest.created_at ? record : latest,
     )
     return {
       kind,
-      id: projectId,
-      projectId,
+      id: sourceId ?? 'unassigned',
+      projectId: null,
       title: countLabel(batch.length, unit, plural),
       sourceId,
       sourceName,
-      footer: outputFooter(kind, sourceName, projectTitle.get(projectId) ?? null),
+      footer: sourceName,
       badge: '',
       createdAt: newest.created_at,
       runnerPage,
@@ -341,71 +333,40 @@ export function knowledgeRunOutputItems<T extends KnowledgeRecord>(
       searchText: batch.map(searchOf).join(' '),
     } satisfies OutputItem
   })
-
-  const singles = loose.map((record) => {
-    const sourceName = nameOf(record.source_id)
-    return {
-      kind,
-      id: record.id,
-      projectId: null,
-      title: titleOf(record),
-      sourceId: record.source_id ?? null,
-      sourceName,
-      footer: outputFooter(kind, sourceName, null),
-      badge: record.difficulty,
-      createdAt: record.created_at,
-      runnerPage,
-      isAudio: false,
-      isEbook: false,
-      isNarration: false,
-      isAudiobook: false,
-      narrationDownload: null,
-    } satisfies OutputItem
-  })
-
-  return [...batches, ...singles]
 }
 
 export function useOutputs(): { items: OutputItem[]; sources: { id: string; name: string }[] } {
-  const { flashcards, quizzes, scenarios, artifacts, wikiEntries, sources, knowledgeRunTitles } =
-    useWorkspaceData()
+  const { flashcards, quizzes, scenarios, artifacts, wikiEntries, sources } = useWorkspaceData()
 
   return useMemo(() => {
     const byId = new Map(sources.map((s) => [s.id, s]))
     const nameOf = (id: string | null | undefined) =>
       id ? sourceLabel(byId.get(id)) : UNASSIGNED
-    const projectTitle = titleByProjectId(knowledgeRunTitles)
 
     const items: OutputItem[] = [
-      ...knowledgeRunOutputItems(flashcards, {
+      ...knowledgeLibraryItems(flashcards, {
         kind: 'flashcard',
         runnerPage: 'flashcards',
         unit: 'card',
         plural: 'cards',
-        titleOf: (card) => card.front,
         searchOf: (card) => `${card.front} ${card.back}`,
         nameOf,
-        projectTitle,
       }),
-      ...knowledgeRunOutputItems(quizzes, {
+      ...knowledgeLibraryItems(quizzes, {
         kind: 'question',
         runnerPage: 'quiz',
         unit: 'question',
         plural: 'questions',
-        titleOf: (quiz) => quiz.question,
         searchOf: (quiz) => quiz.question,
         nameOf,
-        projectTitle,
       }),
-      ...knowledgeRunOutputItems(scenarios, {
+      ...knowledgeLibraryItems(scenarios, {
         kind: 'scenario',
         runnerPage: 'scenarios',
         unit: 'scenario',
         plural: 'scenarios',
-        titleOf: (scenario) => scenario.title,
         searchOf: (scenario) => `${scenario.title} ${scenario.prompt}`,
         nameOf,
-        projectTitle,
       }),
       ...wikiEntriesToOutputItems(wikiEntries, nameOf),
       ...collapseDuplicateNarrationArtifacts(artifacts)
@@ -451,7 +412,7 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
       .sort((a, b) => a.name.localeCompare(b.name))
 
     return { items, sources: sourceList }
-  }, [flashcards, quizzes, scenarios, artifacts, wikiEntries, sources, knowledgeRunTitles])
+  }, [flashcards, quizzes, scenarios, artifacts, wikiEntries, sources])
 }
 
 export function filterOutputs(

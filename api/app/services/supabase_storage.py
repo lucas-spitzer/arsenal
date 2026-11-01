@@ -178,3 +178,34 @@ class SupabaseStorageClient:
             )
 
         return response.content
+
+    async def download_range(self, *, bucket: str, path: str, start: int, end: int) -> bytes:
+        """Read one byte range. Stops after the requested length if the server ignores Range."""
+        if start < 0 or end < start:
+            raise SupabaseStorageError("Invalid byte range.")
+        limit = end - start + 1
+        headers = self._headers()
+        headers["Range"] = f"bytes={start}-{end}"
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                async with client.stream(
+                    "GET",
+                    f"{self.base_url}/object/{bucket}/{path}",
+                    headers=headers,
+                ) as response:
+                    if response.status_code >= 400:
+                        detail = (await response.aread()).decode("utf-8", errors="replace").strip()
+                        raise SupabaseStorageError(
+                            f"Supabase Storage download failed ({response.status_code}): {detail or response.reason_phrase}",
+                        )
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in response.aiter_bytes():
+                        chunks.append(chunk)
+                        total += len(chunk)
+                        if total >= limit:
+                            break
+        except httpx.HTTPError as exc:
+            raise SupabaseStorageError("Supabase Storage could not be reached.") from exc
+
+        return b"".join(chunks)[:limit]

@@ -94,6 +94,17 @@ export function formatDuration(sec: number): string {
   return `${hours}h ${minutes % 60}m`
 }
 
+export function formatSpokenDuration(totalSeconds: number): string {
+  const minutesTotal = Math.round(totalSeconds / 60)
+  if (!Number.isFinite(minutesTotal) || minutesTotal <= 0) return ''
+  const hours = Math.floor(minutesTotal / 60)
+  const minutes = minutesTotal % 60
+  const parts: string[] = []
+  if (hours > 0) parts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`)
+  if (minutes > 0) parts.push(`${minutes} ${minutes === 1 ? 'min' : 'mins'}`)
+  return parts.join(' ')
+}
+
 export function statusLabel(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }

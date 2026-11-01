@@ -27,6 +27,7 @@ from app.services.knowledge_projects import (
     _imported_question_rows,
     citation_catalog,
 )
+from app.services.mp3_duration import id3v2_audio_offset, mp3_duration_seconds
 from app.services.source_upload import SourceUploadValidationError, sanitize_upload_filename
 from app.services.supabase_storage import SupabaseStorageClient
 
@@ -187,6 +188,16 @@ async def _store_audiobook(
         upsert=False,
         timeout=600,
     )
+    manifest: dict[str, Any] = {"title": title, "status": "ready"}
+    audio_offset = id3v2_audio_offset(content)
+    if audio_offset < len(content):
+        duration = mp3_duration_seconds(
+            content[audio_offset:],
+            file_size=len(content),
+            skipped=audio_offset,
+        )
+        if duration and duration > 0:
+            manifest["duration_seconds"] = round(duration)
     payload = {
         "id": str(uuid.uuid4()),
         "workspace_id": workspace_id,
@@ -197,7 +208,7 @@ async def _store_audiobook(
         "filename": audiobook_filename(title),
         "storage_path": storage_path,
         "file_size_bytes": len(content),
-        "manifest": {"title": title, "status": "ready"},
+        "manifest": manifest,
         "origin": {"source": "library_upload"},
     }
     try:

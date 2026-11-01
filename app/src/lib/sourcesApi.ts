@@ -32,16 +32,20 @@ export interface DocumentChapter {
   created_at: string
 }
 
+type ListOptions = { signal?: AbortSignal }
+
 // Fetch every segment for a source, paging past the endpoint's 1000-row cap.
 export async function listAllSourceSegments(
   workspaceId: string,
   sourceId: string,
+  options: ListOptions = {},
 ): Promise<NdrSegment[]> {
   const pageSize = 1000
   const all: NdrSegment[] = []
   for (let offset = 0; ; offset += pageSize) {
     const page = await apiRequest<NdrSegment[]>(
       `/workspaces/${workspaceId}/sources/${sourceId}/segments?limit=${pageSize}&offset=${offset}`,
+      { signal: options.signal },
     )
     all.push(...page)
     if (page.length < pageSize) return all
@@ -51,9 +55,11 @@ export async function listAllSourceSegments(
 export async function listSourceChapters(
   workspaceId: string,
   sourceId: string,
+  options: ListOptions = {},
 ): Promise<DocumentChapter[]> {
   return apiRequest<DocumentChapter[]>(
     `/workspaces/${workspaceId}/sources/${sourceId}/chapters`,
+    { signal: options.signal },
   )
 }
 
@@ -94,16 +100,45 @@ export interface NarrationAudio {
   expires_in: number
 }
 
+export function narrationPagePath(
+  workspaceId: string,
+  sourceId: string,
+  page: { limit: number; offset: number; modelId?: string; voiceId?: string },
+): string {
+  const params = new URLSearchParams({
+    limit: String(page.limit),
+    offset: String(page.offset),
+  })
+  if (page.modelId && page.voiceId) {
+    params.set('model_id', page.modelId)
+    params.set('voice_id', page.voiceId)
+  }
+  return `/workspaces/${workspaceId}/sources/${sourceId}/narration?${params.toString()}`
+}
+
 export async function listSourceNarration(
   workspaceId: string,
   sourceId: string,
+  options: ListOptions = {},
 ): Promise<NarrationSegment[]> {
   const pageSize = 2000
   const all: NarrationSegment[] = []
+  let modelId: string | undefined
+  let voiceId: string | undefined
   for (let offset = 0; ; offset += pageSize) {
     const page = await apiRequest<NarrationSegment[]>(
-      `/workspaces/${workspaceId}/sources/${sourceId}/narration?limit=${pageSize}&offset=${offset}`,
+      narrationPagePath(workspaceId, sourceId, {
+        limit: pageSize,
+        offset,
+        modelId,
+        voiceId,
+      }),
+      { signal: options.signal },
     )
+    if (!modelId && page[0]) {
+      modelId = page[0].model_id
+      voiceId = page[0].voice_id
+    }
     all.push(...page)
     if (page.length < pageSize) return all
   }

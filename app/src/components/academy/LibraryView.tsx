@@ -1,4 +1,15 @@
-import { BookMarked, BookOpen, Download, FileText, Headphones, HelpCircle, Layers, Lightbulb, Star } from 'lucide-react'
+import {
+  BookMarked,
+  BookOpen,
+  ChevronRight,
+  Download,
+  FileText,
+  Headphones,
+  HelpCircle,
+  Layers,
+  Lightbulb,
+  Star,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isAdminAccess } from '../../features/auth/access'
@@ -38,12 +49,21 @@ const KIND_META: Record<
   wiki: { cls: 'lib__tchip--wiki', icon: BookMarked },
 }
 
-function cardIcon(item: OutputItem): typeof Layers {
-  return KIND_META[item.kind].icon
+const KIND_RANK: Record<OutputItem['kind'], number> = {
+  book: 0,
+  audio: 1,
+  wiki: 2,
+  material: 3,
+  flashcard: 4,
+  question: 5,
+  scenario: 6,
+  artifact: 7,
 }
 
+// Study material and plain audio files already download from the open action.
 function canDownload(item: OutputItem): boolean {
-  return item.kind === 'book' || item.kind === 'audio' || item.kind === 'material'
+  if (item.kind === 'book') return true
+  return item.kind === 'audio' && (item.isNarration || item.isAudiobook)
 }
 
 function downloadTitle(item: OutputItem): string {
@@ -57,10 +77,59 @@ function downloadTitle(item: OutputItem): string {
 
 function openLabel(item: OutputItem): string {
   if (item.isAudiobook) return 'Play'
-  if (item.kind === 'audio') return item.isNarration ? 'Open' : 'Download'
-  if (item.kind === 'book' || item.kind === 'artifact') return 'Open'
-  if (item.kind === 'flashcard') return 'Study'
-  return 'Open'
+  switch (item.kind) {
+    case 'book':
+    case 'artifact':
+      return 'Read'
+    case 'audio':
+      return item.isNarration ? 'Listen' : 'Download'
+    case 'material':
+      return 'Download'
+    case 'flashcard':
+      return 'Study'
+    case 'wiki':
+    case 'question':
+    case 'scenario':
+      return 'Open'
+    default: {
+      const _exhaustive: never = item.kind
+      return _exhaustive
+    }
+  }
+}
+
+type TileMode = 'shelf' | 'flat'
+
+function joinParts(parts: string[]): string {
+  return [...new Set(parts.filter(Boolean))].join(' · ')
+}
+
+// Shelf tiles sit under a source header, so they lead with the kind.
+// Flat tiles lead with the source (or run/material title) instead.
+function tileText(
+  item: OutputItem,
+  { mode, showKind }: { mode: TileMode; showKind: boolean },
+): { main: string; sub: string } {
+  const chip = outputChipLabel(item)
+  if (mode === 'shelf') {
+    const runTitle = item.footer === item.sourceName ? '' : item.footer
+    return { main: chip, sub: joinParts([item.title, runTitle]) }
+  }
+  return {
+    main: item.footer,
+    sub: joinParts([showKind ? chip : '', item.title === item.footer ? '' : item.title]),
+  }
+}
+
+function outputCount(n: number): string {
+  return `${n} ${n === 1 ? 'output' : 'outputs'}`
+}
+
+function shelfMeta(items: OutputItem[]): string {
+  const newest = items.reduce((latest, item) => (item.createdAt > latest ? item.createdAt : latest), '')
+  if (!newest) return outputCount(items.length)
+  const updated = new Date(newest).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return `${outputCount(items.length)} · Updated ${updated}`
 }
 
 export function LibraryView({
@@ -107,15 +176,18 @@ export function LibraryView({
   }, [items, search, visibleType, visibleSourceId, sort, focus])
 
   const groups = useMemo(() => {
-    if (sort !== 'source') return null
+    if (sort !== 'source' || visibleType !== 'all') return null
     const map = new Map<string, OutputItem[]>()
     for (const item of filtered) {
       const list = map.get(item.sourceName) ?? []
       list.push(item)
       map.set(item.sourceName, list)
     }
-    return [...map.entries()]
-  }, [filtered, sort])
+    return [...map.entries()].map(([sourceName, list]): [string, OutputItem[]] => [
+      sourceName,
+      list.toSorted((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]),
+    ])
+  }, [filtered, sort, visibleType])
 
   const playAudiobook = async (item: OutputItem) => {
     setPlayError(null)
@@ -156,6 +228,16 @@ export function LibraryView({
       onOpen('wiki', { sourceId: item.sourceId, targetId: null, projectId: null })
       return
     }
+    if (item.kind === 'flashcard' || item.kind === 'question' || item.kind === 'scenario') {
+      if (item.runnerPage) {
+        onOpen(item.runnerPage, {
+          sourceId: item.sourceId,
+          targetId: null,
+          projectId: null,
+        })
+      }
+      return
+    }
     if (item.runnerPage) {
       onOpen(item.runnerPage, {
         sourceId: item.sourceId,
@@ -163,6 +245,13 @@ export function LibraryView({
         projectId: item.projectId,
       })
     }
+  }
+
+  const tileActions: TileActions = {
+    focus,
+    onOpen: handleOpen,
+    onDownload: (item) => void downloadArtifact(item.id),
+    onToggleFocus: toggleFocus,
   }
 
   return (
@@ -218,30 +307,9 @@ export function LibraryView({
           </p>
         </div>
       ) : groups ? (
-        groups.map(([sourceName, list]) => (
-          <div key={sourceName}>
-            <div className="lib__band">
-              <h3 className="lib__band-title">{sourceName}</h3>
-              <span className="lib__band-line" />
-              <span className="lib__band-count">{list.length} outputs</span>
-            </div>
-            <CardGrid
-              items={list}
-              onOpen={handleOpen}
-              onDownload={(item) => void downloadArtifact(item.id)}
-              focus={focus}
-              onToggleFocus={toggleFocus}
-            />
-          </div>
-        ))
+        <SourceShelves groups={groups} {...tileActions} />
       ) : (
-        <CardGrid
-          items={filtered}
-          onOpen={handleOpen}
-          onDownload={(item) => void downloadArtifact(item.id)}
-          focus={focus}
-          onToggleFocus={toggleFocus}
-        />
+        <TileGrid items={filtered} showKind={visibleType === 'all'} {...tileActions} />
       )}
       {player ? (
         <div className="lib__player">
@@ -253,86 +321,130 @@ export function LibraryView({
   )
 }
 
-function CardGrid({
-  items,
-  onOpen,
-  onDownload,
-  focus,
-  onToggleFocus,
-}: {
-  items: OutputItem[]
+type TileActions = {
+  focus: LibraryFocusState
   onOpen: (item: OutputItem) => void
   onDownload: (item: OutputItem) => void
-  focus: LibraryFocusState
   onToggleFocus: (item: OutputItem) => void
-}) {
+}
+
+function SourceShelves({
+  groups,
+  ...actions
+}: TileActions & { groups: [string, OutputItem[]][] }) {
   return (
-    <div className="lib__grid">
-      {items.map((item) => {
-        const meta = KIND_META[item.kind]
-        const Icon = cardIcon(item)
-        const focused = isFocused(focus, item)
-        const chip = outputChipLabel(item)
-        const spec =
-          item.projectId !== null ||
-          item.kind === 'audio' ||
-          item.kind === 'book' ||
-          item.kind === 'artifact' ||
-          item.kind === 'material' ||
-          item.kind === 'wiki'
-        return (
-          <article key={`${item.kind}-${item.id}`} className="lib__card">
-            <div className="lib__card-top">
-              <span className={`lib__tchip ${meta.cls}`}>
-                <Icon size={12} aria-hidden="true" />
-                {chip}
-              </span>
-              <div className="lib__card-actions">
-                {canDownload(item) ? (
-                  <button
-                    type="button"
-                    className="lib__focus"
-                    onClick={() => onDownload(item)}
-                    disabled={item.narrationDownload === 'preparing'}
-                    title={downloadTitle(item)}
-                    aria-label={downloadTitle(item)}
-                  >
-                    <Download size={14} aria-hidden="true" />
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className={`lib__focus${focused ? ' is-focused' : ''}`}
-                  onClick={() => onToggleFocus(item)}
-                  title={
-                    focused
-                      ? 'Remove focus'
-                      : item.isEbook
-                        ? 'Focus this ebook (becomes the default in the reader)'
-                        : 'Focus this item'
-                  }
-                  aria-pressed={focused}
-                  aria-label={focused ? 'Remove focus' : 'Focus this item'}
-                >
-                  <Star size={14} aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-            {item.title ? (
-              <p className={spec ? 'lib__pv lib__pv--fact' : 'lib__pv'}>{item.title}</p>
-            ) : null}
-            <div className="lib__fill" />
-            <div className="lib__foot">
-              <div className="lib__meta">
-                <span>{item.footer}</span>
-              </div>
-              <button type="button" className="lib__open" onClick={() => onOpen(item)}>
-                {openLabel(item)}
-              </button>
-            </div>
-          </article>
-        )
-      })}
+    <div className="lib__shelves">
+      {groups.map(([sourceName, list]) => (
+        <section key={sourceName} className="lib__shelf">
+          <div className="lib__shelf-head">
+            <h3 className="lib__shelf-title">{sourceName}</h3>
+            <span className="lib__shelf-meta">{shelfMeta(list)}</span>
+          </div>
+          <div className="lib__shelf-items">
+            {list.map((item) => (
+              <OutputTile
+                key={`${item.kind}-${item.id}`}
+                item={item}
+                mode="shelf"
+                showKind
+                {...actions}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
+  )
+}
+
+function TileGrid({
+  items,
+  showKind,
+  ...actions
+}: TileActions & { items: OutputItem[]; showKind: boolean }) {
+  return (
+    <div className="lib__tiles">
+      {items.map((item) => (
+        <OutputTile
+          key={`${item.kind}-${item.id}`}
+          item={item}
+          mode="flat"
+          showKind={showKind}
+          {...actions}
+        />
+      ))}
+    </div>
+  )
+}
+
+function OutputTile({
+  item,
+  mode,
+  showKind,
+  focus,
+  onOpen,
+  onDownload,
+  onToggleFocus,
+}: TileActions & { item: OutputItem; mode: TileMode; showKind: boolean }) {
+  const meta = KIND_META[item.kind]
+  const Icon = meta.icon
+  const focused = isFocused(focus, item)
+  const { main, sub } = tileText(item, { mode, showKind })
+  const verb = openLabel(item)
+  return (
+    <article className="lib__tile">
+      <span className={`lib__tile-icon ${meta.cls}`}>
+        <Icon size={16} aria-hidden="true" />
+      </span>
+      <div className="lib__tile-text">
+        <p className="lib__tile-main" title={main}>
+          {main}
+        </p>
+        {sub ? (
+          <p className="lib__tile-sub" title={sub}>
+            {sub}
+          </p>
+        ) : null}
+      </div>
+      <div className="lib__tile-actions">
+        {canDownload(item) ? (
+          <button
+            type="button"
+            className="lib__focus"
+            onClick={() => onDownload(item)}
+            disabled={item.narrationDownload === 'preparing'}
+            title={downloadTitle(item)}
+            aria-label={downloadTitle(item)}
+          >
+            <Download size={14} aria-hidden="true" />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={`lib__focus${focused ? ' is-focused' : ''}`}
+          onClick={() => onToggleFocus(item)}
+          title={
+            focused
+              ? 'Remove focus'
+              : item.isEbook
+                ? 'Focus this ebook (becomes the default in the reader)'
+                : 'Focus this item'
+          }
+          aria-pressed={focused}
+          aria-label={focused ? 'Remove focus' : 'Focus this item'}
+        >
+          <Star size={14} aria-hidden="true" />
+        </button>
+      </div>
+      <button
+        type="button"
+        className="lib__open lib__tile-open"
+        onClick={() => onOpen(item)}
+        aria-label={`${verb} ${outputChipLabel(item)}, ${item.footer}`}
+      >
+        {verb}
+        <ChevronRight size={12} aria-hidden="true" />
+      </button>
+    </article>
   )
 }

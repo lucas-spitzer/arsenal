@@ -9,7 +9,7 @@ import { railItems } from '../components/foundry/types'
 import {
   defaultReaderSourceId,
   filterOutputs,
-  knowledgeRunOutputItems,
+  knowledgeLibraryItems,
   libraryItemsForRole,
   outputFooter,
   wikiEntriesToOutputItems,
@@ -203,7 +203,9 @@ describe('wiki knowledge on New Run and Library', () => {
     expect(outputFooter('audio', 'Armed Forces Officer', null)).toBe('Armed Forces Officer')
     expect(outputFooter('wiki', 'Armed Forces Officer', 'Chapter 1 Terms')).toBe('Armed Forces Officer')
     expect(outputFooter('material', 'Study Material', 'Oath Cutout')).toBe('Oath Cutout')
-    expect(outputFooter('flashcard', 'Armed Forces Officer', 'Chapter 1 Terms')).toBe('Chapter 1 Terms')
+    expect(outputFooter('flashcard', 'Armed Forces Officer', 'Chapter 1 Terms')).toBe('Armed Forces Officer')
+    expect(outputFooter('question', 'Armed Forces Officer', 'Chapter 1 Terms')).toBe('Armed Forces Officer')
+    expect(outputFooter('scenario', 'Armed Forces Officer', 'Chapter 1 Terms')).toBe('Armed Forces Officer')
   })
 })
 
@@ -254,47 +256,49 @@ describe('reader default book', () => {
   })
 })
 
-describe('knowledge run library cards', () => {
-  const titles = new Map([
-    ['run-1', 'Chapter 1'],
-    ['run-2', 'Chapter 2'],
-  ])
-
-  function card(id: string, projectId: string, front: string) {
+describe('knowledge library cards', () => {
+  function card(id: string, sourceId: string, front: string, createdAt = '2026-10-01T00:00:00Z') {
     return {
       id,
-      source_id: 'src-1',
-      knowledge_project_id: projectId,
+      source_id: sourceId,
       difficulty: 'medium',
-      created_at: '2026-10-01T00:00:00Z',
+      created_at: createdAt,
       front,
       back: `${front} back`,
     }
   }
 
-  it('groups each knowledge run into one flashcard, question, and scenario card', () => {
-    const flashcards = knowledgeRunOutputItems(
-      [card('c1', 'run-1', 'Commission'), card('c2', 'run-1', 'Valor'), card('c3', 'run-2', 'Tempo')],
+  it('rolls every batch for a source into one card with the quantity', () => {
+    const flashcards = knowledgeLibraryItems(
+      [
+        card('c1', 'src-1', 'Commission'),
+        card('c2', 'src-1', 'Valor', '2026-10-03T00:00:00Z'),
+        card('c3', 'src-2', 'Tempo'),
+      ],
       {
         kind: 'flashcard',
         runnerPage: 'flashcards',
         unit: 'card',
         plural: 'cards',
-        titleOf: (record) => record.front,
         searchOf: (record) => `${record.front} ${record.back}`,
-        nameOf: () => 'Armed Forces Officer',
-        projectTitle: titles,
+        nameOf: (id) => (id === 'src-2' ? 'MCDP 1' : 'Armed Forces Officer'),
       },
     )
-    const questions = knowledgeRunOutputItems(
+    const questions = knowledgeLibraryItems(
       [
         {
           id: 'q1',
           source_id: 'src-1',
-          knowledge_project_id: 'run-1',
           difficulty: 'easy',
           created_at: '2026-10-02T00:00:00Z',
           question: 'What is fidelity?',
+        },
+        {
+          id: 'q2',
+          source_id: 'src-1',
+          difficulty: 'hard',
+          created_at: '2026-10-04T00:00:00Z',
+          question: 'What is friction?',
         },
       ],
       {
@@ -302,45 +306,42 @@ describe('knowledge run library cards', () => {
         runnerPage: 'quiz',
         unit: 'question',
         plural: 'questions',
-        titleOf: (record) => record.question,
         searchOf: (record) => record.question,
         nameOf: () => 'Armed Forces Officer',
-        projectTitle: titles,
       },
     )
 
-    expect(flashcards.map((item) => item.id)).toEqual(['run-1', 'run-2'])
+    expect(flashcards.map((item) => item.id)).toEqual(['src-1', 'src-2'])
     expect(flashcards[0]).toMatchObject({
       kind: 'flashcard',
       title: '2 cards',
-      footer: 'Chapter 1',
+      footer: 'Armed Forces Officer',
       sourceName: 'Armed Forces Officer',
-      projectId: 'run-1',
+      projectId: null,
       runnerPage: 'flashcards',
+      createdAt: '2026-10-03T00:00:00Z',
     })
     expect(flashcards[1]).toMatchObject({
       title: '1 card',
-      footer: 'Chapter 2',
-      projectId: 'run-2',
+      footer: 'MCDP 1',
+      projectId: null,
     })
     expect(questions[0]).toMatchObject({
       kind: 'question',
-      title: '1 question',
-      footer: 'Chapter 1',
-      projectId: 'run-1',
+      title: '2 questions',
+      footer: 'Armed Forces Officer',
+      projectId: null,
     })
   })
 
-  it('finds a run by one of its cards', () => {
-    const items = knowledgeRunOutputItems([card('c1', 'run-1', 'Commission')], {
+  it('finds a source card by one of its cards', () => {
+    const items = knowledgeLibraryItems([card('c1', 'src-1', 'Commission')], {
       kind: 'flashcard',
       runnerPage: 'flashcards',
       unit: 'card',
       plural: 'cards',
-      titleOf: (record) => record.front,
       searchOf: (record) => `${record.front} ${record.back}`,
       nameOf: () => 'Armed Forces Officer',
-      projectTitle: titles,
     })
 
     expect(filterOutputs(items, { search: 'Commission', type: 'all', sourceId: null })).toEqual(items)
