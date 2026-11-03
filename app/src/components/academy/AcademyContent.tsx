@@ -6,6 +6,7 @@ import { DiscussionsView } from './DiscussionsView'
 import { FlashcardsView } from './FlashcardsView'
 import { LibraryView } from './LibraryView'
 import { ObjectivesView } from './ObjectivesView'
+import { AnalyticsView } from './AnalyticsView'
 import { QuizView } from './QuizView'
 import { ReaderView } from './ReaderView'
 import { ScenarioView } from './ScenarioView'
@@ -55,8 +56,15 @@ export function AcademyContent({
           />
         )}
         {page === 'quiz' && (
-          <QuizView sourceId={scope.sourceId} targetId={scope.targetId} projectId={scope.projectId} />
+          <QuizView
+            key={`${scope.sourceId ?? ''}:${scope.projectId ?? ''}:${scope.batchKey ?? ''}`}
+            sourceId={scope.sourceId}
+            targetId={scope.targetId}
+            projectId={scope.projectId}
+            batchKey={scope.batchKey}
+          />
         )}
+        {page === 'analytics' && <AnalyticsView onOpen={onOpen} />}
         {page === 'scenarios' && (
           <ScenarioView
             sourceId={scope.sourceId}

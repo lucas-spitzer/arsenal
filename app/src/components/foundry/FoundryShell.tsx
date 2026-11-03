@@ -181,12 +181,15 @@ export function FoundryShell() {
         )}
         {navItems.map((item) => {
           const Icon = item.icon
+          const railName = 'name' in item ? item.name : undefined
           return (
             <button
               key={item.id}
               className={`as-console__rail-btn${activePage === item.id ? ' is-active' : ''}`}
               onClick={() => setPage(item.id)}
               aria-current={activePage === item.id ? 'page' : undefined}
+              aria-label={railName}
+              title={railName}
             >
               <Icon className="as-console__rail-icon" size={railIconSize} strokeWidth={1.75} aria-hidden />
               {item.label}

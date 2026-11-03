@@ -97,6 +97,10 @@ async def create_and_enqueue_production_run(
         raise ProductionRunValidationError(
             "Structured data sources can't run through the document pipeline.",
         )
+    if any(source.get("status") == "awaiting_file" for source in sources or []):
+        raise ProductionRunValidationError(
+            "Sources without a file can't run through the document pipeline.",
+        )
 
     selected_sources = set(source_ids)
     restart_ids = [

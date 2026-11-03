@@ -102,6 +102,7 @@ Run these only on databases that already have a Foundry schema and need a target
 | `seed-calendar-week-2026-10-25.sql` | Operator seed. Inserts the week of Sun Oct 25 – Fri Oct 30, 2026 into the platoon workspace ("The Basic School"). Skips rows that already exist. Run after the calendar table exists. |
 | `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. |
 | `../maintenance/add-audiobook-artifact.sql` | DB was created before direct audiobook uploads. Adds `audiobook` to `artifacts_type_check`. Idempotent aside from the constraint swap. |
+| `../maintenance/add-quiz-results.sql` | DB was created before personal quiz results. Adds `quiz_results` with RLS and role revokes. Idempotent. |
 | `../maintenance/delete-production-run.sql` | Operator utility. Deletes one production run and the rows it created. Refuses Study Material runs. Storage files cannot be deleted from SQL. |
 | `../maintenance/delete-study-material-run.sql` | Operator utility. Deletes one Study Material production run, its material, components, versions, artifacts, and stage runs. Storage files cannot be deleted from SQL. |
 | `../maintenance/delete-source.sql` | Operator utility. Deletes one source and the rows it created. Storage files cannot be deleted from SQL. |
@@ -304,6 +305,7 @@ cd api && python -m scripts.publish_narration_artifacts
 ### Assistant
 
 - `discussion_threads`, `discussion_messages` — persisted Discussions conversations
+- `quiz_results` — one finished quiz batch per row, visible only to the student who took it
 
 ### Academics calendar
 

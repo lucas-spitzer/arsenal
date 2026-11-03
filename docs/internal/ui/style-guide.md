@@ -288,6 +288,28 @@ Rules:
 - Sources sort by name, with `Unassigned` last. Batches keep upload order, oldest first. The default is the newest batch, in the source passed to the view if it has any, otherwise in the source with the newest batch. Changing the source resets the batch to that source's newest.
 - The conversations side panel lists the same selected batch's prompts under its title.
 
+### Quiz
+
+Academy Quiz (`QuizView`) is open to every student. A run is one knowledge batch, chosen with Source and Batch selects in the `lib__select` pattern. The rail opens the newest named batch. A Library question tile opens the newest named batch in that source. Questions with no knowledge batch sit in an Unassigned batch. The default pass asks one question per cited term. `Show every variant` asks every question in the batch.
+
+The finished screen names the batch and shows the score (`14 of 20 correct`). Missed questions list the stem, the picked option, and the answer. A failed save keeps the score on screen and says it was not saved.
+
+### Analytics
+
+Academy Analytics (`AnalyticsView`, `anl__*` in `academy.css`) is one student's own quiz results. The rail mark is `ANL`. Academics does not see another student's results.
+
+The page uses the same `StudyHead` as ELO, Library, and Calendar. The eyebrow is `Quiz results`, the title is `Analytics`, and accuracy, questions, and quizzes sit in the header summary. The batch select sits in a toolbar under the header, the same row pattern as the ELO search bar. Empty, loading, and error states use the Library empty treatment (`lib__empty`).
+
+Rules:
+
+- Below 980px the two cards stack, and the header summary drops under the title with the other Academy pages.
+- The batch select uses `lib__select` and defaults to All batches. Choosing a batch narrows every number on the page, including the header summary.
+- Accuracy is a whole percent. An empty student sees `No finished quizzes yet.`
+- Section labels are the small gray uppercase used inside an open ELO class. Each batch, weak term, and recent quiz is its own row: white surface, hairline border, 3px navy left rule. The selected batch and an open quiz turn that rule and the title scarlet. The quiz chevron is gold and rotates open, the same way an ELO class does. `Practice` uses the scarlet outline button used for `Discuss this class`.
+- By batch lists each batch in the current filter with its quiz count and accuracy. Choosing a row applies that batch filter.
+- Needs work lists cited terms with at least one miss, worst accuracy first, at most eight. A question with no wiki citation uses its stem. `Practice` opens that batch in Quiz.
+- Recent quizzes are newest first: batch, date (`Oct 28, 2026`), and score (`14 of 20`). Expanding a run lists the questions missed that time. The second line says `One question per term` or `Every variant`.
+
 ### Alerts
 
 | Type | Treatment |

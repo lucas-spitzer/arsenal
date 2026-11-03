@@ -12,6 +12,7 @@ from app.repositories.lessons import LessonRepository
 from app.repositories.narration_segments import NarrationSegmentRepository
 from app.repositories.ndr_segments import NdrSegmentRepository
 from app.repositories.production_runs import ProductionRunRepository
+from app.repositories.quiz_results import QuizResultRepository
 from app.repositories.retrieval import RetrievalRepository
 from app.repositories.sources import SourceRepository
 from app.repositories.stage_runs import StageRunRepository
@@ -180,6 +181,12 @@ def get_wiki_authoring_service(
         production_runs=production_runs,
         settings=settings,
     )
+
+
+def get_quiz_result_repository(
+    db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
+) -> QuizResultRepository:
+    return QuizResultRepository(db)
 
 
 def get_discussion_repository(

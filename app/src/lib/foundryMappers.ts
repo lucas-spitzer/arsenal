@@ -79,7 +79,7 @@ export function sourceIdentifier(source: Source): string | null {
 
 export function sourcePurpose(source: Source): string | null {
   const research = researchMetadata(source)
-  return metadataString(research?.purpose)
+  return metadataString(research?.purpose) ?? metadataString(source.source_metadata.background)
 }
 
 export function sourceAudience(source: Source): string | null {
@@ -721,6 +721,7 @@ export const STRUCTURED_DATA_LABEL = 'Structured data'
 
 export function mapSourceDisplay(source: Source): SourceDisplay {
   const isStructuredData = source.source_kind === 'structured_data'
+  const awaitingFile = source.status === 'awaiting_file'
   return {
     id: source.id,
     filename: source.filename,
@@ -731,8 +732,8 @@ export function mapSourceDisplay(source: Source): SourceDisplay {
     issuingAuthority: sourceIssuingAuthority(source),
     purpose: sourcePurpose(source),
     audience: sourceAudience(source),
-    mimeLabel: mimeLabel(source.mime_type),
-    sizeLabel: formatBytes(source.file_size_bytes),
+    mimeLabel: awaitingFile ? '—' : mimeLabel(source.mime_type),
+    sizeLabel: awaitingFile ? '—' : formatBytes(source.file_size_bytes),
     pages: sourcePages(source),
     segments: sourceSegments(source),
     confidence: sourceConfidence(source),

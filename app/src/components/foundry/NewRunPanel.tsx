@@ -124,6 +124,7 @@ export function NewRunPanel({ onClose, onCreated }: NewRunPanelProps) {
   }
 
   const checkpoint = checkpoints?.[0]
+  const runnableSources = sources.filter((source) => source.status !== 'awaiting_file')
 
   return (
     <section className="as-console__panel" style={{ marginBottom: 'var(--space-5)' }}>
@@ -134,13 +135,13 @@ export function NewRunPanel({ onClose, onCreated }: NewRunPanelProps) {
         </button>
       </div>
       <div style={{ padding: '0 18px 18px' }}>
-        {sources.length === 0 ? (
+        {runnableSources.length === 0 ? (
           <p className="as-console__empty">Upload a source before starting a production run.</p>
         ) : (
           <>
             <p className="as-console__field-label">Sources</p>
             <div className="as-console__chips" style={{ marginBottom: 20 }}>
-              {sources.map((source) => (
+              {runnableSources.map((source) => (
                 <button
                   key={source.id}
                   type="button"

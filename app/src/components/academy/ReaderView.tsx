@@ -47,8 +47,10 @@ import {
   globalSpread,
   locateSpread,
   nextUnmeasuredChapter,
+  readerProgressLabel,
   seqForSpoken,
   splitReaderChapters,
+  spreadPageNumbers,
   spreadsForColumns,
   totalColumns,
   wordBlocksForChapter,
@@ -1322,15 +1324,20 @@ export function ReaderView({
 
   // --- Render -------------------------------------------------------------
   const runningChapter = visibleChapter?.title ?? ''
-  const leftNum = (spreadIndex ?? safeLocal) * 2 + 1
-  const rightNum = Math.min((spreadIndex ?? safeLocal) * 2 + 2, Math.max(pageCount, leftNum))
+  const located = geometryReady
+    ? spreadPageNumbers(columnCounts, activeChapterIndex, safeLocal)
+    : null
+  const leftNum = located?.left ?? (spreadIndex ?? safeLocal) * 2 + 1
+  const rightNum =
+    located?.right ??
+    Math.min((spreadIndex ?? safeLocal) * 2 + 2, Math.max(pageCount, leftNum))
 
   const opening = (isLive && live.loading) || (!isLive && isLoading)
   const noBook = !isLive && !isLoading
   const emptyState = isLive && !live.loading && !live.error && blocks.length === 0
   const showBook = isLive && !live.loading && live.error == null && !emptyState
-  const progressPct =
-    geometryReady && pageCount > 0 ? Math.round((rightNum / pageCount) * 100) : 0
+  const progressLabel =
+    geometryReady && pageCount > 0 ? readerProgressLabel(rightNum, pageCount) : null
 
   return (
     <section
@@ -1662,7 +1669,7 @@ export function ReaderView({
           <span className="reader__pageinfo" aria-label="Progress through the book">
             {pageCount > 0
               ? geometryReady
-                ? `${progressPct}% · ${pageCount} pages`
+                ? `${progressLabel} · ${pageCount} pages`
                 : `Page ${leftNum}`
               : 'No content'}
           </span>

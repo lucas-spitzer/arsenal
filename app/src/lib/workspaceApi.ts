@@ -252,6 +252,23 @@ export async function uploadSource(workspaceId: string, file: File): Promise<Sou
   return uploadMultipart<Source>(`/workspaces/${workspaceId}/sources`, file)
 }
 
+export interface ReferenceSourceRequest {
+  name: string
+  background?: string
+  document_type?: string
+  issuing_authority?: string
+}
+
+export async function createReferenceSource(
+  workspaceId: string,
+  request: ReferenceSourceRequest,
+): Promise<Source> {
+  return apiRequest<Source>(`/workspaces/${workspaceId}/sources/reference`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
 export async function uploadStructuredData(workspaceId: string, file: File): Promise<Source> {
   return uploadMultipart<Source>(`/workspaces/${workspaceId}/sources/structured-data`, file)
 }

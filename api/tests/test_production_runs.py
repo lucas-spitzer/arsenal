@@ -187,3 +187,22 @@ def test_run_rejects_structured_data_source() -> None:
         )
 
     assert runs.rows == {}
+
+
+def test_run_rejects_source_awaiting_file() -> None:
+    runs = FakeProductionRunRepository()
+
+    with pytest.raises(ProductionRunValidationError, match="without a file"):
+        asyncio.run(
+            create_and_enqueue_production_run(
+                workspace_id="ws-1",
+                owner_id="user-1",
+                source_ids=["src-1"],
+                target_artifacts=["electronic_book"],
+                settings=object(),  # type: ignore[arg-type]
+                production_runs=runs,  # type: ignore[arg-type]
+                sources=[_source(status="awaiting_file", storage_path="", file_size_bytes=0)],
+            ),
+        )
+
+    assert runs.rows == {}

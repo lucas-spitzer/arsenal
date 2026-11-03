@@ -99,6 +99,52 @@ export function totalColumns(columnCounts: readonly (number | undefined)[]): num
   return total
 }
 
+/**
+ * 1-based page numbers for the spread on screen.
+ * A chapter with an odd column count ends on a left-hand page. The blank
+ * facing page is not a page of the book, so it must not advance the folio
+ * or the progress percent.
+ */
+export function spreadPageNumbers(
+  columnCounts: readonly (number | undefined)[],
+  chapterIndex: number,
+  localSpread: number,
+): { left: number; right: number } | null {
+  if (chapterIndex < 0 || chapterIndex >= columnCounts.length) return null
+  let start = 0
+  for (let index = 0; index < chapterIndex; index += 1) {
+    const columns = columnCounts[index]
+    if (columns == null) return null
+    start += columns
+  }
+  const columns = columnCounts[chapterIndex]
+  if (columns == null || columns <= 0) return null
+  const spread = Math.min(Math.max(0, Math.floor(localSpread)), spreadsForColumns(columns) - 1)
+  const localLeft = spread * 2
+  const leftIndex = start + Math.min(localLeft, columns - 1)
+  const rightIndex = start + Math.min(localLeft + 1, columns - 1)
+  return { left: leftIndex + 1, right: rightIndex + 1 }
+}
+
+/**
+ * Progress label for the furthest page on screen.
+ * Whole percents make every turn look like +1% once a spread is worth less
+ * than a point, which is any book longer than 200 pages. Those books show
+ * tenths so the label moves by the real fraction of the book.
+ */
+export function readerProgressLabel(pageReached: number, pageCount: number): string {
+  if (!(pageCount > 0) || !(pageReached > 0)) return '0%'
+  const reached = Math.min(pageReached, pageCount)
+  const pct = (reached / pageCount) * 100
+  if (pct >= 99.95) return '100%'
+  if (pageCount > 200) {
+    const tenths = Math.round(pct * 10) / 10
+    if (tenths >= 100) return '100%'
+    return `${tenths.toFixed(1)}%`
+  }
+  return `${Math.round(pct)}%`
+}
+
 export function chapterIndexForSeq(chapters: readonly ReaderChapter[], seq: number): number {
   for (let index = 0; index < chapters.length; index += 1) {
     if (chapters[index].blocks.some((block) => block.seq === seq)) return index

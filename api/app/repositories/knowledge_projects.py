@@ -24,6 +24,13 @@ class KnowledgeProjectRepository:
             order="updated_at.desc",
         )
 
+    async def get_in_workspace(self, project_id: str, workspace_id: str) -> dict[str, Any] | None:
+        return await self.db.select_one(
+            "knowledge_projects",
+            filters={"id": f"eq.{project_id}", "workspace_id": f"eq.{workspace_id}"},
+            columns="id,source_id,title",
+        )
+
     async def list_titles(self, workspace_id: str) -> list[dict[str, Any]]:
         return await self.db.select_many(
             "knowledge_projects",

@@ -55,13 +55,14 @@ describe('wiki knowledge on New Run and Library', () => {
     expect(academyRailItems.map((item) => item.id)).not.toContain('wiki')
   })
 
-  it('hides study materials, flashcards, questions, and scenarios from students and keeps them for admins', () => {
+  it('hides study materials, flashcards, scenarios, and analytics from students and keeps quizzes visible', () => {
     expect(academyRailForRole(false).map((item) => item.id)).toEqual([
       'calendar',
       'library',
       'reader',
       'objectives',
       'discussions',
+      'quiz',
     ])
     expect(academyRailForRole(true).map((item) => item.id)).toEqual([
       'calendar',
@@ -72,9 +73,11 @@ describe('wiki knowledge on New Run and Library', () => {
       'flashcards',
       'quiz',
       'scenarios',
+      'analytics',
     ])
     expect(academyPageForRole('flashcards', false)).toBe('library')
-    expect(academyPageForRole('quiz', false)).toBe('library')
+    expect(academyPageForRole('quiz', false)).toBe('quiz')
+    expect(academyPageForRole('analytics', false)).toBe('library')
     expect(academyPageForRole('scenarios', false)).toBe('library')
     expect(academyPageForRole('reader', false)).toBe('reader')
     expect(academyPageForRole('flashcards', true)).toBe('flashcards')
@@ -87,7 +90,7 @@ describe('wiki knowledge on New Run and Library', () => {
       { kind: 'scenario' as const, id: 'scenarios' },
       { kind: 'wiki' as const, id: 'wiki' },
     ]
-    expect(libraryItemsForRole(items, false).map((item) => item.id)).toEqual(['book', 'wiki'])
+    expect(libraryItemsForRole(items, false).map((item) => item.id)).toEqual(['book', 'questions', 'wiki'])
     expect(libraryItemsForRole(items, true).map((item) => item.id)).toEqual([
       'book',
       'material',

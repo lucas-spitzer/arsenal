@@ -19,6 +19,7 @@ from app.routers import (
     image,
     llm,
     production_runs,
+    quiz_results,
     reader,
     stages,
     sources,
@@ -80,6 +81,7 @@ app.include_router(wiki.router)
 app.include_router(reader.router)
 app.include_router(artifacts.router)
 app.include_router(assessments.router)
+app.include_router(quiz_results.router)
 app.include_router(llm.router)
 app.include_router(tts.router)
 app.include_router(image.router)

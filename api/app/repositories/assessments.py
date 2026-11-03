@@ -55,6 +55,21 @@ class AssessmentRepository:
             offset=offset,
         )
 
+    async def list_quizzes_by_ids(
+        self,
+        workspace_id: str,
+        quiz_ids: list[str],
+    ) -> list[dict[str, Any]]:
+        if not quiz_ids:
+            return []
+        return await self.db.select_many(
+            "quizzes",
+            filters={
+                "workspace_id": f"eq.{workspace_id}",
+                "id": f"in.({','.join(quiz_ids)})",
+            },
+        )
+
     async def get_quiz(
         self,
         quiz_id: str,

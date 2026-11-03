@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 BLOOM_LEVELS = ("remember", "understand", "apply", "analyze")
 TRUE_FALSE = "true_false_correction"
+TRUE_FALSE_KINDS = frozenset({TRUE_FALSE, "true_false"})
 MULTIPLE_SELECT = "multiple_select"
 TRUE_FALSE_OPTIONS = ["True", "False"]
 
@@ -153,6 +154,63 @@ def draw(pool: AnswerPool, subtype: str, rng: random.Random | None = None) -> Dr
     return Draw(options=options, correct_answer=chosen_answer)
 
 
+class ShownAnswerError(ValueError):
+    """The submitted rendering cannot be graded."""
+
+
+def grade_shown_answer(
+    quiz: dict[str, Any],
+    *,
+    question: str,
+    options: list[str],
+    selected_index: int,
+) -> tuple[bool, str]:
+    """Grade one shown option. Returns whether it was correct and the right answer text."""
+    if selected_index < 0 or selected_index >= len(options):
+        raise ShownAnswerError("Pick one of the shown options.")
+    selected = options[selected_index]
+    kind = str(quiz.get("subtype") or quiz.get("question_type") or "multiple_choice")
+    pool = pool_or_none(quiz.get("answer_pool"))
+
+    if pool is not None and kind in TRUE_FALSE_KINDS:
+        stem = question.strip()
+        correct_stems = {text.strip() for text in pool.correct if text.strip()}
+        false_stems = {row.text.strip() for row in pool.distractors if row.text.strip()}
+        if stem in correct_stems:
+            expected = "True"
+        elif stem in false_stems:
+            expected = "False"
+        else:
+            raise ShownAnswerError("That statement is not part of this question.")
+        return selected == expected, expected
+
+    if pool is not None and any(text.strip() for text in pool.correct):
+        correct = [text.strip() for text in pool.correct if text.strip()]
+        correct_set = set(correct)
+        picked = selected.strip()
+        is_correct = picked in correct_set
+        shown = [option.strip() for option in options if option.strip() in correct_set]
+        right = picked if is_correct else (shown[0] if shown else correct[0])
+        return is_correct, right
+
+    stored = str(quiz.get("correct_answer") or "")
+    return _option_matches_stored(stored, selected, selected_index), _stored_option_text(stored, options)
+
+
+def cited_wiki_id(quiz: dict[str, Any]) -> str | None:
+    citations = quiz.get("citations")
+    if not isinstance(citations, list):
+        return None
+    for citation in citations:
+        if not isinstance(citation, dict):
+            continue
+        uri = citation.get("uri")
+        if isinstance(uri, str) and uri.startswith("wiki://"):
+            wiki_id = uri.removeprefix("wiki://").strip()
+            return wiki_id or None
+    return None
+
+
 def pool_or_none(raw: Any) -> AnswerPool | None:
     if not isinstance(raw, dict) or not raw:
         return None
@@ -170,6 +228,34 @@ def _distractor(raw: Any) -> Distractor:
             confused_with_wiki_id=(str(raw["confused_with_wiki_id"]) if raw.get("confused_with_wiki_id") else None),
         )
     return Distractor(text=_clean(raw))
+
+
+def _option_matches_stored(stored: str, option: str, index: int) -> bool:
+    answer = stored.strip()
+    if not answer:
+        return False
+    if answer == option:
+        return True
+    if len(answer) == 1 and answer.isalpha() and ord(answer.upper()) - 65 == index:
+        return True
+    if answer.isdigit() and int(answer) == index:
+        return True
+    return False
+
+
+def _stored_option_text(stored: str, options: list[str]) -> str:
+    answer = stored.strip()
+    if answer in options:
+        return answer
+    if len(answer) == 1 and answer.isalpha():
+        index = ord(answer.upper()) - 65
+        if 0 <= index < len(options):
+            return options[index]
+    if answer.isdigit():
+        index = int(answer)
+        if 0 <= index < len(options):
+            return options[index]
+    return answer
 
 
 def _clean(value: Any) -> str:

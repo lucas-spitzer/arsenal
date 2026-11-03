@@ -266,7 +266,8 @@ body:has(.as-console--academy),
 .as-state--processing,
 .as-state--download { background: rgba(132,117,78,0.28); color: #d8c48a; }
 .as-state--failed { background: rgba(148,0,0,0.3); color: #ff8b8b; }
-.as-state--queued { background: rgba(255,255,255,0.08); color: #9fb2bb; }
+.as-state--queued,
+.as-state--awaiting_file { background: rgba(255,255,255,0.08); color: #9fb2bb; }
 .as-state--cancelled { background: rgba(255,255,255,0.06); color: #7d8f98; }
 
 .as-console__progress {

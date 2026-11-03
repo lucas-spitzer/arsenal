@@ -6,14 +6,6 @@ export function filenameStem(filename: string): string {
   return dot > 0 ? filename.slice(0, dot) : filename
 }
 
-/**
- * Canonical label for a source across Foundry, Academy, and run UI.
- * Always derived from the uploaded filename (minus extension).
- */
-export function sourceDisplayName(source: Pick<Source, 'filename'>): string {
-  return filenameStem(source.filename)
-}
-
 function metadataRecord(value: unknown): Record<string, unknown> | null {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>
@@ -25,6 +17,19 @@ function metadataString(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed || null
+}
+
+/**
+ * Canonical label for a source across Foundry, Academy, and run UI.
+ * A source created before its file uses `source_metadata.display_name`.
+ * Uploaded sources keep the filename stem.
+ */
+export function sourceDisplayName(
+  source: Pick<Source, 'filename'> & Partial<Pick<Source, 'source_metadata'>>,
+): string {
+  const displayName = metadataString(source.source_metadata?.display_name)
+  if (displayName) return displayName
+  return filenameStem(source.filename)
 }
 
 /**

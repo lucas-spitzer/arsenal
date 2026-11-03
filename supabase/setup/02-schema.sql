@@ -106,7 +106,7 @@ create table public.sources (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint sources_status_check
-    check (status in ('stored', 'processing', 'ready', 'failed')),
+    check (status in ('stored', 'processing', 'ready', 'failed', 'awaiting_file')),
   constraint sources_source_kind_check
     check (source_kind in ('document', 'structured_data')),
   constraint sources_workspace_file_hash_key
@@ -786,6 +786,35 @@ create table public.discussion_messages (
 
 create index discussion_messages_thread_id_idx
 on public.discussion_messages (thread_id, created_at);
+
+-- ---------------------------------------------------------------------------
+-- Quiz results (one finished batch, owned by the student who took it)
+-- ---------------------------------------------------------------------------
+
+create table public.quiz_results (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  knowledge_project_id uuid references public.knowledge_projects (id) on delete set null,
+  source_id uuid references public.sources (id) on delete set null,
+  title text not null,
+  scope text not null,
+  correct_count integer not null,
+  question_count integer not null,
+  answers jsonb not null,
+  completed_at timestamptz not null default now(),
+  constraint quiz_results_scope_check
+    check (scope in ('one_per_term', 'every_variant')),
+  constraint quiz_results_counts_check
+    check (
+      correct_count >= 0
+      and question_count > 0
+      and correct_count <= question_count
+    )
+);
+
+create index quiz_results_user_completed_idx
+on public.quiz_results (workspace_id, user_id, completed_at desc);
 
 -- ---------------------------------------------------------------------------
 -- Calendar events (Academics schedule: deadlines, classes, prac apps)

@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 import {
   BookOpen,
   CalendarDays,
+  ChartColumn,
   HelpCircle,
   Layers,
   Library,
@@ -20,6 +21,7 @@ export type AcademyPage =
   | 'discussions'
   | 'calendar'
   | 'objectives'
+  | 'analytics'
 
 // Scope passed when opening a runner from the Library (filter + focus target).
 export type AcademyScope = {
@@ -29,11 +31,13 @@ export type AcademyScope = {
   projectId: string | null
   /** Discussions thread to open, e.g. one started from "Discuss this class". */
   threadId?: string | null
+  /** Quiz batch to open. An `unassigned:` key selects questions with no knowledge batch. */
+  batchKey?: string | null
 }
 
 export const emptyAcademyScope: AcademyScope = { sourceId: null, targetId: null, projectId: null, threadId: null }
 
-export const academyRailItems: { id: AcademyPage; label: string; icon: LucideIcon }[] = [
+export const academyRailItems: { id: AcademyPage; label: string; icon: LucideIcon; name?: string }[] = [
   { id: 'calendar', label: 'CAL', icon: CalendarDays },
   { id: 'library', label: 'LIB', icon: Library },
   { id: 'reader', label: 'RDR', icon: BookOpen },
@@ -42,10 +46,11 @@ export const academyRailItems: { id: AcademyPage; label: string; icon: LucideIco
   { id: 'flashcards', label: 'FLC', icon: Layers },
   { id: 'quiz', label: 'QIZ', icon: HelpCircle },
   { id: 'scenarios', label: 'SCN', icon: Lightbulb },
+  { id: 'analytics', label: 'ANL', name: 'Analytics', icon: ChartColumn },
 ]
 
-// TBS students write their own study guides. These runners stay on the admin Academy rail.
-const studentHiddenAcademyPages = new Set<AcademyPage>(['flashcards', 'quiz', 'scenarios'])
+// Flashcards, scenarios, and analytics stay on the admin Academy rail. Students practice quizzes.
+const studentHiddenAcademyPages = new Set<AcademyPage>(['flashcards', 'scenarios', 'analytics'])
 
 export function academyRailForRole(isAdmin: boolean) {
   if (isAdmin) return academyRailItems

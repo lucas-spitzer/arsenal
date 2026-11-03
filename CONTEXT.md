@@ -39,3 +39,11 @@ _Avoid_: workspace, course, private notebook
 **Discussion**:
 A private tutor conversation started by one student.
 _Avoid_: class chat, shared thread
+
+**Quiz result**:
+One finished pass a student took through a batch of questions. It records the score and each answer. It belongs to that student.
+_Avoid_: grade, exam, analytics event
+
+**Analytics**:
+The Academy page where a student reviews their own quiz results.
+_Avoid_: gradebook, platoon dashboard, report card

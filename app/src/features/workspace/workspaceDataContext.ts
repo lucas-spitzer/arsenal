@@ -11,6 +11,7 @@ import type {
   KnowledgeRunTitle,
   LibraryArtifactUploadRequest,
   LibraryArtifactUploadResult,
+  ReferenceSourceRequest,
 } from '../../lib/workspaceApi'
 
 export interface WorkspaceDataContextValue {
@@ -29,6 +30,7 @@ export interface WorkspaceDataContextValue {
   error: string | null
   activeRunCount: number
   uploadSource: (file: File) => Promise<Source>
+  createReferenceSource: (request: ReferenceSourceRequest) => Promise<Source>
   uploadStructuredData: (file: File) => Promise<Source>
   uploadLibraryArtifact: (request: LibraryArtifactUploadRequest) => Promise<LibraryArtifactUploadResult>
   uploadArtifact: (file: File) => Promise<Artifact>

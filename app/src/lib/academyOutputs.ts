@@ -38,8 +38,8 @@ export interface OutputItem {
   searchText?: string
 }
 
-// Study guides the student Academy rail hides, plus printable study material. Books, audio, and wiki stay.
-export const studentHiddenLibraryKinds = ['material', 'flashcard', 'question', 'scenario'] as const satisfies readonly OutputKind[]
+// Study guides the student Library hides, plus printable study material. Questions stay visible.
+export const studentHiddenLibraryKinds = ['material', 'flashcard', 'scenario'] as const satisfies readonly OutputKind[]
 
 const studentHiddenLibraryKindSet = new Set<OutputKind>(studentHiddenLibraryKinds)
 

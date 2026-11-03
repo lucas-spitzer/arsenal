@@ -6,18 +6,28 @@ import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { FoundryViewToggle } from './FoundryViewToggle'
 import { ErrorBanner } from './ErrorBanner'
 import { FoundryLoader } from './FoundryLoader'
+import { CreateSourceDialog } from './CreateSourceDialog'
 import { UploadArtifactsDialog } from './UploadArtifactsDialog'
 import type { FoundryView } from './types'
 
 export function FoundrySources() {
-  const { sources, structuredSources, isLoading, error, uploadSource, uploadLibraryArtifact } =
-    useWorkspaceData()
+  const {
+    sources,
+    structuredSources,
+    isLoading,
+    error,
+    uploadSource,
+    uploadLibraryArtifact,
+    createReferenceSource,
+  } = useWorkspaceData()
   const [query, setQuery] = useState('')
   const [view, setView] = useState<FoundryView>('grid')
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [artifactsOpen, setArtifactsOpen] = useState(false)
   const [artifactsKey, setArtifactsKey] = useState(0)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createKey, setCreateKey] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadSources = useMemo(
     () =>
@@ -44,7 +54,8 @@ export function FoundrySources() {
         (source.bibliographicTitle?.toLowerCase().includes(q) ?? false) ||
         (source.identifier?.toLowerCase().includes(q) ?? false) ||
         (source.documentType?.toLowerCase().includes(q) ?? false) ||
-        (source.issuingAuthority?.toLowerCase().includes(q) ?? false),
+        (source.issuingAuthority?.toLowerCase().includes(q) ?? false) ||
+        (source.purpose?.toLowerCase().includes(q) ?? false),
     )
   }, [displaySources, query])
 
@@ -96,6 +107,16 @@ export function FoundrySources() {
         >
           {isUploading ? 'Uploading…' : '⇪ Upload document'}
         </button>
+        <button
+          className="as-console__cta"
+          disabled={isUploading}
+          onClick={() => {
+            setCreateKey((key) => key + 1)
+            setCreateOpen(true)
+          }}
+        >
+          Create source
+        </button>
       </header>
       <div className="as-console__scroll">
         {error ? <ErrorBanner message={error} /> : null}
@@ -115,7 +136,7 @@ export function FoundrySources() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="as-console__empty">
-            No sources yet. Upload a file to ingest it into the knowledge base.
+            No sources yet. Create a source, or upload a file to ingest it.
           </div>
         ) : view === 'list' ? (
           <section className="as-console__panel">
@@ -216,6 +237,15 @@ export function FoundrySources() {
           </div>
         )}
       </div>
+      <CreateSourceDialog
+        key={createKey}
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreate={async (request) => {
+          await createReferenceSource(request)
+          setCreateOpen(false)
+        }}
+      />
       <UploadArtifactsDialog
         key={artifactsKey}
         open={artifactsOpen}

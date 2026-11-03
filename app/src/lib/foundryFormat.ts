@@ -106,6 +106,7 @@ export function formatSpokenDuration(totalSeconds: number): string {
 }
 
 export function statusLabel(status: string): string {
+  if (status === 'awaiting_file') return 'No file'
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 

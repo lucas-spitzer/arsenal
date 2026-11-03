@@ -23,7 +23,7 @@ from app.models.auth import CurrentUser
 from app.models.document_chapter import DocumentChapterResponse
 from app.models.narration import NarrationAudioResponse, NarrationSegmentResponse
 from app.models.ndr_segment import NdrSegmentResponse
-from app.models.source import SourceResponse
+from app.models.source import ReferenceSourceCreate, SourceResponse
 from app.models.workspace import WorkspaceResponse
 from app.repositories.document_chapters import DocumentChapterRepository
 from app.repositories.narration_segments import NarrationSegmentRepository
@@ -31,6 +31,7 @@ from app.repositories.ndr_segments import NdrSegmentRepository
 from app.repositories.production_runs import ProductionRunRepository
 from app.repositories.sources import SourceRepository
 from app.services.production_runs import ProductionRunEnqueueError, create_and_enqueue_production_run
+from app.services.source_reference import ReferenceSourceError, reference_source_row
 from app.services.source_upload import (
     SourceUploadValidationError,
     validate_source_upload,
@@ -151,6 +152,50 @@ async def upload_structured_data_source(
         source_kind="structured_data",
         source_status="ready",
     )
+    return SourceResponse.model_validate(row)
+
+
+@router.post(
+    "/reference",
+    response_model=SourceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_reference_source(
+    payload: ReferenceSourceCreate,
+    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
+    user: Annotated[CurrentUser, Depends(require_admin)],
+    sources: Annotated[SourceRepository, Depends(get_source_repository)],
+) -> SourceResponse:
+    """Insert a source that can be referenced before its file is uploaded."""
+    source_id = str(uuid.uuid4())
+    taken = await sources.list_slugs_for_workspace(workspace.id)
+    try:
+        row_payload = reference_source_row(
+            source_id=source_id,
+            workspace_id=workspace.id,
+            owner_id=user.id,
+            name=payload.name,
+            background=payload.background,
+            document_type=payload.document_type,
+            issuing_authority=payload.issuing_authority,
+            taken_slugs=taken,
+        )
+    except ReferenceSourceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    try:
+        row = await sources.create(row_payload)
+    except SupabaseRestError as exc:
+        if is_duplicate_key_error(exc):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Could not create that source. Try a different name.",
+            ) from exc
+        raise
+
     return SourceResponse.model_validate(row)
 
 
@@ -371,7 +416,11 @@ async def delete_source(
             detail="Source not found.",
         )
 
+    storage_path = str(row.get("storage_path") or "").strip()
+    if not storage_path:
+        return
+
     await storage.delete(
         bucket=settings.sources_bucket,
-        path=row["storage_path"],
+        path=storage_path,
     )

@@ -7,8 +7,10 @@ import {
   globalSpread,
   locateSpread,
   nextUnmeasuredChapter,
+  readerProgressLabel,
   seqForSpoken,
   splitReaderChapters,
+  spreadPageNumbers,
   spreadsForColumns,
   totalColumns,
   wordBlocksForChapter,
@@ -71,6 +73,42 @@ describe('column geometry', () => {
     expect(globalSpread([undefined, 2], 1, 0)).toBeNull()
     expect(totalColumns([4, 2])).toBe(6)
     expect(totalColumns([4, undefined])).toBeNull()
+  })
+
+  it('numbers a spread from real columns and skips a blank facing page', () => {
+    expect(spreadPageNumbers([4, 2], 0, 0)).toEqual({ left: 1, right: 2 })
+    expect(spreadPageNumbers([4, 2], 1, 0)).toEqual({ left: 5, right: 6 })
+    // Chapter of 3 columns: the second spread is a single left-hand page.
+    expect(spreadPageNumbers([3, 4], 0, 1)).toEqual({ left: 3, right: 3 })
+    expect(spreadPageNumbers([3, 4], 1, 0)).toEqual({ left: 4, right: 5 })
+    expect(spreadPageNumbers([3, undefined], 1, 0)).toBeNull()
+  })
+})
+
+describe('reader progress', () => {
+  it('keeps whole percents while one spread is at least 1%', () => {
+    expect(readerProgressLabel(2, 40)).toBe('5%')
+    expect(readerProgressLabel(4, 40)).toBe('10%')
+    expect(readerProgressLabel(40, 40)).toBe('100%')
+  })
+
+  it('moves by the real fraction of a long book instead of +1% per turn', () => {
+    const pageCount = 240
+    const labels: string[] = []
+    for (let spread = 0; spread < 6; spread += 1) {
+      labels.push(readerProgressLabel(spread * 2 + 2, pageCount))
+    }
+    expect(labels).toEqual(['0.8%', '1.7%', '2.5%', '3.3%', '4.2%', '5.0%'])
+    const values = labels.map((label) => Number(label.replace('%', '')))
+    for (let index = 1; index < values.length; index += 1) {
+      expect(values[index] - values[index - 1]).toBeLessThan(1)
+    }
+  })
+
+  it('does not count a blank facing page toward progress', () => {
+    const pages = spreadPageNumbers([3], 0, 1)
+    expect(pages).toEqual({ left: 3, right: 3 })
+    expect(readerProgressLabel(pages?.right ?? 0, 3)).toBe('100%')
   })
 })
 
