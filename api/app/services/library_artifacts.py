@@ -83,7 +83,6 @@ async def upload_library_artifact(
     title: str,
     filename: str | None,
     content: bytes,
-    json_max_bytes: int,
     bucket: str,
     artifacts: ArtifactRepository,
     wiki_entries: WikiEntryRepository,
@@ -130,7 +129,6 @@ async def upload_library_artifact(
             title=cleaned_title,
             filename=filename,
             content=content,
-            max_bytes=json_max_bytes,
             wiki_entries=wiki_entries,
             assessments=assessments,
         )
@@ -229,13 +227,9 @@ async def _import_knowledge(
     title: str,
     filename: str,
     content: bytes,
-    max_bytes: int,
     wiki_entries: WikiEntryRepository,
     assessments: AssessmentRepository,
 ) -> dict[str, int]:
-    if len(content) > max_bytes:
-        max_megabytes = max_bytes // (1024 * 1024)
-        raise LibraryArtifactError(f"Uploaded file exceeds the {max_megabytes} MB limit.")
     try:
         safe_filename = sanitize_upload_filename(filename)
     except SourceUploadValidationError as exc:

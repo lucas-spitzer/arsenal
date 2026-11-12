@@ -15,14 +15,21 @@ from app.llm_defaults import (
     GEMINI_3_PRO_IMAGE_MODEL,
     GEMINI_NANO_BANANA_21_MODEL,
     GROK_IMAGINE_IMAGE_2_MODEL,
+    OPENAI_IMAGE_FLARE_25_MODEL,
     OPENAI_IMAGE_FLARE_MODEL,
+    OPENAI_IMAGE_SUNBURST_25_MODEL,
     OPENAI_IMAGE_SUNBURST_MODEL,
 )
 from app.mathesys.study_material.inputs import ComponentFile
 
 IMAGE_PROVIDERS = ("openai", "google", "xai")
 IMAGE_MODELS: dict[str, tuple[str, ...]] = {
-    "openai": (OPENAI_IMAGE_FLARE_MODEL, OPENAI_IMAGE_SUNBURST_MODEL),
+    "openai": (
+        OPENAI_IMAGE_FLARE_MODEL,
+        OPENAI_IMAGE_SUNBURST_MODEL,
+        OPENAI_IMAGE_FLARE_25_MODEL,
+        OPENAI_IMAGE_SUNBURST_25_MODEL,
+    ),
     "google": (GEMINI_NANO_BANANA_21_MODEL, GEMINI_3_PRO_IMAGE_MODEL),
     "xai": (GROK_IMAGINE_IMAGE_2_MODEL,),
 }

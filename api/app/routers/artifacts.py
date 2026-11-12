@@ -111,7 +111,6 @@ async def upload_workspace_library_artifact(
             title=title,
             filename=file.filename,
             content=content,
-            json_max_bytes=settings.max_source_upload_bytes,
             bucket=settings.sources_bucket,
             artifacts=artifacts,
             wiki_entries=wiki_entries,

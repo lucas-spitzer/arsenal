@@ -824,7 +824,10 @@ def test_classify_does_not_join_across_true_structure_boundaries(
         for section in chapter.sections
         for paragraph in section.body
     ]
-    assert paragraphs == [first_text, "Next text."]
+    expected = [first_text, "Next text."]
+    if intervening_item is not None and intervening_item["type"] == "list":
+        expected = [first_text, intervening_item["md"], "Next text."]
+    assert paragraphs == expected
 
 
 def test_classify_joins_sentence_around_omitted_figure_and_caption() -> None:
@@ -864,21 +867,30 @@ def test_classify_joins_sentence_around_omitted_figure_and_caption() -> None:
     book = classify(elements)
 
     paragraphs = book.chapters[0].intro
-    assert len(paragraphs) == 1
-    assert "particular mission in either combat" in paragraphs[0].md
+    assert [paragraph.md for paragraph in paragraphs] == [
+        (
+            "The lowest level is the *tactical level*. Tactics refers to the "
+            "concepts and methods used to accomplish a particular mission "
+            "in either combat or other military operations. In war, tactics "
+            "focuses on the application of combat power."
+        ),
+        "An image is not included here. It shows the levels of war.",
+    ]
     assert "mission  in" not in paragraphs[0].md
     assert "Figure 1" not in paragraphs[0].md
     assert book.dropped_nontext == {"image": 1, "caption": 1}
 
     xhtml = book_to_epub_chapters(book)[0]["xhtml_body"]
-    assert xhtml.count("<p>") == 1
+    assert xhtml.count("<p>") == 2
     assert "particular mission in either combat" in xhtml
     assert "Figure 1" not in xhtml
+    assert "An image is not included here. It shows the levels of war." in xhtml
 
     segments, _ = build_segments_and_chapters(book, source_id="src-1", workspace_id="ws-1")
     body_segments = [segment for segment in segments if segment["kind"] == "paragraph"]
-    assert len(body_segments) == 1
+    assert len(body_segments) == 2
     assert "particular mission in either combat" in body_segments[0]["text"]
+    assert body_segments[1]["text"] == "An image is not included here. It shows the levels of war."
 
 
 def test_classify_keeps_epigraph_quotes_and_attributions_separate() -> None:
@@ -1512,4 +1524,273 @@ def test_validate_still_raises_for_unsupported_section_title() -> None:
     ])
 
     with pytest.raises(StructureValidationError, match="INVENTED SECTION.*in the PDF at all"):
+        validate_against_pdf(book, pdf)
+
+
+def _section_body(book: Book) -> dict[str, list[str]]:
+    return {
+        section.title: [paragraph.md for paragraph in section.body]
+        for chapter in book.chapters
+        for section in chapter.sections
+    }
+
+
+def test_review_questions_end_the_chapter_and_keep_summary() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item(
+                "heading",
+                "# Today's Security Professional",
+                value="Today's Security Professional",
+                level=1,
+            ),
+            _item(
+                "text",
+                "Security professionals protect confidentiality, integrity, and availability.",
+                value="Security professionals protect confidentiality, integrity, and availability.",
+            ),
+            _item("heading", "# Summary", value="Summary", level=1),
+            _item(
+                "text",
+                "Cybersecurity professionals are responsible for the CIA triad.",
+                value="Cybersecurity professionals are responsible for the CIA triad.",
+            ),
+            _item("heading", "# Exam Essentials", value="Exam Essentials", level=1),
+            _item(
+                "text",
+                "Nonrepudiation prevents someone from denying an action.",
+                value="Nonrepudiation prevents someone from denying an action.",
+            ),
+            _item("heading", "# Review Questions", value="Review Questions", level=1),
+            _item(
+                "text",
+                "1. Matt is updating the organization's threat assessment process.",
+                value="1. Matt is updating the organization's threat assessment process.",
+            ),
+            _item("list", "A. Operational\nB. Technical", value=None),
+            _item("image", "fence-sign.png", value="fence-sign.png"),
+        ]),
+        _page(2, [
+            _item("heading", "# Chapter 2", value="Chapter 2", level=1),
+            _item(
+                "text",
+                "The next chapter begins with security governance.",
+                value="The next chapter begins with security governance.",
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert [chapter.title for chapter in book.chapters] == [
+        "Chapter 1 Today's Security Professional",
+        "Chapter 2",
+    ]
+    assert _section_body(book) == {
+        "Summary": ["Cybersecurity professionals are responsible for the CIA triad."],
+        "Exam Essentials": ["Nonrepudiation prevents someone from denying an action."],
+    }
+    joined = " ".join(
+        paragraph.md
+        for chapter in book.chapters
+        for paragraph in chapter.intro
+    )
+    assert "Matt is updating" not in joined
+    assert "Operational" not in joined
+    assert "fence-sign" not in joined
+    assert [paragraph.md for paragraph in book.chapters[1].intro] == [
+        "The next chapter begins with security governance.",
+    ]
+
+
+def test_note_and_exam_note_are_subsections() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item(
+                "text",
+                "Nonrepudiation means a completed action cannot later be denied.",
+                value="Nonrepudiation means a completed action cannot later be denied.",
+            ),
+            _item("heading", "# Exam Note", value="Exam Note", level=1),
+            _item(
+                "text",
+                "Remember the main components of the CIA triad.",
+                value="Remember the main components of the CIA triad.",
+            ),
+            _item("heading", "# Note", value="Note", level=1),
+            _item(
+                "text",
+                "These control categories are unique to CompTIA.",
+                value="These control categories are unique to CompTIA.",
+            ),
+            _item("heading", "# Tip", value="Tip", level=1),
+            _item(
+                "text",
+                "Later chapters discuss each control in detail.",
+                value="Later chapters discuss each control in detail.",
+            ),
+            _item("heading", "# Identity Theft", value="Identity Theft", level=1),
+            _item(
+                "text",
+                "A breach can expose personally identifiable information.",
+                value="A breach can expose personally identifiable information.",
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert _section_body(book) == {
+        "Exam Note": ["Remember the main components of the CIA triad."],
+        "Note": ["These control categories are unique to CompTIA."],
+        "Tip": ["Later chapters discuss each control in detail."],
+        "Identity Theft": ["A breach can expose personally identifiable information."],
+    }
+
+
+def test_figure_caption_becomes_an_image_note_without_a_text_layer() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item(
+                "text",
+                "The chapter introduces the objectives.",
+                value="The chapter introduces the objectives.",
+            ),
+            _item("image", "cia-triad.png", value="cia-triad.png"),
+            _item("text", "Confidentiality", value="Confidentiality"),
+            _item("text", "Integrity", value="Integrity"),
+            _item("text", "Availability", value="Availability"),
+            _item(
+                "text",
+                "FIGURE 1.1 The three key objectives of cybersecurity programs are "
+                "confidentiality, integrity, and availability.",
+                value=(
+                    "FIGURE 1.1 The three key objectives of cybersecurity programs are "
+                    "confidentiality, integrity, and availability."
+                ),
+            ),
+            _item(
+                "text",
+                "Confidentiality ensures unauthorized individuals cannot gain access to sensitive information.",
+                value=(
+                    "Confidentiality ensures unauthorized individuals cannot gain access "
+                    "to sensitive information."
+                ),
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements, pdf_pages=[""])
+
+    assert [paragraph.md for paragraph in book.chapters[0].intro] == [
+        "The chapter introduces the objectives.",
+        (
+            "An image is not included here. It shows the three key objectives of "
+            "cybersecurity programs are confidentiality integrity and availability."
+        ),
+        "Confidentiality ensures unauthorized individuals cannot gain access to sensitive information.",
+    ]
+    assert book.chapters[0].sections == []
+
+
+def test_objectives_banner_is_not_a_header_and_lists_stay_body() -> None:
+    pages = [
+        _page(1, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item(
+                "heading",
+                "# Today's Security Professional",
+                value="Today's Security Professional",
+                level=1,
+            ),
+            _item(
+                "heading",
+                "# THE COMPTIA SECURITY+ EXAM OBJECTIVES COVERED IN THIS CHAPTER INCLUDE:",
+                value="THE COMPTIA SECURITY+ EXAM OBJECTIVES COVERED IN THIS CHAPTER INCLUDE:",
+                level=1,
+            ),
+            _item(
+                "list",
+                "- 1.1. Compare and contrast various types of security controls.",
+                value=None,
+            ),
+            _item(
+                "text",
+                "Security professionals play a crucial role.",
+                value="Security professionals play a crucial role.",
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert book.chapters[0].title == "Chapter 1 Today's Security Professional"
+    assert book.chapters[0].sections == []
+    assert [paragraph.md for paragraph in book.chapters[0].intro] == [
+        "- 1.1. Compare and contrast various types of security controls.",
+        "Security professionals play a crucial role.",
+    ]
+    assert book.dropped_nontext.get("label") == 1
+
+
+def test_exam_essentials_sentence_stays_body_text() -> None:
+    sentence = (
+        "The three core objectives of cybersecurity are confidentiality, "
+        "integrity, and availability."
+    )
+    pages = [
+        _page(1, [
+            _item("heading", "# Chapter 1", value="Chapter 1", level=1),
+            _item(
+                "text",
+                "The chapter body comes before the essentials.",
+                value="The chapter body comes before the essentials.",
+            ),
+            _item("heading", "# Exam Essentials", value="Exam Essentials", level=1),
+            _item("heading", f"# {sentence}", value=sentence, level=2),
+            _item(
+                "text",
+                "Confidentiality ensures that unauthorized individuals are not able to gain access.",
+                value="Confidentiality ensures that unauthorized individuals are not able to gain access.",
+            ),
+        ]),
+    ]
+    elements, _ = normalize_structured_pages(pages)
+    book = classify(elements)
+
+    assert _section_body(book) == {
+        "Exam Essentials": [
+            sentence,
+            "Confidentiality ensures that unauthorized individuals are not able to gain access.",
+        ],
+    }
+
+
+def test_validate_rejects_review_questions_and_allows_note() -> None:
+    book = Book(chapters=[
+        Chapter(
+            title="Chapter 1 Today's Security Professional",
+            page=1,
+            intro=[Paragraph(md="Security professionals protect information.", page=1)] * 3,
+            sections=[
+                Section(
+                    title="Note",
+                    page=1,
+                    body=[Paragraph(md="Remember the CIA triad.", page=1)],
+                ),
+            ],
+        ),
+    ])
+    pdf = _pdf_with_pages([
+        "Chapter 1 Today's Security Professional\nNote\nRemember the CIA triad.",
+    ])
+
+    report = validate_against_pdf(book, pdf)
+    assert report["valid"] is True
+
+    book.chapters[0].sections[0].title = "Review Questions"
+    with pytest.raises(StructureValidationError, match="Review Questions"):
         validate_against_pdf(book, pdf)

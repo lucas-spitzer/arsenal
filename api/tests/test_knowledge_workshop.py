@@ -921,8 +921,8 @@ def test_question_can_cite_an_existing_term() -> None:
     assert projects.quizzes[0]["citations"] == [{"uri": "wiki://wiki-friction", "type": "wiki"}]
 
 
-def test_unknown_question_citation_is_rejected() -> None:
-    service, _projects, _wiki = _question_pack_service()
+def test_unknown_question_citation_is_omitted() -> None:
+    service, projects, _wiki = _question_pack_service()
     content = json.dumps(
         {
             "questions": [
@@ -936,16 +936,58 @@ def test_unknown_question_citation_is_rejected() -> None:
         },
     ).encode()
 
-    with pytest.raises(KnowledgeProjectError, match="not in this file or the wiki"):
-        asyncio.run(service.create(
-            workspace_id="ws-1",
-            owner_id="user-1",
-            workspace_slug="acme",
-            title="Questions",
-            source={"id": "book-1", "slug": "warfighting", "status": "ready", "source_kind": "document"},
-            raw_notes="",
-            filename="questions.json",
-            content_type="application/json",
-            content=content,
-            storage=_Storage(),
-        ))
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Questions",
+        source={"id": "book-1", "slug": "warfighting", "status": "ready", "source_kind": "document"},
+        raw_notes="",
+        filename="questions.json",
+        content_type="application/json",
+        content=content,
+        storage=_Storage(),
+    ))
+
+    assert projects.created is not None
+    assert projects.created["status"] == "ready"
+    assert projects.quizzes[0]["citations"] == []
+
+
+def test_abbreviation_tag_matches_a_longer_concept_name() -> None:
+    service, projects, wiki = _question_pack_service()
+    content = json.dumps(
+        {
+            "key_lists": [
+                {
+                    "concept": "DAD Triad",
+                    "overview": "Disclosure, alteration, and denial.",
+                    "items": ["Disclosure", "Alteration", "Denial"],
+                },
+            ],
+            "questions": [
+                {
+                    "question": "Which DAD element is alteration?",
+                    "abbreviation": "DAD",
+                    "correct": ["Integrity"],
+                    "distractors": [{"text": "Confidentiality"}],
+                },
+            ],
+        },
+    ).encode()
+
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Chapter 1",
+        source={"id": "book-1", "slug": "security-plus", "status": "ready", "source_kind": "document"},
+        raw_notes="",
+        filename="Chapter-1.json",
+        content_type="application/json",
+        content=content,
+        storage=_Storage(),
+    ))
+
+    dad = next(row for row in wiki.inserted if row["preferred_label"] == "DAD Triad")
+    assert projects.quizzes[0]["citations"] == [{"uri": f"wiki://{dad['id']}", "type": "wiki"}]

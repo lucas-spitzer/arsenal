@@ -16,7 +16,7 @@ Identifiers use `snake_case` to match `artifact_type` in the API and database.
 | Audio Narration | `narration_audio` | Sequential audio clips + manifest | Gemini 3.8 Flash TTS | Listen, and voice over other artifacts |
 | Wiki Export | `wiki_json` | Single JSON document | None (deterministic snapshot) | Portable curated knowledge for a source |
 | Web Explainer | `web_explainer` | HTML + CSS + JS | Claude Opus 5.5 | Answer one question with interactive visuals |
-| Study Material | `study_material` | Printable one-page PDF (US Letter) | GPT-6 Sol (diagrams and text), GPT Image 2.5 Flare (images), GPT-6 Sol (layout) | Print a templated, themed reference sheet or cut-out cards |
+| Study Material | `study_material` | Printable one-page PDF (US Letter) | GPT-6 Sol (diagrams and text), GPT Image 2.6 Sunburst (images), GPT-6 Sol (layout) | Print a templated, themed reference sheet or cut-out cards |
 
 ---
 
@@ -39,7 +39,7 @@ The create-ebook step itself is currently a deterministic render of the structur
 - **Identifier:** `narration_audio`
 - **Definition:** An audiovisual narration designed to be used in Academy as a voiceover for other educational artifacts.
 - **Format:** A set of sequential audio clips that combine to form a complete transcription.
-- **Model:** Gemini 3.8 Flash TTS (default, Sadaltager). Simba 3.2, ElevenLabs v3, Cartesia Sonic 3.6, and Gemini 3.8 Flash-Lite TTS are selectable alternatives.
+- **Model:** Gemini 3.8 Flash TTS (default, Sadaltager). Simba 3.2, Eleven v4, Eleven v4 Turbo, Cartesia Sonic 3.6, and Gemini 3.8 Flash-Lite TTS are selectable alternatives.
 - **Academy use:** Listen on its own, or play as a voiceover while another artifact is on screen (book, explainer, and later types).
 
 Today the pipeline synthesizes one clip per chapter (splitting a chapter only when joined paragraph text exceeds the TTS character cap), stores word-level timings on each paragraph row, and publishes a JSON manifest as the downloadable artifact. Paragraphs in the same clip share `audio_path`; timings are seconds on that clip so the Reader can seek and highlight. Speechify and ElevenLabs clips are MP3. Cartesia and Gemini clips are WAV. Cartesia returns PCM, which the worker wraps. Gemini 3.8 returns WAV.
@@ -95,7 +95,7 @@ The three-file split (HTML / CSS / JS) is the generation contract. Packaging for
 - **Identifier:** `study_material`
 - **Definition:** A printable page built from a predefined template, a predefined theme, and generated Text, Diagram, and Image components. Replaces the retired Study Sheet.
 - **Format:** US Letter PDF (one page, or two for Flashcards Cutout) plus the finalized HTML it was printed from.
-- **Model:** Diagrams and text share the workspace-configurable `study_material` action (default GPT 6 Sol). Layout uses `study_material_orchestrator` (default GPT 6 Sol). Images default to OpenAI `gpt-image-2.5-sunburst`; each image component can switch to Google `gemini-nano-banana-2.1` or either provider's premium model.
+- **Model:** Diagrams and text share the workspace-configurable `study_material` action (default GPT 6 Sol). Layout uses `study_material_orchestrator` (default GPT 6 Sol). Images default to OpenAI `gpt-image-2.6-sunburst`; each image component can switch to Google `gemini-nano-banana-2.1` or either provider's premium model.
 - **Academy use:** Download and print from the Library's Study Material group. Not source-bound.
 
 ### Design intent

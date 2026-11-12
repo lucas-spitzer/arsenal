@@ -45,8 +45,10 @@ _DIVISION_KEY_RE = re.compile(
     rf"^\s*(chapter|part)\s+({CHAPTER_NUMBER})\b",
     re.IGNORECASE,
 )
+# Plural "Notes" is a citation section. Singular "Note" is a textbook callout
+# and stays in the chapter as a subsection.
 _BACK_MATTER_LABELS = re.compile(
-    r"^\s*(notes?|endnotes?|glossary|bibliography|references?|index|"
+    r"^\s*(notes\b|endnotes?|glossary|bibliography|references?|index|"
     r"appendix(?:\s+[a-z0-9]+)?|epilogue|afterword|about\s+the\s+author)"
     r"(?:\s*[:.\u2013\u2014-]\s+\S.*)?\s*$",
     re.IGNORECASE,

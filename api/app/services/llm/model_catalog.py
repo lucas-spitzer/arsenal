@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from app.llm_defaults import (
     GEMINI_31_PRO_MODEL,
     GEMINI_38_FLASH_MODEL,
+    GEMINI_4_ARGON_MODEL,
     GPT_6_ASTRA_MODEL,
     GPT_6_LUNA_MODEL,
     GPT_6_SOL_MODEL,
@@ -50,6 +51,7 @@ class CatalogModel:
 # Gemini 3.8 Flash uses introductory list prices through 2026-12-31
 # ($1.50 / $7.50 after that). Gemini 3.1 Pro is the <=200k-token rate;
 # prompts over 200k tokens are $4 / $18, which this single rate does not tier.
+# Gemini 4 Argon uses introductory rates through 2026-11-30 ($4 / $20 after that).
 MODEL_CATALOG: tuple[CatalogModel, ...] = (
     # --- Anthropic ---
     CatalogModel(
@@ -141,6 +143,17 @@ MODEL_CATALOG: tuple[CatalogModel, ...] = (
         context_window=1_048_576,
         input_per_million=0.75,
         output_per_million=3.75,
+    ),
+    CatalogModel(
+        model=GEMINI_4_ARGON_MODEL,
+        provider="google",
+        display_name="Gemini 4 Argon",
+        capability_tier=5,
+        supports_reasoning=True,
+        reasoning_modes=("effort",),
+        context_window=1_048_576,
+        input_per_million=2.00,
+        output_per_million=10.00,
     ),
 )
 

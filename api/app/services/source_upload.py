@@ -68,7 +68,6 @@ def validate_source_upload(
     filename: str | None,
     content_type: str | None,
     content: bytes,
-    max_bytes: int,
 ) -> tuple[str, str]:
     """Validate upload input and return (safe_filename, mime_type)."""
     if not filename:
@@ -76,12 +75,6 @@ def validate_source_upload(
 
     if not content:
         raise SourceUploadValidationError("Uploaded file is empty.")
-
-    if len(content) > max_bytes:
-        max_megabytes = max_bytes // (1024 * 1024)
-        raise SourceUploadValidationError(
-            f"Uploaded file exceeds the {max_megabytes} MB limit.",
-        )
 
     safe_filename = sanitize_upload_filename(filename)
     mime_type = resolve_source_mime_type(
@@ -100,7 +93,6 @@ def validate_structured_data_upload(
     *,
     filename: str | None,
     content: bytes,
-    max_bytes: int,
 ) -> tuple[str, str]:
     """Validate a structured data (JSON) upload and return (safe_filename, mime_type).
 
@@ -112,12 +104,6 @@ def validate_structured_data_upload(
 
     if not content:
         raise SourceUploadValidationError("Uploaded file is empty.")
-
-    if len(content) > max_bytes:
-        max_megabytes = max_bytes // (1024 * 1024)
-        raise SourceUploadValidationError(
-            f"Uploaded file exceeds the {max_megabytes} MB limit.",
-        )
 
     safe_filename = sanitize_upload_filename(filename)
     if not safe_filename.lower().endswith(".json"):

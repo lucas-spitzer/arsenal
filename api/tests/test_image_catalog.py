@@ -7,6 +7,7 @@ from app.llm_defaults import (
     GEMINI_NANO_BANANA_21_MODEL,
     GROK_IMAGINE_IMAGE_2_MODEL,
     OPENAI_IMAGE_FLARE_MODEL,
+    OPENAI_IMAGE_SUNBURST_25_MODEL,
     OPENAI_IMAGE_SUNBURST_MODEL,
 )
 from app.mathesys.study_material.images import resolve_image_settings
@@ -27,15 +28,20 @@ def test_image_catalog_lists_design_defaults() -> None:
 
     assert set(by_model) == {
         OPENAI_IMAGE_SUNBURST_MODEL,
+        OPENAI_IMAGE_SUNBURST_25_MODEL,
         GEMINI_NANO_BANANA_21_MODEL,
         GROK_IMAGINE_IMAGE_2_MODEL,
     }
     assert by_model[GEMINI_NANO_BANANA_21_MODEL].capability_tier == 4
     assert by_model[OPENAI_IMAGE_SUNBURST_MODEL].capability_tier == 2
+    assert by_model[OPENAI_IMAGE_SUNBURST_25_MODEL].capability_tier == 2
     assert by_model[GROK_IMAGINE_IMAGE_2_MODEL].capability_tier == 3
     assert by_model[OPENAI_IMAGE_SUNBURST_MODEL].price_per_image == OPENAI_IMAGE_HIGH_1024_PRICE
+    assert by_model[OPENAI_IMAGE_SUNBURST_25_MODEL].price_per_image == OPENAI_IMAGE_HIGH_1024_PRICE
     assert by_model[GEMINI_NANO_BANANA_21_MODEL].price_per_image == NANO_BANANA_21_1K_PRICE
     assert by_model[GEMINI_NANO_BANANA_21_MODEL].display_name == "Nano Banana 2.1"
+    assert by_model[OPENAI_IMAGE_SUNBURST_MODEL].display_name == "GPT Image 2.6 Sunburst"
+    assert by_model[OPENAI_IMAGE_SUNBURST_25_MODEL].display_name == "GPT Image 2.5 Sunburst"
     assert by_model[GROK_IMAGINE_IMAGE_2_MODEL].price_per_image == XAI_IMAGE_1K_MEDIUM_PRICE
     assert by_model[OPENAI_IMAGE_SUNBURST_MODEL].provider == "openai"
     assert by_model[GEMINI_NANO_BANANA_21_MODEL].provider == "google"
@@ -44,6 +50,7 @@ def test_image_catalog_lists_design_defaults() -> None:
 
 def test_validate_image_selection_rejects_unknown_and_mismatched_provider() -> None:
     assert validate_image_selection("openai", OPENAI_IMAGE_SUNBURST_MODEL) is None
+    assert validate_image_selection("openai", OPENAI_IMAGE_SUNBURST_25_MODEL) is None
     assert validate_image_selection("openai", OPENAI_IMAGE_FLARE_MODEL) is not None
     assert validate_image_selection("openai", "gpt-image-2") is not None
     assert validate_image_selection("openai", GEMINI_NANO_BANANA_21_MODEL) is not None
@@ -124,6 +131,14 @@ def test_resolve_image_settings_keeps_explicit_model(monkeypatch: pytest.MonkeyP
     assert resolved["provider"] == "openai"
     assert resolved["model"] == OPENAI_IMAGE_SUNBURST_MODEL
     assert resolved["quality"] == "low"
+
+    previous = resolve_image_settings(
+        {"provider": "openai", "model": OPENAI_IMAGE_SUNBURST_25_MODEL},
+        default_provider="google",
+        default_model=GEMINI_NANO_BANANA_21_MODEL,
+    )
+
+    assert previous["model"] == OPENAI_IMAGE_SUNBURST_25_MODEL
     get_settings.cache_clear()
 
 

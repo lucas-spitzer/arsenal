@@ -71,6 +71,7 @@ def test_resolve_model_family_maps_names_and_passes_ids_through() -> None:
 
     assert resolve_model_family("sol") == "gpt-6.1-sol"
     assert resolve_model_family("Sonnet") == SONNET_55_MODEL
+    assert resolve_model_family("argon") == "gemini-4-argon"
     assert resolve_model_family("gemini-flash-tts") == "gemini-3.8-flash-tts"
     assert resolve_model_family("gpt-4o") == "gpt-4o"
 

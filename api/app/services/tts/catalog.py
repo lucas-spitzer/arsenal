@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from app.tts_defaults import (
     AUDIO_NARRATION_ACTION,
     DEFAULT_NARRATION_MODEL,
-    ELEVEN_V3_MODEL,
+    ELEVEN_V4_MODEL,
+    ELEVEN_V4_TURBO_MODEL,
     GEMINI_FLASH_LITE_TTS_MODEL,
     GEMINI_FLASH_TTS_MODEL,
     SIMBA_MODEL,
@@ -30,7 +31,7 @@ GEMINI_ALGENIB_VOICE_ID = "Algenib"
 # https://speechify.ai/pricing — Scale is $6/1M, Pro $8/1M.
 SPEECHIFY_LIST_PRICE_PER_MILLION = 10.00
 
-# ElevenLabs API list for Multilingual v2 / v3: $0.10 / 1K characters = $100 / 1M.
+# ElevenLabs API list for Multilingual v2 / v3 / v4: $0.10 / 1K characters = $100 / 1M.
 # https://elevenlabs.io/pricing/api
 ELEVENLABS_V3_LIST_PRICE_PER_MILLION = 100.00
 
@@ -94,13 +95,22 @@ TTS_MODEL_CATALOG: tuple[TtsCatalogModel, ...] = (
         capability_tier=1,
     ),
     TtsCatalogModel(
-        model=ELEVEN_V3_MODEL,
+        model=ELEVEN_V4_MODEL,
         provider="elevenlabs",
-        display_name="Eleven v3",
+        display_name="Eleven v4",
         default_voice_id=ELEVENLABS_DEFAULT_VOICE_ID,
         voices=_voices((ELEVENLABS_DEFAULT_VOICE_ID, "Burt Reynolds")),
         price_per_million=ELEVENLABS_V3_LIST_PRICE_PER_MILLION,
         capability_tier=5,
+    ),
+    TtsCatalogModel(
+        model=ELEVEN_V4_TURBO_MODEL,
+        provider="elevenlabs",
+        display_name="Eleven v4 Turbo",
+        default_voice_id=ELEVENLABS_DEFAULT_VOICE_ID,
+        voices=_voices((ELEVENLABS_DEFAULT_VOICE_ID, "Burt Reynolds")),
+        price_per_million=ELEVENLABS_V3_LIST_PRICE_PER_MILLION,
+        capability_tier=4,
     ),
     TtsCatalogModel(
         model=SONIC_MODEL,

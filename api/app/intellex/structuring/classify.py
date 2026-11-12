@@ -27,16 +27,26 @@ prepare-document.
       dropped figure are omitted the same way captions are, so they cannot
       appear in the EPUB or glue themselves onto the previous sentence.
       Chapter epigraphs stay as separate paragraphs (quote vs attribution)
-      so EPUB spacing is preserved.
+      so EPUB spacing is preserved. In-chapter lists are body paragraphs too.
+      They never become headings, and they do not join the paragraphs around
+      them. Code and diagrams stay dropped.
+      A heading that is a full sentence stays body text under the current
+      section. An all-caps exam-objectives banner ending in "INCLUDE:" is
+      dropped rather than opened as a section. `Note`, `Tip`, `Exam Note`,
+      and `Exam Tip` are ordinary subsections. Plural `Notes` is still the
+      citation section that runs until the next chapter, and so is
+      `Review Questions`. `Summary` and `Exam Essentials` stay in the chapter.
 
-Non-text, non-heading elements (lists, code/diagrams, images) are not one of the
+Non-text, non-heading elements (code, diagrams, images) are not one of the
 three KEEP types and are dropped, with counts reported. Standalone captions for
 those omitted visuals are dropped as well; inline prose references are retained.
 Omitted visuals and their captions are transparent to paragraph continuity so a
 sentence interrupted by a figure can be rejoined.
 A `photo:` or `image:` description on a page that has a text layer is a content
 picture. The words the parser transcribed from that picture are dropped, and a
-short note takes their place. Decorative `logo:` and `icon:` lines stay silent.
+short note takes their place. A `FIGURE 1.1` caption after an omitted image
+uses that same note, taken from the caption, even when the PDF has no text
+layer. Decorative `logo:` and `icon:` lines stay silent.
 """
 from __future__ import annotations
 
@@ -105,6 +115,16 @@ _CONTENT_IMAGE_RE = re.compile(r"^(?:photo|image)\s*:\s*(.*)$", re.IGNORECASE)
 _SPOKEN_WORD_RE = re.compile(r"[A-Za-z']+")
 _MAX_IMAGE_DESCRIPTION_WORDS = 12
 _IMAGE_NOTE_FALLBACK = "An image is not included here."
+_SENTENCE_HEADING_MIN_WORDS = 8
+_REVIEW_QUESTIONS_RE = re.compile(r"^review questions$", re.IGNORECASE)
+_FIGURE_CAPTION_RE = re.compile(
+    r"^\s*(?:figure|fig\.?)\s+(?:\d+(?:\.\d+)*|[ivxlcdm]+)\b",
+    re.IGNORECASE,
+)
+_FIGURE_CAPTION_PREFIX_RE = re.compile(
+    r"^\s*(?:figure|fig\.?)\s+(?:\d+(?:\.\d+)*|[ivxlcdm]+)\s*[.:\u2013\u2014-]?\s*",
+    re.IGNORECASE,
+)
 # A page number alone is not a text layer. Real prose on the commission page
 # is far longer than this.
 _MIN_TEXT_LAYER_CHARS = 80
@@ -157,6 +177,19 @@ def _spoken_description(raw: str) -> str:
     return " ".join(words[:_MAX_IMAGE_DESCRIPTION_WORDS])
 
 
+def _image_note_sentence(description: str) -> str:
+    """Plain sentence for an omitted picture. Empty description uses the fallback."""
+    if not description:
+        return _IMAGE_NOTE_FALLBACK
+    first = description.split()[0]
+    if first in {"a", "an", "the"}:
+        shown = description
+    else:
+        article = "an" if first[:1] in "aeiou" else "a"
+        shown = f"{article} {description}"
+    return f"An image is not included here. It shows {shown}."
+
+
 def _content_image_note(text: str) -> str | None:
     """Return the note for a photo or image description, else None.
 
@@ -171,16 +204,54 @@ def _content_image_note(text: str) -> str | None:
     match = _CONTENT_IMAGE_RE.match(lines[0])
     if match is None:
         return None
-    description = _spoken_description(match.group(1))
-    if not description:
-        return _IMAGE_NOTE_FALLBACK
-    first = description.split()[0]
-    if first in {"a", "an", "the"}:
-        shown = description
-    else:
-        article = "an" if first[:1] in "aeiou" else "a"
-        shown = f"{article} {description}"
-    return f"An image is not included here. It shows {shown}."
+    return _image_note_sentence(_spoken_description(match.group(1)))
+
+
+def _figure_caption_note(text: str) -> str | None:
+    """Note for a FIGURE caption, else None. The figure label itself is not spoken."""
+    stripped = (text or "").strip()
+    if not is_standalone_visual_caption(stripped):
+        return None
+    if _FIGURE_CAPTION_RE.match(stripped) is None:
+        return None
+    body = _FIGURE_CAPTION_PREFIX_RE.sub("", stripped, count=1)
+    return _image_note_sentence(_spoken_description(body))
+
+
+def _is_review_questions_heading(text: str) -> bool:
+    """True for the heading that ends a textbook chapter's instructional body."""
+    lines = heading_lines(text)
+    return len(lines) == 1 and bool(_REVIEW_QUESTIONS_RE.match(lines[0].strip()))
+
+
+def _is_objectives_banner(text: str) -> bool:
+    """True for an all-caps exam-objectives label such as '...INCLUDE:'."""
+    lines = heading_lines(text)
+    if len(lines) != 1:
+        return False
+    line = lines[0].strip()
+    if not line.endswith(":"):
+        return False
+    letters = [character for character in line if character.isalpha()]
+    if not letters or any(character.islower() for character in letters):
+        return False
+    return line[:-1].rstrip().lower().endswith("include")
+
+
+def _is_sentence_heading(text: str) -> bool:
+    """True when a heading is a full sentence rather than a short title."""
+    lines = heading_lines(text)
+    if len(lines) != 1:
+        return False
+    line = lines[0].strip()
+    if not _paragraph_looks_complete(line):
+        return False
+    return len(line.split()) >= _SENTENCE_HEADING_MIN_WORDS
+
+
+def _ends_chapter_body(text: str) -> bool:
+    """True for citation endnotes or the textbook review-question block."""
+    return is_back_matter_heading(text) or _is_review_questions_heading(text)
 
 
 def _page_layer(page: int | None, pdf_pages: list[str] | None) -> str:
@@ -233,7 +304,7 @@ def _stops_image_block(
     """True when this item ends a picture's transcribed words."""
     if is_chapter_marker(element.text, chapter_re):
         return True
-    if is_back_matter_heading(element.text):
+    if _ends_chapter_body(element.text):
         return True
     if _is_page_footnote(element):
         return False
@@ -450,13 +521,22 @@ def _is_title_continuation_heading(
     *,
     chapter_re: str,
     fragmented_visual_pages: set[int | None],
+    allow_sentence: bool,
 ) -> bool:
-    """True for a title-case heading that belongs to the previous title."""
+    """True for a title-case heading that belongs to the previous title.
+
+    Chapter titles may be questions ("Where Does the Marine Corps Go from Here?").
+    A sentence under a section, such as an Exam Essentials lead-in, does not.
+    """
     if element.type != "heading" or not element.text.strip():
         return False
     if is_chapter_marker(element.text, chapter_re):
         return False
     if _is_visual_heading(element, fragmented_visual_pages=fragmented_visual_pages):
+        return False
+    if _is_objectives_banner(element.text) or _ends_chapter_body(element.text):
+        return False
+    if _is_sentence_heading(element.text) and not allow_sentence:
         return False
     return not is_doctrinal_subsection_heading(element.text)
 
@@ -504,6 +584,7 @@ def _collect_heading_title(
     chapter_re: str,
     fragmented_visual_pages: set[int | None],
     absorb_orphan_title_text: bool,
+    allow_sentence: bool,
 ) -> tuple[str, int]:
     """Return (joined title, last consumed index)."""
     label = chapter_heading_label(elements[start_index].text)
@@ -524,6 +605,7 @@ def _collect_heading_title(
         elements[index],
         chapter_re=chapter_re,
         fragmented_visual_pages=fragmented_visual_pages,
+        allow_sentence=allow_sentence,
     ):
         parts.extend(heading_lines(elements[index].text))
         index += 1
@@ -570,6 +652,7 @@ def classify(
     previous_body_element: Element | None = None
     previous_paragraph: Paragraph | None = None
     after_omitted_visual = False
+    after_omitted_figure = False
     skipping_back_matter = False
     pending_image_note: str | None = None
     fragmented_visual_pages = _fragmented_visual_pages(elements)
@@ -662,15 +745,17 @@ def classify(
                 chapter_re=chapter_re,
                 fragmented_visual_pages=fragmented_visual_pages,
                 absorb_orphan_title_text=True,
+                allow_sentence=True,
             )
             previous_body_element = None
             previous_paragraph = None
             after_omitted_visual = False
+            after_omitted_figure = False
             current_chapter = Chapter(title=title or chapter_heading_label(el.text) or "Chapter", page=el.page)
             current_section = None
             book.chapters.append(current_chapter)
             continue
-        if is_back_matter_heading(el.text):
+        if _ends_chapter_body(el.text):
             skipping_back_matter = True
             book.dropped_nontext["back_matter"] = (
                 book.dropped_nontext.get("back_matter", 0) + 1
@@ -684,9 +769,8 @@ def classify(
                 )
                 after_omitted_visual = True
                 continue
-            elif skipping_back_matter or is_back_matter_heading(lines[0]):
-                # In-chapter Notes (and the other back-matter labels) run until
-                # the next chapter. Their citations are not body prose.
+            elif skipping_back_matter or _ends_chapter_body(lines[0]):
+                # Citation Notes and Review Questions run until the next chapter.
                 skipping_back_matter = True
                 book.dropped_nontext["back_matter"] = (
                     book.dropped_nontext.get("back_matter", 0) + 1
@@ -697,12 +781,42 @@ def classify(
                     el,
                     fragmented_visual_pages=fragmented_visual_pages,
                 ):
+                    note = _figure_caption_note(el.text) if after_omitted_figure else None
+                    if note and current_chapter is not None:
+                        _append_paragraph(
+                            chapter=current_chapter,
+                            section=current_section,
+                            md=note,
+                            page=el.page,
+                        )
                     book.dropped_nontext["visual_heading"] = (
                         book.dropped_nontext.get("visual_heading", 0) + 1
                     )
                     # Like an omitted caption, a visual heading does not break
                     # the surrounding authored reading flow.
                     after_omitted_visual = True
+                    after_omitted_figure = False
+                    continue
+                if _is_objectives_banner(el.text):
+                    book.dropped_nontext["label"] = book.dropped_nontext.get("label", 0) + 1
+                    previous_body_element = None
+                    previous_paragraph = None
+                    after_omitted_visual = False
+                    after_omitted_figure = False
+                    continue
+                if _is_sentence_heading(el.text) and current_chapter is not None:
+                    md = " ".join(lines)
+                    if strip_markers:
+                        md = strip_footnote_markers(md)
+                    previous_paragraph = _append_paragraph(
+                        chapter=current_chapter,
+                        section=current_section,
+                        md=md,
+                        page=el.page,
+                    )
+                    previous_body_element = el
+                    after_omitted_visual = False
+                    after_omitted_figure = False
                     continue
                 title, consumed_through = _collect_heading_title(
                     elements,
@@ -710,16 +824,18 @@ def classify(
                     chapter_re=chapter_re,
                     fragmented_visual_pages=fragmented_visual_pages,
                     absorb_orphan_title_text=False,
+                    allow_sentence=False,
                 )
                 previous_body_element = None
                 previous_paragraph = None
                 after_omitted_visual = False
+                after_omitted_figure = False
                 if not title:
                     book.dropped_nontext["visual_heading"] = (
                         book.dropped_nontext.get("visual_heading", 0) + 1
                     )
                     continue
-                if is_back_matter_heading(title):
+                if _ends_chapter_body(title):
                     skipping_back_matter = True
                     book.dropped_nontext["back_matter"] = (
                         book.dropped_nontext.get("back_matter", 0) + 1
@@ -771,9 +887,21 @@ def classify(
                 after_omitted_visual = True
                 continue
             if is_standalone_visual_caption(el.text or md):
+                note = _figure_caption_note(el.text or md) if after_omitted_figure else None
+                if note and current_chapter is not None:
+                    _append_paragraph(
+                        chapter=current_chapter,
+                        section=current_section,
+                        md=note,
+                        page=el.page,
+                    )
                 book.dropped_nontext["caption"] = book.dropped_nontext.get("caption", 0) + 1
                 # Captions for omitted visuals are transparent to continuity.
+                # The note, when there is one, stays between the rejoined
+                # sentence and the following paragraph. A caption alone does
+                # not invent a figure for the next caption.
                 after_omitted_visual = True
+                after_omitted_figure = False
                 continue
             if _is_source_note(md):
                 book.dropped_nontext["reference"] = (
@@ -806,15 +934,32 @@ def classify(
             previous_body_element = el
             previous_paragraph = last_para
             after_omitted_visual = False
+            after_omitted_figure = False
 
-        else:  # list / code / image / etc -- not a KEEP type
+        else:  # code / image / list / etc
+            list_md = (el.md or el.text or "").strip()
+            if el.type == "list" and list_md and current_chapter is not None:
+                _append_paragraph(
+                    chapter=current_chapter,
+                    section=current_section,
+                    md=list_md,
+                    page=el.page,
+                )
+                # A list is its own paragraph. It does not glue to either side.
+                previous_body_element = None
+                previous_paragraph = None
+                after_omitted_visual = False
+                after_omitted_figure = False
+                continue
             book.dropped_nontext[el.type] = book.dropped_nontext.get(el.type, 0) + 1
             if el.type in _OMITTED_VISUAL_TYPES:
                 after_omitted_visual = True
+                after_omitted_figure = True
             else:
                 previous_body_element = None
                 previous_paragraph = None
                 after_omitted_visual = False
+                after_omitted_figure = False
 
     if pending_image_note is not None:
         place_image_note(elements[-1].page if elements else None)

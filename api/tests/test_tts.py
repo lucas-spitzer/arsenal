@@ -39,13 +39,15 @@ def test_tts_catalog_ships_simba_eleven_sonic_and_gemini() -> None:
     models = {entry.model for entry in TTS_MODEL_CATALOG}
     assert models == {
         "simba-3.2",
-        "eleven_v3",
+        "eleven_v4",
+        "eleven_v4_turbo",
         "sonic-3.6",
         "gemini-3.8-flash-tts",
         "gemini-3.8-flash-lite-tts",
     }
     simba = get_tts_catalog_model("simba-3.2")
-    eleven = get_tts_catalog_model("eleven_v3")
+    eleven = get_tts_catalog_model("eleven_v4")
+    turbo = get_tts_catalog_model("eleven_v4_turbo")
     sonic = get_tts_catalog_model("sonic-3.6")
     flash = get_tts_catalog_model("gemini-3.8-flash-tts")
     lite = get_tts_catalog_model("gemini-3.8-flash-lite-tts")
@@ -53,8 +55,14 @@ def test_tts_catalog_ships_simba_eleven_sonic_and_gemini() -> None:
     assert simba.capability_tier == 1
     assert eleven is not None and eleven.price_per_million == 100.0
     assert eleven.capability_tier == 5
+    assert eleven.display_name == "Eleven v4"
     assert eleven.default_voice_id == "4YYIPFl9wE5c4L2eu2Gb"
     assert eleven.voices[0].display_name == "Burt Reynolds"
+    assert turbo is not None and turbo.price_per_million == 100.0
+    assert turbo.capability_tier == 4
+    assert turbo.display_name == "Eleven v4 Turbo"
+    assert turbo.default_voice_id == eleven.default_voice_id
+    assert turbo.voices[0].display_name == "Burt Reynolds"
     assert sonic is not None and sonic.price_per_million == 50.0
     assert sonic.capability_tier == 4
     assert sonic.provider == "cartesia"
@@ -71,6 +79,7 @@ def test_tts_catalog_ships_simba_eleven_sonic_and_gemini() -> None:
     assert lite.default_voice_id == "Charon"
     assert [voice.display_name for voice in lite.voices] == ["Charon", "Algenib"]
     assert get_tts_catalog_model("simba-3.0") is None
+    assert get_tts_catalog_model("eleven_v3") is None
     assert get_tts_catalog_model("eleven_multilingual_v2") is None
 
 

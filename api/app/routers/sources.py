@@ -71,7 +71,6 @@ async def upload_source(
             filename=file.filename,
             content_type=file.content_type,
             content=content,
-            max_bytes=settings.max_source_upload_bytes,
         )
     except SourceUploadValidationError as exc:
         raise HTTPException(
@@ -132,7 +131,6 @@ async def upload_structured_data_source(
         safe_filename, mime_type = validate_structured_data_upload(
             filename=file.filename,
             content=content,
-            max_bytes=settings.max_source_upload_bytes,
         )
     except SourceUploadValidationError as exc:
         raise HTTPException(

@@ -7,9 +7,13 @@ GPT_6_SOL_MODEL = "gpt-6.1-sol"
 GPT_6_LUNA_MODEL = "gpt-6-luna"
 GEMINI_38_FLASH_MODEL = "gemini-3.8-flash"
 GEMINI_31_PRO_MODEL = "gemini-3.1-pro-preview"
+GEMINI_4_ARGON_MODEL = "gemini-4-argon"
 # Image generation (Study Material image components).
-OPENAI_IMAGE_FLARE_MODEL = "gpt-image-2.5-flare"
-OPENAI_IMAGE_SUNBURST_MODEL = "gpt-image-2.5-sunburst"
+# 2.6 is the default. 2.5 stays callable for saved components and env pins.
+OPENAI_IMAGE_FLARE_MODEL = "gpt-image-2.6-flare"
+OPENAI_IMAGE_SUNBURST_MODEL = "gpt-image-2.6-sunburst"
+OPENAI_IMAGE_FLARE_25_MODEL = "gpt-image-2.5-flare"
+OPENAI_IMAGE_SUNBURST_25_MODEL = "gpt-image-2.5-sunburst"
 GEMINI_NANO_BANANA_21_MODEL = "gemini-nano-banana-2.1"
 GEMINI_3_PRO_IMAGE_MODEL = "gemini-3-pro-image"
 GROK_IMAGINE_IMAGE_2_MODEL = "grok-imagine-image-2.0"
@@ -28,4 +32,5 @@ MODEL_FAMILIES: dict[str, str] = {
     "sonnet": SONNET_55_MODEL,
     "gemini-flash": GEMINI_38_FLASH_MODEL,
     "gemini-pro": GEMINI_31_PRO_MODEL,
+    "argon": GEMINI_4_ARGON_MODEL,
 }

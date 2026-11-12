@@ -98,7 +98,7 @@ export function FoundrySources() {
             setArtifactsOpen(true)
           }}
         >
-          ⇪ Upload Artifacts
+          ⇪ Upload artifacts
         </button>
         <button
           className="as-console__cta as-console__cta--ghost"

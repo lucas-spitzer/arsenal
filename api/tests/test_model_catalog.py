@@ -31,6 +31,7 @@ def test_catalog_contains_only_selected_models() -> None:
         "gpt-6-luna",
         "gemini-3.8-flash",
         "gemini-3.1-pro-preview",
+        "gemini-4-argon",
     }
 
 
@@ -54,6 +55,7 @@ def test_catalog_list_price_known_and_unknown() -> None:
     assert catalog_list_price("claude-haiku-4-5-20251001") == (1.00, 5.00)
     assert catalog_list_price("gemini-3.8-flash") == (0.75, 3.75)
     assert catalog_list_price("gemini-3.1-pro-preview") == (2.00, 12.00)
+    assert catalog_list_price("gemini-4-argon") == (2.00, 10.00)
     # A model absent from the catalog has no list price.
     assert catalog_list_price("nonexistent-model") is None
 
@@ -93,11 +95,14 @@ def test_google_rates_use_catalog_and_explicit_table(monkeypatch: pytest.MonkeyP
 
     flash = api_pricing.google_rates_for_model("gemini-3.8-flash")
     pro = api_pricing.google_rates_for_model("gemini-3.1-pro-preview")
+    argon = api_pricing.google_rates_for_model("gemini-4-argon")
 
     assert flash.input_per_million == 0.75
     assert flash.output_per_million == 3.75
     assert pro.input_per_million == 2.00
     assert pro.output_per_million == 12.00
+    assert argon.input_per_million == 2.00
+    assert argon.output_per_million == 10.00
 
 
 def test_explicit_rate_table_wins_over_catalog(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -77,6 +77,11 @@ GOOGLE_MODEL_RATES: dict[str, TokenRates] = {
         input_per_million=_float_env("GOOGLE_GEMINI_31_PRO_INPUT_PER_M", 2.00),
         output_per_million=_float_env("GOOGLE_GEMINI_31_PRO_OUTPUT_PER_M", 12.00),
     ),
+    # Introductory rates through 2026-11-30. Standard after that is $4 / $20.
+    "gemini-4-argon": TokenRates(
+        input_per_million=_float_env("GOOGLE_GEMINI_4_ARGON_INPUT_PER_M", 2.00),
+        output_per_million=_float_env("GOOGLE_GEMINI_4_ARGON_OUTPUT_PER_M", 10.00),
+    ),
 }
 
 DEFAULT_GOOGLE_RATES = TokenRates(
@@ -89,6 +94,16 @@ LLAMAPARSE_PRICE_PER_CREDIT = _float_env("LLAMAPARSE_PRICE_PER_CREDIT", 0.00125)
 # Image generation list prices per 1M tokens: input is text/reference-image
 # tokens, output is generated-image tokens.
 IMAGE_MODEL_RATES: dict[str, TokenRates] = {
+    # Text input is $5 / 1M. Reference-image input is $8 / 1M; this table keeps
+    # one input rate, so both 2.6 and 2.5 use $5.
+    "gpt-image-2.6-flare": TokenRates(
+        input_per_million=_float_env("OPENAI_IMAGE_FLARE_INPUT_PER_M", 5.00),
+        output_per_million=_float_env("OPENAI_IMAGE_FLARE_OUTPUT_PER_M", 30.00),
+    ),
+    "gpt-image-2.6-sunburst": TokenRates(
+        input_per_million=_float_env("OPENAI_IMAGE_SUNBURST_INPUT_PER_M", 5.00),
+        output_per_million=_float_env("OPENAI_IMAGE_SUNBURST_OUTPUT_PER_M", 30.00),
+    ),
     "gpt-image-2.5-flare": TokenRates(
         input_per_million=_float_env("OPENAI_IMAGE_FLARE_INPUT_PER_M", 5.00),
         output_per_million=_float_env("OPENAI_IMAGE_FLARE_OUTPUT_PER_M", 30.00),

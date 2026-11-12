@@ -4,10 +4,10 @@
 (output tokens only, no reference images). It feeds the Stage Models UI.
 Billing stays on the token rates in app.services.api_pricing.
 
-GPT Image 2.5 Sunburst bills image output at $30 per million tokens. At the
-design tab's default quality ``high`` and 1024x1024, that is 1,756 tokens,
-$0.05268, shown as $0.053.
-https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst
+GPT Image 2.6 Sunburst bills image output at $30 per million tokens, the same
+rate as GPT Image 2.5 Sunburst. At the design tab's default quality ``high``
+and 1024x1024, the 2.5 measurement is 1,756 tokens, $0.05268, shown as $0.053.
+https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst
 
 Nano Banana 2.1 bills image output at $30 per million tokens. Google's
 published 1K (1024x1024) equivalent is 1,120 tokens, $0.0336. 2K is $0.0504
@@ -30,6 +30,7 @@ from app.image_defaults import STUDY_MATERIAL_IMAGE_ACTION
 from app.llm_defaults import (
     GEMINI_NANO_BANANA_21_MODEL,
     GROK_IMAGINE_IMAGE_2_MODEL,
+    OPENAI_IMAGE_SUNBURST_25_MODEL,
     OPENAI_IMAGE_SUNBURST_MODEL,
 )
 from app.services.api_pricing import XAI_IMAGE_1K_MEDIUM_PRICE
@@ -59,6 +60,13 @@ IMAGE_MODEL_CATALOG: tuple[ImageCatalogModel, ...] = (
     ),
     ImageCatalogModel(
         model=OPENAI_IMAGE_SUNBURST_MODEL,
+        provider="openai",
+        display_name="GPT Image 2.6 Sunburst",
+        price_per_image=OPENAI_IMAGE_HIGH_1024_PRICE,
+        capability_tier=2,
+    ),
+    ImageCatalogModel(
+        model=OPENAI_IMAGE_SUNBURST_25_MODEL,
         provider="openai",
         display_name="GPT Image 2.5 Sunburst",
         price_per_image=OPENAI_IMAGE_HIGH_1024_PRICE,

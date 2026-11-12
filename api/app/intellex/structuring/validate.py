@@ -10,8 +10,9 @@ Checks (by re-reading the PDF text layer with PyMuPDF):
      A long heading may differ by one letter in a single word. A shorter
      heading may differ by one repeated letter ("EQUIPING" / "EQUIPPING").
      That spelling is replaced with the PDF's.
-  2. No known front/back-matter label (FOREWORD, NOTES, GLOSSARY, INDEX...)
-     survives as a chapter or section.
+  2. No known front/back-matter label (FOREWORD, NOTES, GLOSSARY, INDEX,
+     REVIEW QUESTIONS...) survives as a chapter or section. Singular "Note"
+     is a textbook subsection and is allowed.
   3. The body carries real text.
 """
 from __future__ import annotations
@@ -26,8 +27,8 @@ from app.intellex.structuring.models import Book, Chapter, Section
 
 _FRONT_BACK_LABELS = re.compile(
     r"^(table of contents|contents|foreword|preface|dedication|acknowledge?ments?|"
-    r"notes?|endnotes?|glossary|bibliography|references?|index|appendix\b|epilogue|"
-    r"afterword|about the author)",
+    r"notes\b|endnotes?|glossary|bibliography|references?|index|appendix\b|epilogue|"
+    r"afterword|about the author|review questions)",
     re.IGNORECASE,
 )
 

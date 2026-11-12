@@ -117,7 +117,6 @@ def _upload(
             title=title,
             filename=filename,
             content=content,
-            json_max_bytes=1024 * 1024,
             bucket="sources",
             artifacts=artifact_rows,  # type: ignore[arg-type]
             wiki_entries=wiki_rows,  # type: ignore[arg-type]
@@ -344,7 +343,7 @@ def test_question_can_cite_an_existing_term() -> None:
     assert quizzes.rows[0]["citations"] == [{"uri": "wiki://wiki-friction", "type": "wiki"}]
 
 
-def test_unknown_question_citation_is_rejected() -> None:
+def test_unknown_question_citation_is_omitted() -> None:
     content = json.dumps(
         {
             "questions": [
@@ -358,5 +357,11 @@ def test_unknown_question_citation_is_rejected() -> None:
         },
     ).encode()
 
-    with pytest.raises(LibraryArtifactError, match="not in this file or the wiki"):
-        _upload(artifact_type="knowledge", filename="questions.json", content=content)
+    result, _artifacts, wiki, quizzes, _storage = _upload(
+        artifact_type="knowledge",
+        filename="questions.json",
+        content=content,
+    )
+    assert result["question_count"] == 1
+    assert wiki.inserted == []
+    assert quizzes.rows[0]["citations"] == []

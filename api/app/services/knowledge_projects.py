@@ -1170,11 +1170,6 @@ def _imported_question_rows(
     entries: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Quiz rows for questions that arrived in the notes file."""
-    by_key = {
-        (str(entry.get("entry_kind") or ""), str(entry.get("preferred_label") or "").strip().casefold()): str(entry["id"])
-        for entry in entries
-        if entry.get("id") and str(entry.get("preferred_label") or "").strip()
-    }
     rows: list[dict[str, Any]] = []
     for item in questions:
         pool = AnswerPool.model_validate(item["pool"])
@@ -1183,12 +1178,13 @@ def _imported_question_rows(
         citations: list[dict[str, str]] = []
         cite = item.get("citation") if isinstance(item.get("citation"), dict) else None
         if cite:
-            kind = str(cite.get("kind") or "")
-            label = str(cite.get("label") or "").strip()
-            wiki_id = by_key.get((kind, label.casefold()))
-            if not wiki_id:
-                raise KnowledgeProjectError(f"Question cites {kind} '{label}', which is not in this file or the wiki.")
-            citations = [{"uri": f"wiki://{wiki_id}", "type": "wiki"}]
+            wiki_id = _wiki_id_for_citation(
+                entries,
+                kind=str(cite.get("kind") or ""),
+                label=str(cite.get("label") or ""),
+            )
+            if wiki_id:
+                citations = [{"uri": f"wiki://{wiki_id}", "type": "wiki"}]
         row = {
             "workspace_id": project["workspace_id"],
             "source_id": project["source_id"],
@@ -1209,6 +1205,56 @@ def _imported_question_rows(
             row["knowledge_project_id"] = project_id
         rows.append(row)
     return rows
+
+
+def _wiki_id_for_citation(entries: list[dict[str, Any]], *, kind: str, label: str) -> str | None:
+    """Wiki id for a question tag. A missing tag does not reject the file.
+
+    Exact label wins, then an alias, then a unique longer name that starts
+    with the tag (``DAD`` cites ``DAD Triad``).
+    """
+    folded = label.strip().casefold()
+    if not folded:
+        return None
+    exact_kind: str | None = None
+    exact_any: list[str] = []
+    alias_kind: str | None = None
+    alias_any: list[str] = []
+    leading: list[str] = []
+    for entry in entries:
+        entry_id = str(entry.get("id") or "")
+        if not entry_id:
+            continue
+        entry_kind = str(entry.get("entry_kind") or "term")
+        name = str(entry.get("preferred_label") or "").strip().casefold()
+        if not name:
+            continue
+        aliases = [
+            str(alias).strip().casefold()
+            for alias in entry.get("aliases") or []
+            if str(alias).strip()
+        ]
+        if name == folded:
+            exact_any.append(entry_id)
+            if entry_kind == kind:
+                exact_kind = entry_id
+        elif folded in aliases:
+            alias_any.append(entry_id)
+            if entry_kind == kind:
+                alias_kind = entry_id
+        elif name.split(" ", 1)[0] == folded:
+            leading.append(entry_id)
+    if exact_kind:
+        return exact_kind
+    if len(exact_any) == 1:
+        return exact_any[0]
+    if alias_kind:
+        return alias_kind
+    if len(alias_any) == 1:
+        return alias_any[0]
+    if len(leading) == 1:
+        return leading[0]
+    return None
 
 
 def citation_catalog(

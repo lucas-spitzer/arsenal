@@ -131,7 +131,6 @@ class InfrastructureSettings:
     rq_queue_name: str
     production_run_job_timeout: str
     signed_url_expires_seconds: int
-    max_source_upload_bytes: int
     log_level: str
     lessons_bucket: str = "lesson-files"
     max_lesson_file_bytes: int = 50 * 1024 * 1024
@@ -318,10 +317,6 @@ class Settings:
         return self.infra.signed_url_expires_seconds
 
     @property
-    def max_source_upload_bytes(self) -> int:
-        return self.infra.max_source_upload_bytes
-
-    @property
     def lessons_bucket(self) -> str:
         return self.infra.lessons_bucket
 
@@ -352,9 +347,6 @@ def _get_settings_cached() -> Settings:
             rq_queue_name=os.getenv("RQ_QUEUE_NAME", "arsenal"),
             production_run_job_timeout=os.getenv("PRODUCTION_RUN_JOB_TIMEOUT", "2h"),
             signed_url_expires_seconds=int(os.getenv("SIGNED_URL_EXPIRES_SECONDS", "3600")),
-            max_source_upload_bytes=int(
-                os.getenv("MAX_SOURCE_UPLOAD_BYTES", str(100 * 1024 * 1024)),
-            ),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             lessons_bucket=os.getenv("LESSONS_BUCKET", "lesson-files"),
             max_lesson_file_bytes=int(
