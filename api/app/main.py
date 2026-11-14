@@ -1,3 +1,4 @@
+import os
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
@@ -34,7 +35,13 @@ from app.routers import (
 configure_logging()
 settings = get_settings()
 
-app = FastAPI(title="Arsenal API")
+_api_docs = os.getenv("API_DOCS") == "1"
+app = FastAPI(
+    title="Arsenal API",
+    docs_url="/docs" if _api_docs else None,
+    redoc_url="/redoc" if _api_docs else None,
+    openapi_url="/openapi.json" if _api_docs else None,
+)
 register_exception_handlers(app)
 
 def frontend_url(path: str) -> str:

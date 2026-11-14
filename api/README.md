@@ -64,6 +64,8 @@ source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
 
+`/docs` and `/openapi.json` stay off unless you set `API_DOCS=1`.
+
 ## Run Redis + Worker
 
 Foundry uses Redis for the RQ job queue. Use **either** Docker or Homebrew.
@@ -111,17 +113,20 @@ VITE_API_BASE_URL="http://localhost:8000"
 
 ## Endpoints
 
-All endpoints below except `/health` require:
+All endpoints below except `/health` and `POST /auth/email-code` require:
 
 ```text
 Authorization: Bearer <supabase-access-token>
 ```
 
+`POST /auth/email-code` does not take a bearer token. It returns 204 for a well-formed address whether or not that address is approved, and it sends a code only when the address is an active row in `approved_users`. Each API process allows 5 requests per email and 20 requests per client address in 10 minutes. Those counters stay in that process. They are not shared across processes or Vercel instances.
+
 ### Health / auth
 
 ```text
-GET /health
-GET /me
+GET  /health
+POST /auth/email-code
+GET  /me
 ```
 
 ### Workspaces

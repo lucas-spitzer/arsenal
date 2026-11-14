@@ -1,1 +1,23 @@
 .vercel
+
+# Private notes. Kept off the public repo so they do not leak confidential
+# information about the platform and its plans. See docs/internal/README.md.
+docs/internal/**
+!docs/internal/README.md
+
+# Private operator SQL. Kept off the public repo so it does not leak
+# confidential information about the platform and its plans.
+# See supabase/maintenance/README.md.
+supabase/maintenance/**
+!supabase/maintenance/README.md
+supabase/setup/seed-*.sql
+supabase/setup/05-purge-production-run.sql
+
+node_modules/
+.cursor/
+docs/external/
+
+.env
+.env.*
+!.env.example
+!app/.env.production

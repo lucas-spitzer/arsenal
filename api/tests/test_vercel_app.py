@@ -27,3 +27,11 @@ def test_hosted_api_is_mounted_at_api(monkeypatch: pytest.MonkeyPatch) -> None:
 
     missing = client.post("/api/auth/email-code", json={})
     assert missing.status_code == 422
+
+    from app.main import app as api_app
+
+    assert api_app.docs_url is None
+    assert api_app.redoc_url is None
+    assert api_app.openapi_url is None
+    assert client.get("/docs").status_code == 404
+    assert client.get("/openapi.json").status_code == 404

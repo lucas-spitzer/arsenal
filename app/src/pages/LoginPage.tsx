@@ -1,5 +1,5 @@
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
-import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
+import { useState, type CSSProperties, type FormEvent } from 'react'
+import { Navigate, useLocation } from 'react-router-dom'
 import { ArsenalMark } from '../components/brand/ArsenalMark'
 import { ApiError } from '../lib/apiClient'
 import { requestEmailCode, signInWithGoogle, signOut, verifyEmailCode } from '../features/auth/authService'
@@ -13,23 +13,6 @@ interface LocationState {
 }
 
 const EMAIL_CODE_LENGTH = 8
-
-function arrivedSignIn(params: URLSearchParams): { email: string; code: string } | null {
-  const code = (params.get('code') ?? '').replace(/\D/g, '')
-  const email = (params.get('email') ?? '').trim()
-  if (code.length !== EMAIL_CODE_LENGTH) return null
-  if (
-    email.length < 3 ||
-    email.length > 320 ||
-    !email.includes('@') ||
-    email.startsWith('@') ||
-    email.endsWith('@') ||
-    /\s/.test(email)
-  ) {
-    return null
-  }
-  return { email, code }
-}
 
 const systemModules = [
   {
@@ -54,38 +37,12 @@ const systemModules = [
 
 export function LoginPage() {
   const location = useLocation()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const arrived = useState(() => arrivedSignIn(searchParams))[0]
   const { approvalError, approvalStatus, isAuthenticated, isLoading } = useAuth()
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [pending, setPending] = useState<'google' | 'code' | null>(null)
-  const [email, setEmail] = useState(arrived?.email ?? '')
-  const [code, setCode] = useState(arrived?.code ?? '')
-  const [codeSentTo, setCodeSentTo] = useState<string | null>(arrived?.email ?? null)
-  const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    if (!arrived) return
-    let cancelled = false
-    void navigator.clipboard.writeText(arrived.code).then(
-      () => {
-        if (!cancelled) setCopied(true)
-      },
-      () => undefined,
-    )
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current)
-        next.delete('code')
-        next.delete('email')
-        return next
-      },
-      { replace: true },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [arrived, setSearchParams])
+  const [email, setEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [codeSentTo, setCodeSentTo] = useState<string | null>(null)
 
   const fromPath = (location.state as LocationState | null)?.from?.pathname ?? '/app'
 
@@ -247,9 +204,7 @@ export function LoginPage() {
                 required
               />
               <p className="as-gate__helper">
-                {copied
-                  ? 'Copied to the clipboard. It expires shortly and works once.'
-                  : `Enter the 8-digit code sent to ${codeSentTo}. It expires shortly and works once.`}
+                Enter the 8-digit code sent to {codeSentTo}. It expires shortly and works once.
               </p>
               <button
                 type="submit"

@@ -1,8 +1,0 @@
--- Idempotent stage repair for existing projects.
---
--- Stage definitions live in 03-seed-stages.sql (ON CONFLICT upserts + is_active
--- toggles). Re-run that file in the SQL editor or via the CLI to repair a wiped
--- or stale stages table — keep a single source of truth rather than a second copy.
---
--- Example:
---   supabase db execute --file supabase/setup/03-seed-stages.sql

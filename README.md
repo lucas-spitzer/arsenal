@@ -13,7 +13,7 @@ Two surfaces share one app:
 | **Mathesys** | File artifacts from the structured source (ebook, narration, wiki JSON snapshot, study sheet). | `mathesys` |
 | **QnGen** | Flashcards, quizzes, and scenarios from canonical wiki + evidence. | `qngen` |
 
-Names, output kinds, and module ownership: [`docs/internal/system/system-overview.md`](docs/internal/system/system-overview.md). Mathesys file contracts: [`docs/internal/system/artifacts-catalog.md`](docs/internal/system/artifacts-catalog.md).
+Notes on names, output kinds, and file contracts stay off this public repository so they do not leak confidential information about the platform and its plans. See [`docs/internal/README.md`](docs/internal/README.md).
 
 ---
 
@@ -95,7 +95,7 @@ sequenceDiagram
     end
 ```
 
-Every endpoint except `/health` requires `Authorization: Bearer <supabase-access-token>`. The `require_approved_user` dependency rejects invalid sessions (401) and unapproved accounts (403). The backend uses the Supabase **service role** key for data access; the service role key is never exposed to the frontend.
+Every endpoint except `/health` and `POST /auth/email-code` requires `Authorization: Bearer <supabase-access-token>`. `POST /auth/email-code` does not take a bearer token. It returns 204 whether or not the address is approved, and it sends a code only for an active approved address. The `require_approved_user` dependency rejects invalid sessions (401) and unapproved accounts (403). The backend uses the Supabase **service role** key for data access. The service role key is never exposed to the frontend.
 
 ---
 
@@ -310,7 +310,7 @@ Arsenal/
 ├── supabase/
 │   └── setup/                greenfield SQL (01–04) + alter patches for existing DBs
 ├── docker/                   docker-compose (Redis)
-└── docs/internal/            system overview & design notes
+└── docs/internal/            private notes (see the README in that folder)
 ```
 
 ---
@@ -344,4 +344,4 @@ From the repo root, after `vercel login` and `vercel link`:
 
 Foundry PDF uploads and production runs stay on the laptop. Vercel rejects request bodies over 4.5 MB, and this deploy has no worker. The first request after the API has been idle waits while the function starts.
 
-Canonical organization (names, systems, output kinds): [`docs/internal/system/system-overview.md`](docs/internal/system/system-overview.md).
+Private notes, kept off this repository: [`docs/internal/README.md`](docs/internal/README.md).

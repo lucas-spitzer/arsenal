@@ -1,9 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
+from app.services.email_code_limit import allow_email_code
 from app.services.supabase import (
     SupabaseApprovalError,
     SupabaseEmailCodeError,
@@ -13,8 +14,6 @@ from app.services.supabase import (
 )
 
 router = APIRouter(tags=["auth"])
-
-NOT_APPROVED = "This account is not approved for Arsenal access."
 
 
 class EmailCodeRequest(BaseModel):
@@ -39,21 +38,35 @@ def _sign_in_email(value: str) -> str:
     return email
 
 
+def _client_address(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
+    if request.client is not None and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
 @router.post("/auth/email-code", status_code=status.HTTP_204_NO_CONTENT)
 async def send_email_code(
     payload: EmailCodeRequest,
+    request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> None:
     email = _sign_in_email(payload.email)
-    supabase = SupabaseService(settings)
+    if not allow_email_code(email, _client_address(request)):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Wait a minute, then request another code.",
+        )
 
+    supabase = SupabaseService(settings)
     try:
         await supabase.send_email_code(email)
-    except SupabaseUserNotApprovedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=NOT_APPROVED,
-        ) from exc
+    except SupabaseUserNotApprovedError:
+        return None
     except SupabaseEmailCodeError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except SupabaseApprovalError as exc:
@@ -66,3 +79,4 @@ async def send_email_code(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Arsenal could not reach Supabase.",
         ) from exc
+    return None

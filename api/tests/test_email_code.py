@@ -6,6 +6,12 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.config import get_settings
+from app.routers import email_code
+from app.services.email_code_limit import EMAIL_LIMIT, clear_email_code_limits
 from app.services.supabase import SupabaseService, SupabaseUserNotApprovedError
 
 
@@ -79,3 +85,51 @@ def test_approved_email_sends_a_code(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body == {"email": "student@example.com", "create_user": True}
     assert headers["Authorization"] == "Bearer publishable-key"
     assert headers["apikey"] == "publishable-key"
+
+
+def _router_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(email_code.router)
+    app.dependency_overrides[get_settings] = _settings
+    return TestClient(app)
+
+
+def test_unknown_email_returns_204_and_does_not_send(monkeypatch: pytest.MonkeyPatch) -> None:
+    clear_email_code_limits()
+    _install(monkeypatch, [])
+    response = _router_client().post("/auth/email-code", json={"email": "nope@example.com"})
+
+    assert response.status_code == 204
+    assert RecordingClient.posts == []
+
+
+def test_approved_email_returns_204_and_sends(monkeypatch: pytest.MonkeyPatch) -> None:
+    clear_email_code_limits()
+    _install(
+        monkeypatch,
+        [{"email": "student@example.com", "role": "student", "is_active": True}],
+    )
+    response = _router_client().post(
+        "/auth/email-code",
+        json={"email": "student@example.com"},
+    )
+
+    assert response.status_code == 204
+    assert len(RecordingClient.posts) == 1
+    assert RecordingClient.posts[0][0] == "https://example.supabase.co/auth/v1/otp"
+
+
+def test_email_code_limit_is_per_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    clear_email_code_limits()
+    _install(
+        monkeypatch,
+        [{"email": "student@example.com", "role": "student", "is_active": True}],
+    )
+    client = _router_client()
+    for _ in range(EMAIL_LIMIT):
+        allowed = client.post("/auth/email-code", json={"email": "student@example.com"})
+        assert allowed.status_code == 204
+
+    blocked = client.post("/auth/email-code", json={"email": "student@example.com"})
+    assert blocked.status_code == 429
+    assert len(RecordingClient.posts) == EMAIL_LIMIT

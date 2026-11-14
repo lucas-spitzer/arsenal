@@ -36,40 +36,19 @@ done
 
 Do **not** glob `supabase/setup/*.sql` — that would also pick up operator patches.
 
-After running setup, replace the placeholder owner email in `approved_users` with your own Google account address.
+After running setup, insert your own Google account address into `approved_users` as `admin`. The setup script does not insert one. If an earlier run left a placeholder address in that table, deactivate that row in the Supabase dashboard.
 
 ## Email sign-in codes
 
-Google stays available. `POST /auth/email-code` sends an 8-digit code only when the address is an active `approved_users` row. The sign-in page then calls `verifyOtp`.
+Google stays available. `POST /auth/email-code` returns 204 for any well-formed address. It sends an 8-digit code only when the address is an active `approved_users` row. The sign-in page then calls `verifyOtp`.
 
-Supabase's built-in mailer sends only to members of the Supabase organization. This project was created on 2026-06-06. On the Free plan, a project created after 2026-06-03 also cannot edit the auth email template until a custom SMTP provider is set. Peers will not receive codes until that provider is in place.
-
-In the Supabase dashboard for Arsenal, Authentication → Emails → SMTP Settings. The provider is Resend. Create the API key in Resend and paste it in the SMTP **Password** field. Do not put that key in git, `api/.env`, or Vercel. Supabase stores it.
-
-Verify `atlas3.app` in Resend first, and add the DNS records Resend shows in the Vercel DNS panel for that domain.
-
-- Host: `smtp.resend.com`
-- Port: `465`
-- Username: `resend` (those six letters, all lowercase)
-- Password: the Resend API key
-- Sender email: `noreply@atlas3.app`
-- Sender name: `Arsenal`
-
-Resend's Templates tab does not send this message. Supabase writes the HTML and hands the finished email to Resend over SMTP. Paste the template into Supabase, not into a Resend template. Resend variables use `{{{NAME}}}`, and Supabase will not fill those in.
-
-After SMTP is saved, Authentication → Rate Limits, for a class of about 50 people on one Wi-Fi:
-
-- Sending emails: 150 per hour
-- Sign-ups and sign-ins: 100 per 5 minutes
-- Token verifications: 100 per 5 minutes
-
-Leave the 60-second gap between emails to the same person.
+Configure custom SMTP in the Supabase dashboard. Do not commit the SMTP password or API key.
 
 Then:
 
 1. Authentication → Sign In / Providers → Email: leave **Email OTP length** at `8`. That control is on the Email provider page, not on Emails. The sign-in form accepts 8 digits.
 2. Authentication → Emails → Templates → open **Magic link or OTP**. The subject field is on that page. Set it to `Your Arsenal sign-in code`.
-3. Replace the template body with the full file [`sign-in-code-email.html`](sign-in-code-email.html). Copy the file as-is, including `{{ .Token }}` and `{{ .Email }}`. The code links to the sign-in page and fills the 8-digit field. Do not add letter-spacing around the code, and do not add `{{ .ConfirmationURL }}`. Outlook and Defender prefetch links and consume a sign-in link.
+3. Replace the template body with the full file [`sign-in-code-email.html`](sign-in-code-email.html). Copy the file as-is, including `{{ .Token }}`. The code is text in the message. Do not put it in a link, do not add letter-spacing around the code, and do not add `{{ .ConfirmationURL }}`. Outlook and Defender prefetch links and consume a sign-in link.
 4. Leave Email OTP expiration at the dashboard default. Do not set it above one day.
 
 The message follows the style guide: a navy band, a scarlet rule, a scarlet Arial heading, the code in one monospace run with no letter-spacing, a gold divider, and a gray line that says Arsenal is an unofficial study tool and not a United States Marine Corps website. No Marine Corps mark.
@@ -98,92 +77,16 @@ Run these only on databases that already have a Foundry schema and need a target
 | `alter-wiki-entry-kind-elo.sql` | DB was created before Enabling Learning Objectives. Allows `wiki_entries.entry_kind` of `elo`. |
 | `alter-calendar-events.sql` | DB was created before the Academics calendar. Adds `calendar_events` with RLS + role revokes. Idempotent. |
 | `alter-lessons.sql` | DB was created before the Academy ELO tab. Adds `lessons`, `lesson_objectives`, `lesson_resources`, `lesson_chunks`, `match_lesson_chunks`, `discussion_threads.lesson_id`, and the private `lesson-files` bucket, with RLS + role revokes. Idempotent. |
-| `seed-lessons-tbs.sql` | Operator seed. Inserts the TBS classes and their ELOs into the platoon workspace ("The Basic School"). Skips classes that already exist. Run after `alter-lessons.sql`, then press **Re-index all** on Foundry ELO so Discussions can search them. |
-| `seed-calendar-week-2026-10-25.sql` | Operator seed. Inserts the week of Sun Oct 25 – Fri Oct 30, 2026 into the platoon workspace ("The Basic School"). Skips rows that already exist. Run after the calendar table exists. |
-| `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. |
+| `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. The file stays on the machine that has it. |
 | `../maintenance/add-audiobook-artifact.sql` | DB was created before direct audiobook uploads. Adds `audiobook` to `artifacts_type_check`. Idempotent aside from the constraint swap. |
 | `../maintenance/add-quiz-results.sql` | DB was created before personal quiz results. Adds `quiz_results` with RLS and role revokes. Idempotent. |
-| `../maintenance/delete-production-run.sql` | Operator utility. Deletes one production run and the rows it created. Refuses Study Material runs. Storage files cannot be deleted from SQL. |
-| `../maintenance/delete-study-material-run.sql` | Operator utility. Deletes one Study Material production run, its material, components, versions, artifacts, and stage runs. Storage files cannot be deleted from SQL. |
-| `../maintenance/delete-source.sql` | Operator utility. Deletes one source and the rows it created. Storage files cannot be deleted from SQL. |
-| `../maintenance/delete-audio-runs.sql` | Operator utility. Deletes narration runs, narration files, and uploaded audiobooks in The Basic School only. Leaves other workspaces, tables, stages, sources, and non-audio runs. Storage files cannot be deleted from SQL. |
 
-### Delete a production run
-
-`production_runs` children use `ON DELETE SET NULL`, so deleting the run row leaves assessments, artifacts, wiki batches, and stage runs behind. Use this instead.
-
-1. Open `supabase/maintenance/delete-production-run.sql`.
-2. Set `target_run_id`.
-3. Leave `dry_run true` and run it. That run errors on purpose and lists what would be removed.
-4. Set `dry_run false` and run it again. Success in the SQL editor only means the delete ran if `dry_run` is false.
-
-The script does not delete source rows or original uploads. Intellex segments, chapters, and `work/` files stay unless `purge_ingest` is true, and then only for sources no other production run still lists. Tables that exist in `02-schema.sql` but not on the live database are skipped.
-
-Supabase forbids `DELETE` on `storage.objects` from SQL. After a successful row delete, leftover keys appear in notices and in `pg_temp.purge_storage_paths`. Remove those files from the `sources` bucket in Dashboard → Storage, or with the Storage API.
-
-If the run is still queued or running, stop the worker job first. Study Material runs are refused here; use `delete-study-material-run.sql`.
-
-```bash
-supabase db execute --file supabase/maintenance/delete-production-run.sql
-```
-
-### Delete a Study Material production run
-
-`study_materials.production_run_id` is `ON DELETE SET NULL`, and `active_version_id` points back at component versions, so deleting the run row leaves the material in place. Use this instead.
-
-1. Open `supabase/maintenance/delete-study-material-run.sql`.
-2. Set `target_run_id`.
-3. Leave `dry_run true` and run it. That run errors on purpose and lists what would be removed.
-4. Set `dry_run false` and run it again.
-
-The material currently attached to the run is deleted with its components, versions, uploaded files, artifacts, and stage runs. A material later pointed at a newer run stays; only this run's versions, artifacts, and stage runs are removed.
-
-Supabase forbids `DELETE` on `storage.objects` from SQL. After a successful row delete, leftover keys appear in notices and in `pg_temp.purge_storage_paths`. Remove those files from the `sources` bucket in Dashboard → Storage, or with the Storage API.
-
-If the run is still queued or running, stop the worker job first.
-
-```bash
-supabase db execute --file supabase/maintenance/delete-study-material-run.sql
-```
-
-### Delete audio runs in The Basic School
-
-Narration and audiobook rows are what the Library and Foundry show as audio. This removes those rows, and the runs that exist only to produce narration, for the workspace named The Basic School. Other workspaces stay. Tables, the generate-narration stage, TTS settings, sources, books, wiki, assessments, and study material stay.
-
-1. Stop the worker if any narration run in that workspace is queued or running.
-2. Open `supabase/maintenance/delete-audio-runs.sql`.
-3. Leave `dry_run true` and run it. That run errors on purpose and lists what would be removed.
-4. Set `dry_run false` and run it again.
-5. Delete the listed keys from the `sources` bucket. SQL cannot delete storage objects.
-
-A run that also produced a book, wiki, or assessment stays. Only its narration stage and `narration_audio` target are removed. Uploaded audiobook MP3s are removed with generated narration.
-
-```bash
-supabase db execute --file supabase/maintenance/delete-audio-runs.sql
-```
-
-### Delete a source
-
-Most source children use `ON DELETE SET NULL`, so deleting the source row leaves assessments, artifacts, wiki batches, disputes, and discussion threads behind. Use this instead.
-
-1. Open `supabase/maintenance/delete-source.sql`.
-2. Set `target_source_id`.
-3. Leave `dry_run true` and run it. That run errors on purpose and lists what would be removed.
-4. Set `dry_run false` and run it again.
-
-Tables that exist in `02-schema.sql` but not on the live database (for example `assessment_sets`) are skipped. `ndr_segments`, `document_chapters`, and `narration_segments` cascade with the source. Wiki entries owned only by this source are deleted; shared entries drop this source from `evidence`. Production runs keep their other sources; this script only removes the id from `source_ids`.
-
-Supabase forbids `DELETE` on `storage.objects` from SQL. After a successful row delete, leftover keys appear in notices and in `pg_temp.purge_storage_paths`. Remove those files from the `sources` bucket in Dashboard → Storage, or with the Storage API.
-
-```bash
-supabase db execute --file supabase/maintenance/delete-source.sql
-```
+Delete scripts and seed SQL stay on the machine that has them so they do not leak confidential information about the platform and its plans. See [`supabase/maintenance/README.md`](../maintenance/README.md).
 
 ### Academics calendar
 
 ```bash
 supabase db execute --file supabase/setup/alter-calendar-events.sql
-supabase db execute --file supabase/setup/seed-calendar-week-2026-10-25.sql
 ```
 
 ### Wiki file-ingest columns

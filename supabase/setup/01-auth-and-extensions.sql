@@ -26,12 +26,13 @@ create table public.approved_users (
     check (role in ('admin', 'student'))
 );
 
--- Replace with your Google account email before signing in.
--- admin: Foundry and Academy. student: Academy only.
-insert into public.approved_users (email, role, is_active)
-values ('example@email.com', 'admin', true)
-on conflict (email)
-do update set is_active = true, role = excluded.role;
+-- Insert your own address before signing in. admin: Foundry and Academy.
+-- student: Academy only. This script does not insert a row.
+--
+-- insert into public.approved_users (email, role, is_active)
+-- values ('you@example.com', 'admin', true)
+-- on conflict (email)
+-- do update set is_active = true, role = excluded.role;
 
 alter table public.approved_users enable row level security;
 

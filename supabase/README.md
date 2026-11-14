@@ -12,7 +12,7 @@ Database bootstrap for Foundry.
 - **Google OAuth** configured in Supabase Auth (required for sign-in).
 - The FastAPI backend uses the **service role** key for data access in V1. Client roles are revoked from application tables.
 
-After setup, replace the placeholder owner email in `approved_users` with your own Google account address.
+After setup, insert your own Google account address into `approved_users` as `admin`. The setup script does not insert one. If an earlier run left a placeholder address in that table, deactivate that row in the Supabase dashboard.
 
 ---
 
