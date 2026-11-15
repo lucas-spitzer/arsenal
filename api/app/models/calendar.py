@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-CalendarEventKind = Literal["deadline", "class", "prac_app", "evaluation"]
+CalendarEventKind = Literal["deadline", "class", "prac_app", "evaluation", "schedule"]
 
 
 def _blank_to_none(value: str | None) -> str | None:
@@ -84,3 +84,4 @@ class CalendarEventResponse(BaseModel):
     created_by: str | None = None
     created_at: datetime
     updated_at: datetime
+    completed_at: datetime | None = None

@@ -76,6 +76,7 @@ Run these only on databases that already have a Foundry schema and need a target
 | `alter-discussion-tbs.sql` | DB was created before the TBS discussion instruction. Allows `discussion_threads.submode` of `tbs` and defaults new threads to it. |
 | `alter-wiki-entry-kind-elo.sql` | DB was created before Enabling Learning Objectives. Allows `wiki_entries.entry_kind` of `elo`. |
 | `alter-calendar-events.sql` | DB was created before the Academics calendar. Adds `calendar_events` with RLS + role revokes. Idempotent. |
+| `alter-calendar-schedule.sql` | DB was created before the Schedule tab and per-student task checks. Allows `calendar_events.kind` of `schedule` and adds `calendar_task_completions` with RLS + role revokes. Idempotent. |
 | `alter-lessons.sql` | DB was created before the Academy ELO tab. Adds `lessons`, `lesson_objectives`, `lesson_resources`, `lesson_chunks`, `match_lesson_chunks`, `discussion_threads.lesson_id`, and the private `lesson-files` bucket, with RLS + role revokes. Idempotent. |
 | `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. The file stays on the machine that has it. |
 | `../maintenance/add-audiobook-artifact.sql` | DB was created before direct audiobook uploads. Adds `audiobook` to `artifacts_type_check`. Idempotent aside from the constraint swap. |
@@ -87,6 +88,7 @@ Delete scripts and seed SQL stay on the machine that has them so they do not lea
 
 ```bash
 supabase db execute --file supabase/setup/alter-calendar-events.sql
+supabase db execute --file supabase/setup/alter-calendar-schedule.sql
 ```
 
 ### Wiki file-ingest columns

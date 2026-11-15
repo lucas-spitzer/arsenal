@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildCalendarIcs,
   countByKind,
   formatTime,
   formatTimeRange,
@@ -26,6 +27,7 @@ function event(overrides: Partial<CalendarEvent>): CalendarEvent {
     created_by: null,
     created_at: '2026-10-20T00:00:00Z',
     updated_at: '2026-10-20T00:00:00Z',
+    completed_at: null,
     ...overrides,
   }
 }
@@ -85,7 +87,7 @@ describe('countByKind', () => {
   it('counts each kind', () => {
     expect(
       countByKind([event({ kind: 'deadline' }), event({ kind: 'deadline' }), event({ kind: 'prac_app' })]),
-    ).toEqual({ deadline: 2, class: 0, prac_app: 1, evaluation: 0 })
+    ).toEqual({ deadline: 2, class: 0, prac_app: 1, evaluation: 0, schedule: 0 })
   })
 })
 
@@ -97,6 +99,60 @@ describe('time formatting', () => {
     expect(formatTimeRange('08:00:00', '11:30:00')).toBe('0800–1130')
     expect(formatTimeRange('08:00:00', null)).toBe('0800')
     expect(formatTimeRange(null, null)).toBeNull()
+  })
+})
+
+describe('buildCalendarIcs', () => {
+  const stamp = '20261114T120000Z'
+
+  it('keeps a timed block in local floating time', () => {
+    const ics = buildCalendarIcs(
+      [
+        event({
+          id: 'hike',
+          kind: 'schedule',
+          title: 'Hike to WTBN',
+          event_date: '2026-11-16',
+          start_time: '05:00:00',
+          end_time: '05:45:00',
+          location: 'Application Trail',
+          notes: 'Bring the packing list, all of it.',
+        }),
+      ],
+      { calendarName: 'Arsenal Nov 15 – Nov 21, 2026', stamp },
+    )
+
+    expect(ics).toContain('DTSTART:20261116T050000')
+    expect(ics).toContain('DTEND:20261116T054500')
+    expect(ics).toContain('SUMMARY:Hike to WTBN')
+    expect(ics).toContain('DESCRIPTION:Bring the packing list\\, all of it.')
+    expect(ics).not.toContain('DTSTART:20261116T050000Z')
+  })
+
+  it('writes a date-only deadline as an all-day event and a timed deadline as 15 minutes', () => {
+    const ics = buildCalendarIcs(
+      [
+        event({
+          id: 'spins',
+          kind: 'deadline',
+          title: 'Read Range Week SPINS',
+          event_date: '2026-11-16',
+        }),
+        event({
+          id: 'guide',
+          kind: 'deadline',
+          title: 'Contribute to the study guide',
+          event_date: '2026-11-23',
+          start_time: '23:59:00',
+        }),
+      ],
+      { calendarName: 'Arsenal', stamp },
+    )
+
+    expect(ics).toContain('DTSTART;VALUE=DATE:20261116')
+    expect(ics).toContain('DTEND;VALUE=DATE:20261117')
+    expect(ics).toContain('DTSTART:20261123T234400')
+    expect(ics).toContain('DTEND:20261123T235900')
   })
 })
 

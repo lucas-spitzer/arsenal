@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { AlarmClock, ClipboardCheck, Compass, Presentation } from 'lucide-react'
+import { AlarmClock, CalendarClock, ClipboardCheck, Compass, Presentation } from 'lucide-react'
 import type { CalendarEvent, CalendarEventKind } from './calendarApi'
 
 export type CalendarKindMeta = {
@@ -10,9 +10,10 @@ export type CalendarKindMeta = {
   cls: string
 }
 
-export const calendarKinds: CalendarEventKind[] = ['class', 'prac_app', 'evaluation', 'deadline']
+export const calendarKinds: CalendarEventKind[] = ['schedule', 'class', 'prac_app', 'evaluation', 'deadline']
 
 export const kindMeta: Record<CalendarEventKind, CalendarKindMeta> = {
+  schedule: { label: 'Schedule', chip: 'Schedule', icon: CalendarClock, cls: 'cal__kind--schedule' },
   class: { label: 'Class', chip: 'Class', icon: Presentation, cls: 'cal__kind--class' },
   prac_app: { label: 'Practical application', chip: 'Prac app', icon: Compass, cls: 'cal__kind--prac' },
   evaluation: { label: 'Evaluation', chip: 'Eval', icon: ClipboardCheck, cls: 'cal__kind--eval' },
@@ -68,7 +69,13 @@ export function groupEventsByDay(events: CalendarEvent[]): Map<string, CalendarE
 }
 
 export function countByKind(events: CalendarEvent[]): Record<CalendarEventKind, number> {
-  const counts: Record<CalendarEventKind, number> = { deadline: 0, class: 0, prac_app: 0, evaluation: 0 }
+  const counts: Record<CalendarEventKind, number> = {
+    deadline: 0,
+    class: 0,
+    prac_app: 0,
+    evaluation: 0,
+    schedule: 0,
+  }
   for (const event of events) counts[event.kind] += 1
   return counts
 }
@@ -108,4 +115,105 @@ export function formatDayHeading(date: Date): string {
 
 export function weekdayShort(date: Date): string {
   return date.toLocaleDateString('en-US', { weekday: 'short' })
+}
+
+function icsEscape(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;')
+}
+
+function foldIcsLine(line: string): string {
+  if (line.length <= 75) return line
+  const parts = [line.slice(0, 75)]
+  let rest = line.slice(75)
+  while (rest.length > 0) {
+    parts.push(` ${rest.slice(0, 74)}`)
+    rest = rest.slice(74)
+  }
+  return parts.join('\r\n')
+}
+
+function compactDate(iso: string): string {
+  return iso.slice(0, 10).replace(/-/g, '')
+}
+
+function compactTime(value: string): string {
+  const [hours, minutes, seconds] = value.split(':')
+  return `${pad(Number(hours))}${pad(Number(minutes ?? 0))}${pad(Number(seconds ?? 0))}`
+}
+
+function shiftMinutes(isoDate: string, value: string, minutes: number): { date: string; time: string } {
+  const [hours, mins, seconds] = value.split(':').map(Number)
+  const total = (hours ?? 0) * 60 + (mins ?? 0) + minutes
+  const dayShift = Math.floor(total / (24 * 60))
+  const minutesInDay = ((total % (24 * 60)) + 24 * 60) % (24 * 60)
+  return {
+    date: toIsoDate(addDays(parseLocalDate(isoDate), dayShift)),
+    time: `${pad(Math.floor(minutesInDay / 60))}${pad(minutesInDay % 60)}${pad(seconds ?? 0)}`,
+  }
+}
+
+function icsInterval(event: CalendarEvent): { start: string; end: string } {
+  const day = event.event_date.slice(0, 10)
+  const dueAt = event.kind === 'deadline' ? (event.end_time ?? event.start_time) : null
+  if (event.kind === 'deadline' && dueAt) {
+    const end = { date: day, time: compactTime(dueAt) }
+    const start = shiftMinutes(day, dueAt, -15)
+    return { start: `${start.date.replace(/-/g, '')}T${start.time}`, end: `${compactDate(end.date)}T${end.time}` }
+  }
+  if (event.kind !== 'deadline' && event.start_time && event.end_time) {
+    return {
+      start: `${compactDate(day)}T${compactTime(event.start_time)}`,
+      end: `${compactDate(day)}T${compactTime(event.end_time)}`,
+    }
+  }
+  if (event.kind !== 'deadline' && event.start_time) {
+    const end = shiftMinutes(day, event.start_time, 30)
+    return {
+      start: `${compactDate(day)}T${compactTime(event.start_time)}`,
+      end: `${end.date.replace(/-/g, '')}T${end.time}`,
+    }
+  }
+  const nextDay = compactDate(toIsoDate(addDays(parseLocalDate(day), 1)))
+  return { start: `VALUE=DATE:${compactDate(day)}`, end: `VALUE=DATE:${nextDay}` }
+}
+
+/** UTC stamp `YYYYMMDDTHHMMSSZ` for a stable ICS file. */
+export function icsStampFromDate(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+}
+
+/** One calendar file for the events on screen. Times stay in local floating time. */
+export function buildCalendarIcs(
+  events: CalendarEvent[],
+  options: { calendarName: string; stamp: string },
+): string {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Arsenal//Calendar//EN',
+    'CALSCALE:GREGORIAN',
+    foldIcsLine(`X-WR-CALNAME:${icsEscape(options.calendarName)}`),
+  ]
+  for (const event of [...events].sort(compareEvents)) {
+    const interval = icsInterval(event)
+    const startLine = interval.start.startsWith('VALUE=DATE:')
+      ? `DTSTART;${interval.start}`
+      : `DTSTART:${interval.start}`
+    const endLine = interval.end.startsWith('VALUE=DATE:')
+      ? `DTEND;${interval.end}`
+      : `DTEND:${interval.end}`
+    lines.push(
+      'BEGIN:VEVENT',
+      foldIcsLine(`UID:${icsEscape(event.id)}@arsenal`),
+      `DTSTAMP:${options.stamp}`,
+      foldIcsLine(`SUMMARY:${icsEscape(event.title)}`),
+      startLine,
+      endLine,
+    )
+    if (event.location) lines.push(foldIcsLine(`LOCATION:${icsEscape(event.location)}`))
+    if (event.notes) lines.push(foldIcsLine(`DESCRIPTION:${icsEscape(event.notes)}`))
+    lines.push('END:VEVENT')
+  }
+  lines.push('END:VCALENDAR')
+  return `${lines.join('\r\n')}\r\n`
 }

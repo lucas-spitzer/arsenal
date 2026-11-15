@@ -3375,7 +3375,7 @@
 }
 
 /* ===========================================================================
-   Academy calendar — Academics schedule (week grid + agenda list).
+   Academy calendar — schedule week and task list.
    Kind colors always pair with an icon and a text chip.
    =========================================================================== */
 
@@ -3451,6 +3451,53 @@
   white-space: nowrap;
 }
 
+.cal__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.cal__export {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cal__export:hover:not(:disabled) {
+  border-color: var(--color-scarlet);
+  color: var(--color-scarlet);
+}
+
+.cal__export:disabled {
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.cal__task-error {
+  margin: var(--space-3) 0 0;
+  color: var(--color-scarlet);
+  font-size: 0.85rem;
+}
+
+.cal__task-note {
+  margin: var(--space-3) 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
 /* --- Kind chips ----------------------------------------------------------- */
 
 .cal__kind {
@@ -3468,6 +3515,7 @@
   white-space: nowrap;
 }
 
+.cal__kind.cal__kind--schedule { background: #d9e2dc; color: #1e3a2f; }
 .cal__kind.cal__kind--class { background: #e0e7ea; color: #13384a; }
 .cal__kind.cal__kind--prac { background: #efeadd; color: #5b4f2f; }
 .cal__kind.cal__kind--eval { background: var(--color-dark-scarlet); color: #fff; }
@@ -3583,6 +3631,46 @@
   background: var(--surface);
 }
 
+.cal__event-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.cal__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cal__check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-scarlet);
+  cursor: pointer;
+}
+
+.cal__check input:disabled {
+  cursor: default;
+}
+
+.cal__event.is-done .cal__event-title,
+.cal__task.is-done .cal__event-title {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+}
+
+.cal__event.cal__kind--schedule,
+.cal__row.cal__kind--schedule { --cal-kind: #1e3a2f; }
 .cal__event.cal__kind--class,
 .cal__row.cal__kind--class { --cal-kind: var(--color-navy); }
 .cal__event.cal__kind--prac,
@@ -3681,6 +3769,35 @@
 
 .cal__row-body .cal__event-title {
   font-size: 1rem;
+}
+
+.cal__tasks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.cal__task {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--color-scarlet);
+  background: var(--surface);
+}
+
+.cal__task .cal__row-time {
+  color: var(--color-scarlet);
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 @media (max-width: 980px) {

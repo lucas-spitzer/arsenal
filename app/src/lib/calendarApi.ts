@@ -1,6 +1,6 @@
 import { apiRequest, apiRequestVoid } from './apiClient'
 
-export type CalendarEventKind = 'deadline' | 'class' | 'prac_app' | 'evaluation'
+export type CalendarEventKind = 'deadline' | 'class' | 'prac_app' | 'evaluation' | 'schedule'
 
 export interface CalendarEvent {
   id: string
@@ -17,6 +17,8 @@ export interface CalendarEvent {
   created_by: string | null
   created_at: string
   updated_at: string
+  /** Set when this student has checked off a deadline. Null for every other kind. */
+  completed_at: string | null
 }
 
 export interface CalendarEventInput {
@@ -31,15 +33,31 @@ export interface CalendarEventInput {
 
 export async function listCalendarEvents(
   workspaceId: string,
-  range: { start?: string; end?: string } = {},
+  range: { start?: string; end?: string; kind?: CalendarEventKind } = {},
 ): Promise<CalendarEvent[]> {
   const params = new URLSearchParams()
   if (range.start) params.set('start', range.start)
   if (range.end) params.set('end', range.end)
+  if (range.kind) params.set('kind', range.kind)
   const query = params.toString()
   return apiRequest<CalendarEvent[]>(
     `/workspaces/${workspaceId}/calendar-events${query ? `?${query}` : ''}`,
   )
+}
+
+export async function completeCalendarTask(
+  workspaceId: string,
+  eventId: string,
+): Promise<CalendarEvent> {
+  return apiRequest<CalendarEvent>(`/workspaces/${workspaceId}/calendar-events/${eventId}/completion`, {
+    method: 'PUT',
+  })
+}
+
+export async function clearCalendarTask(workspaceId: string, eventId: string): Promise<void> {
+  await apiRequestVoid(`/workspaces/${workspaceId}/calendar-events/${eventId}/completion`, {
+    method: 'DELETE',
+  })
 }
 
 export async function createCalendarEvent(

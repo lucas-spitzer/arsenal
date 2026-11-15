@@ -5,7 +5,7 @@ from fastapi import Depends
 from app.config import Settings, get_settings
 from app.repositories.artifacts import ArtifactRepository
 from app.repositories.assessments import AssessmentRepository
-from app.repositories.calendar_events import CalendarEventRepository
+from app.repositories.calendar_events import CalendarEventRepository, CalendarTaskCompletionRepository
 from app.repositories.discussions import DiscussionRepository
 from app.repositories.document_chapters import DocumentChapterRepository
 from app.repositories.lessons import LessonRepository
@@ -199,6 +199,12 @@ def get_calendar_event_repository(
     db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
 ) -> CalendarEventRepository:
     return CalendarEventRepository(db)
+
+
+def get_calendar_task_completion_repository(
+    db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
+) -> CalendarTaskCompletionRepository:
+    return CalendarTaskCompletionRepository(db)
 
 
 def get_lesson_repository(

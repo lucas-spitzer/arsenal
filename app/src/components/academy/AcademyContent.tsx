@@ -35,11 +35,13 @@ export function AcademyContent({
   const { activeWorkspace } = useWorkspace()
   const { focus } = useLibraryFocus(activeWorkspace?.id ?? null)
   const { items } = useOutputs()
-  // A reader link wins. Otherwise open the favorited ebook, then the first book.
+  // A reader link wins. Otherwise open the favorited ebook, then the
+  // platoon default (MCDP 1 Warfighting), then the first book by name.
   const readerSourceId = defaultReaderSourceId({
     routeSourceId: sourceId,
     focusedSourceId: focus.ebookSourceId,
     books: items.filter((item) => item.isEbook),
+    workspaceName: activeWorkspace?.name ?? null,
   })
 
   return (

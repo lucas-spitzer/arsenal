@@ -185,15 +185,39 @@ export function outputChipLabel(item: OutputItem): string {
   return KIND_CHIP[item.kind]
 }
 
+const PLATOON_WORKSPACE_NAME = 'the basic school'
+// Canonical title first, then the shorter labels this publication is stored under.
+const PLATOON_DEFAULT_BOOKS = ['mcdp 1 warfighting', 'mcdp 1', 'warfighting'] as const
+
+function normalizeLabel(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function normalizeBookName(name: string): string {
+  return normalizeLabel(name).replace(/\.pdf$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ')
+}
+
+function platoonDefaultSourceId(
+  books: { sourceId: string; sourceName: string }[],
+): string | null {
+  for (const preferred of PLATOON_DEFAULT_BOOKS) {
+    const match = books.find((book) => normalizeBookName(book.sourceName) === preferred)
+    if (match) return match.sourceId
+  }
+  return null
+}
+
 /** Reader source when the rail opens with no book in the URL. */
 export function defaultReaderSourceId({
   routeSourceId,
   focusedSourceId,
   books,
+  workspaceName = null,
 }: {
   routeSourceId: string | null
   focusedSourceId: string | null
   books: Pick<OutputItem, 'sourceId' | 'sourceName' | 'createdAt'>[]
+  workspaceName?: string | null
 }): string | null {
   if (routeSourceId) return routeSourceId
   const readable = books.flatMap((book) =>
@@ -203,6 +227,10 @@ export function defaultReaderSourceId({
   )
   if (focusedSourceId && readable.some((book) => book.sourceId === focusedSourceId)) {
     return focusedSourceId
+  }
+  if (normalizeLabel(workspaceName ?? '') === PLATOON_WORKSPACE_NAME) {
+    const preferred = platoonDefaultSourceId(readable)
+    if (preferred) return preferred
   }
   const first = [...readable].sort(
     (a, b) => a.sourceName.localeCompare(b.sourceName) || a.createdAt.localeCompare(b.createdAt),

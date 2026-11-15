@@ -817,7 +817,7 @@ create index quiz_results_user_completed_idx
 on public.quiz_results (workspace_id, user_id, completed_at desc);
 
 -- ---------------------------------------------------------------------------
--- Calendar events (Academics schedule: deadlines, classes, prac apps)
+-- Calendar events (schedule, classes, prac apps, evaluations, deadlines)
 -- ---------------------------------------------------------------------------
 
 create table public.calendar_events (
@@ -834,7 +834,7 @@ create table public.calendar_events (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint calendar_events_kind_check
-    check (kind in ('deadline', 'class', 'prac_app', 'evaluation')),
+    check (kind in ('deadline', 'class', 'prac_app', 'evaluation', 'schedule')),
   constraint calendar_events_time_order_check
     check (start_time is null or end_time is null or end_time >= start_time)
 );
@@ -846,6 +846,19 @@ create trigger calendar_events_set_updated_at
 before update on public.calendar_events
 for each row
 execute function public.set_updated_at();
+
+-- One row per student per deadline. Checking a task again keeps the original time.
+create table public.calendar_task_completions (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  event_id uuid not null references public.calendar_events (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  completed_at timestamptz not null default now(),
+  constraint calendar_task_completions_event_user_key unique (event_id, user_id)
+);
+
+create index calendar_task_completions_user_idx
+on public.calendar_task_completions (workspace_id, user_id);
 
 -- ---------------------------------------------------------------------------
 -- Lessons (Academy ELO tab: TBS classes, their ELOs, and downloadable

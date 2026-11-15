@@ -257,6 +257,62 @@ describe('reader default book', () => {
       }),
     ).toBe('src-afo')
   })
+
+  it('opens MCDP 1 Warfighting for The Basic School when nothing is chosen', () => {
+    expect(
+      defaultReaderSourceId({
+        routeSourceId: null,
+        focusedSourceId: null,
+        workspaceName: 'The Basic School',
+        books: [
+          ...books,
+          { sourceId: 'src-mcdp', sourceName: 'MCDP 1 Warfighting', createdAt: '2026-03-01T00:00:00Z' },
+        ],
+      }),
+    ).toBe('src-mcdp')
+  })
+
+  it('recognizes the Warfighting filename as that same default book', () => {
+    expect(
+      defaultReaderSourceId({
+        routeSourceId: null,
+        focusedSourceId: null,
+        workspaceName: 'The Basic School',
+        books: [
+          ...books,
+          { sourceId: 'src-wf', sourceName: 'Warfighting.pdf', createdAt: '2026-03-01T00:00:00Z' },
+        ],
+      }),
+    ).toBe('src-wf')
+  })
+
+  it('keeps a favorite ahead of the platoon default', () => {
+    expect(
+      defaultReaderSourceId({
+        routeSourceId: null,
+        focusedSourceId: 'src-afo',
+        workspaceName: 'The Basic School',
+        books: [
+          ...books,
+          { sourceId: 'src-mcdp', sourceName: 'MCDP 1 Warfighting', createdAt: '2026-03-01T00:00:00Z' },
+        ],
+      }),
+    ).toBe('src-afo')
+  })
+
+  it('keeps alphabetical order in another workspace', () => {
+    expect(
+      defaultReaderSourceId({
+        routeSourceId: null,
+        focusedSourceId: null,
+        workspaceName: 'Another Platoon',
+        books: [
+          ...books,
+          { sourceId: 'src-mcdp', sourceName: 'MCDP 1 Warfighting', createdAt: '2026-03-01T00:00:00Z' },
+        ],
+      }),
+    ).toBe('src-afo')
+  })
 })
 
 describe('knowledge library cards', () => {

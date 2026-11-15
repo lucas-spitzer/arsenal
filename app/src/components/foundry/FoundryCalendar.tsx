@@ -266,7 +266,7 @@ export function FoundryCalendar() {
             </div>
           ) : events.length === 0 ? (
             <div className="as-console__empty">
-              No events this week. Add a deadline, class, prac app, or evaluation.
+              No events this week. Add a schedule block, class, prac app, evaluation, or deadline.
             </div>
           ) : (
             <table className="as-console__table as-console__cal-table">
@@ -380,7 +380,7 @@ export function FoundryCalendar() {
             className="as-wiki__input"
             value={draft.title}
             onChange={(change) => update('title', change.target.value)}
-            placeholder="TCCC Prac App"
+            placeholder={draft.kind === 'deadline' ? 'Contribute to the study guide' : 'TCCC Prac App'}
             autoFocus
             disabled={isSaving}
           />
