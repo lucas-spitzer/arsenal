@@ -29,6 +29,7 @@ from app.services.embeddings import EmbeddingClient, get_embedding_client, to_pg
 from app.services.llm import get_llm_client
 from app.services.llm.base import LLMClient
 from app.services.production_runs import ProductionRunEnqueueError
+from app.services.retrieval import build_reader_link
 from app.services.queue import enqueue_production_run
 from app.services.supabase_storage import SupabaseStorageClient, SupabaseStorageError
 from app.services.wiki_transcription import (
@@ -106,6 +107,25 @@ class WikiIngestNotFoundError(Exception):
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _reader_define_evidence(origin: dict[str, Any]) -> list[dict[str, Any]]:
+    """One reader deep link when a define save names the source segment."""
+    if origin.get("kind") != "reader_define":
+        return []
+    source_id = origin.get("source_id")
+    sequence_index = origin.get("sequence_index")
+    if not isinstance(source_id, str) or not source_id.strip():
+        return []
+    if isinstance(sequence_index, bool) or not isinstance(sequence_index, int):
+        return []
+    return [
+        {
+            "source_id": source_id,
+            "sequence_index": sequence_index,
+            "reader_link": build_reader_link(source_id, sequence_index),
+        },
+    ]
 
 
 class WikiAuthoringService:
@@ -338,7 +358,7 @@ class WikiAuthoringService:
                     "importance": candidate.importance,
                     "entry_kind": candidate.entry_kind,
                     "status": "canonical",
-                    "evidence": [],
+                    "evidence": _reader_define_evidence(candidate.origin),
                     "origin": candidate.origin,
                 },
             ],

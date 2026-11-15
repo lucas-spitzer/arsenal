@@ -396,7 +396,41 @@ def test_create_entry_accepts_reader_define_origin() -> None:
     )
 
     assert row["origin"]["kind"] == "reader_define"
+    assert row["evidence"] == []
     assert row["status"] == "canonical"
+
+
+def test_create_entry_links_a_reader_define_passage() -> None:
+    service = _service()
+
+    row = asyncio.run(
+        service.create_entry(
+            "ws-1",
+            preferred_label="Friction",
+            definition="The force that resists all action and saps energy.",
+            entry_kind="term",
+            importance="supporting",
+            aliases=[],
+            pronunciation=None,
+            origin={
+                "kind": "reader_define",
+                "mode": "contextual",
+                "source_id": "src-1",
+                "term": "Friction",
+                "sequence_index": 12,
+                "passage": "Friction is the force that resists all action and saps energy in war.",
+            },
+        ),
+    )
+
+    assert row["evidence"] == [
+        {
+            "source_id": "src-1",
+            "sequence_index": 12,
+            "reader_link": "/app/reader/src-1?seg=12",
+        },
+    ]
+    assert row["origin"]["passage"].startswith("Friction is the force")
 
 
 def test_create_entry_rejects_duplicate_slug() -> None:

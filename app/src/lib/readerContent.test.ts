@@ -9,6 +9,7 @@ import {
   pickNarrationSet,
   resolveReaderSelection,
   sentenceCueAt,
+  titleCaseTerm,
   type Block,
 } from './readerContent'
 
@@ -68,6 +69,14 @@ const blocks: Block[] = [
   },
 ]
 
+describe('titleCaseTerm', () => {
+  it('capitalizes a phrase the way a title would', () => {
+    expect(titleCaseTerm('essence of war')).toBe('Essence of War')
+    expect(titleCaseTerm('the fog of war')).toBe('The Fog of War')
+    expect(titleCaseTerm('MAGTF')).toBe('MAGTF')
+  })
+})
+
 describe('resolveReaderSelection', () => {
   const { wordBlocks } = buildNarration(blocks)
 
@@ -81,6 +90,7 @@ describe('resolveReaderSelection', () => {
     expect(resolved!.neighbors.current).toBe('They increased tempo in the fight.')
     expect(resolved!.neighbors.next).toBe('Later they slowed down.')
     expect(resolved!.sentence).toBe('They increased tempo in the fight.')
+    expect(resolved!.sequenceIndex).toBe(2)
     expect(resolved!.entryId).toBeNull()
   })
 

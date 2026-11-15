@@ -379,6 +379,40 @@ export function matchWikiTerms(
 /** Max words for free-text define selection in the reader. */
 export const READER_DEFINE_MAX_WORDS = 8
 
+const TITLE_SMALL_WORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'and',
+  'but',
+  'or',
+  'nor',
+  'for',
+  'of',
+  'on',
+  'in',
+  'to',
+  'as',
+  'at',
+  'by',
+])
+
+/** Title-case a highlighted term. Small words stay lower in the middle. All-caps tokens stay. */
+export function titleCaseTerm(term: string): string {
+  const words = term.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ''
+  const last = words.length - 1
+  return words
+    .map((word, index) => {
+      const letters = word.replace(/[^A-Za-z]/g, '')
+      if (letters.length >= 2 && letters === letters.toUpperCase()) return word
+      const lower = word.toLowerCase()
+      if (index !== 0 && index !== last && TITLE_SMALL_WORDS.has(lower)) return lower
+      return lower.charAt(0).toUpperCase() + lower.slice(1)
+    })
+    .join(' ')
+}
+
 export type ParagraphNeighbors = {
   prev: string
   current: string
@@ -390,6 +424,8 @@ export type ReaderSelectionContext = {
   globals: number[]
   blockId: string
   sentence: string
+  /** ndr_segments.sequence_index for the selected paragraph. */
+  sequenceIndex: number
   neighbors: ParagraphNeighbors
   /** Wiki entry id when every selected word maps to the same canonical term. */
   entryId: string | null
@@ -465,6 +501,7 @@ export function resolveReaderSelection(
     globals: sorted,
     blockId: wb.block.id,
     sentence: sentenceForGlobals(flat, sorted),
+    sequenceIndex: wb.block.seq,
     neighbors: paragraphNeighborsAt(wordBlocks, blockIndex),
     entryId,
   }

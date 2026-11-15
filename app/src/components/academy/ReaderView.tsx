@@ -36,6 +36,7 @@ import {
   matchWikiTerms,
   resolveReaderSelection,
   sentenceCueAt,
+  titleCaseTerm,
   type Block,
   type NarrationClip,
   type SpokenWord,
@@ -462,6 +463,7 @@ export function ReaderView({
     next: string
     sentence: string
     sourceId: string | null
+    sequenceIndex: number | null
   }
   type DefinePop =
     | { kind: 'wiki'; entryId: string; left: number; bottom: number }
@@ -535,7 +537,7 @@ export function ReaderView({
     // Prefer the live selection string so the popup shows exactly what the user
     // highlighted (no edge punctuation from whole word spans).
     const highlighted = (sel?.toString() ?? '').replace(/\s+/g, ' ').trim()
-    const term = highlighted || resolved.term
+    const term = titleCaseTerm(highlighted || resolved.term)
     const { left, bottom } = positionDefinePop(rect)
     const context: DefineContext = {
       prev: resolved.neighbors.prev,
@@ -543,6 +545,7 @@ export function ReaderView({
       next: resolved.neighbors.next,
       sentence: resolved.sentence,
       sourceId: sourceId ?? null,
+      sequenceIndex: resolved.sequenceIndex,
     }
     if (resolved.entryId) {
       setDefinePop({ kind: 'wiki', entryId: resolved.entryId, left, bottom })
@@ -625,6 +628,8 @@ export function ReaderView({
           mode,
           source_id: context.sourceId,
           term,
+          ...(context.sequenceIndex != null ? { sequence_index: context.sequenceIndex } : {}),
+          ...(context.current.trim() ? { passage: context.current.trim() } : {}),
         },
       })
       addWikiEntry(entry)

@@ -9,7 +9,8 @@ import {
   reviseWikiEntry,
   updateWikiEntry,
 } from '../../lib/wikiApi'
-import type { WikiEntry, WikiListItem } from '../../lib/workspaceApi'
+import { sourceDisplayName } from '../../lib/sourceDisplay'
+import type { Source, WikiEntry, WikiListItem } from '../../lib/workspaceApi'
 import { StudyHead } from './StudySessionChrome'
 
 const ENTRY_KINDS = ['term', 'list', 'elo', 'abbreviation'] as const
@@ -23,6 +24,20 @@ function asEntryKind(value: string): (typeof ENTRY_KINDS)[number] {
 function uploadLabel(origin: Record<string, unknown>): string {
   const value = origin.section_title
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function citedPassage(origin: Record<string, unknown>): string {
+  const value = origin.passage
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function citedSourceName(origin: Record<string, unknown>, sources: Source[]): string {
+  const section = uploadLabel(origin)
+  if (section) return section
+  const sourceId = typeof origin.source_id === 'string' ? origin.source_id : null
+  if (!sourceId) return ''
+  const source = sources.find((item) => item.id === sourceId)
+  return source ? sourceDisplayName(source) : ''
 }
 
 function KindPill({ value }: { value: string }) {
@@ -43,6 +58,7 @@ function EntryRow({
   startEditing?: boolean
 }) {
   const { activeWorkspace } = useWorkspace()
+  const { sources } = useWorkspaceData()
   const [isEditing, setIsEditing] = useState(canEdit && startEditing)
   const [label, setLabel] = useState(entry.preferred_label)
   const [definition, setDefinition] = useState(entry.definition)
@@ -124,11 +140,34 @@ function EntryRow({
     }
   }
 
+  const readerLink = entry.evidence.find((record) => record.reader_link)?.reader_link ?? null
+  const sourceName = citedSourceName(entry.origin, sources)
+  const passage = citedPassage(entry.origin)
+
   if (canEdit && isEditing) {
     return (
       <tr className="academy-wiki__row academy-wiki__row--edit">
         <td colSpan={6}>
           <div className="academy-wiki__edit">
+            {sourceName || passage || readerLink ? (
+              <p className="academy-wiki__citation">
+                {sourceName}
+                {readerLink ? (
+                  <>
+                    {' '}
+                    <a
+                      href={readerLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="academy-wiki__reader-link"
+                    >
+                      Open passage
+                    </a>
+                  </>
+                ) : null}
+                {passage ? <span className="academy-wiki__citation-passage">{passage}</span> : null}
+              </p>
+            ) : null}
             <input
               className="academy-wiki__input academy-wiki__input--label"
               value={label}
@@ -291,8 +330,6 @@ function EntryRow({
     )
   }
 
-  const readerLink = entry.evidence.find((record) => record.reader_link)?.reader_link ?? null
-
   return (
     <tr
       className={
@@ -336,7 +373,10 @@ function EntryRow({
       <td>
         <KindPill value={entry.entry_kind} />
       </td>
-      <td className="academy-wiki__source">{uploadLabel(entry.origin)}</td>
+      <td className="academy-wiki__source">
+        {sourceName}
+        {passage ? <span className="academy-wiki__passage">{passage}</span> : null}
+      </td>
       {canEdit ? (
       <td>
         <div className="academy-wiki__actions">
@@ -379,7 +419,7 @@ export function AcademyWiki({
   sourceId?: string | null
   targetId?: string | null
 }) {
-  const { wikiEntries, isLoading, error, refresh } = useWorkspaceData()
+  const { wikiEntries, sources, isLoading, error, refresh } = useWorkspaceData()
   const { approvedUser } = useAuth()
   const canEdit = isAdminAccess(approvedUser?.role)
   const [query, setQuery] = useState('')
@@ -401,13 +441,15 @@ export function AcademyWiki({
         q &&
         !entry.preferred_label.toLowerCase().includes(q) &&
         !entry.definition.toLowerCase().includes(q) &&
-        !uploadLabel(entry.origin).toLowerCase().includes(q)
+        !uploadLabel(entry.origin).toLowerCase().includes(q) &&
+        !citedSourceName(entry.origin, sources).toLowerCase().includes(q) &&
+        !citedPassage(entry.origin).toLowerCase().includes(q)
       ) {
         return false
       }
       return true
     })
-  }, [wikiEntries, query, sourceId, targetId])
+  }, [wikiEntries, sources, query, sourceId, targetId])
 
   return (
     <section className="study-session academy-wiki">

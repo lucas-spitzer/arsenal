@@ -4121,6 +4121,20 @@
   white-space: nowrap;
 }
 
+.academy-wiki__passage,
+.academy-wiki__citation-passage {
+  display: block;
+  margin-top: 0.35rem;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.academy-wiki__citation {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
 .academy-wiki__row--muted {
   opacity: 0.55;
 }
