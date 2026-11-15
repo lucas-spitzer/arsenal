@@ -46,12 +46,50 @@ export function weekDays(weekStart: Date): Date[] {
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
 }
 
+const COURSE_CODE = /^((?:BS|B)\d+)\s+(.+)$/
+const ODT_DEADLINE = 'Read Range Week SPINS'
+const HIKE_BACK = 'Hike to McGlothlin Hall'
+/** Sort-only clock for the untimed Friday hike, after the range and before de-issue. */
+const HIKE_BACK_SORT_TIME = '11:59:59'
+
+/** A leading course code such as `B023029` or `BS230009` becomes the dialog ID. */
+export function eventIdentity(title: string): { id: string | null; title: string } {
+  const match = title.match(COURSE_CODE)
+  if (!match?.[1] || !match[2]) return { id: null, title }
+  return { id: match[1], title: match[2] }
+}
+
+export function chipLabel(event: Pick<CalendarEvent, 'kind' | 'title'>): string {
+  if (event.kind === 'deadline' && event.title === ODT_DEADLINE) return 'Due ODT'
+  return kindMeta[event.kind].chip
+}
+
+/** Clock time, or the due mark for a deadline that has no clock time. */
+export function eventTimeLabel(
+  event: Pick<CalendarEvent, 'kind' | 'title' | 'start_time' | 'end_time'>,
+): string | null {
+  if (event.kind === 'deadline' && event.title === ODT_DEADLINE) return 'Due ODT'
+  const range = formatTimeRange(event.start_time, event.end_time)
+  if (range) return range
+  if (event.kind === 'deadline') return 'Due EOD'
+  return null
+}
+
+function sortTime(event: CalendarEvent): string | null {
+  if (event.start_time == null && event.end_time == null && event.title === HIKE_BACK) {
+    return HIKE_BACK_SORT_TIME
+  }
+  return event.start_time
+}
+
 export function compareEvents(a: CalendarEvent, b: CalendarEvent): number {
   if (a.event_date !== b.event_date) return a.event_date < b.event_date ? -1 : 1
-  if (a.start_time !== b.start_time) {
-    if (a.start_time == null) return -1
-    if (b.start_time == null) return 1
-    return a.start_time < b.start_time ? -1 : 1
+  const aTime = sortTime(a)
+  const bTime = sortTime(b)
+  if (aTime !== bTime) {
+    if (aTime == null) return -1
+    if (bTime == null) return 1
+    return aTime < bTime ? -1 : 1
   }
   return a.title.localeCompare(b.title)
 }
@@ -182,6 +220,31 @@ export function icsStampFromDate(date: Date): string {
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
 }
 
+function icsDescription(event: CalendarEvent): string | null {
+  const identity = eventIdentity(event.title)
+  const parts = [identity.id ? `ID: ${identity.id}` : null, event.notes].filter((part) => part)
+  return parts.length > 0 ? parts.join('\n') : null
+}
+
+/** Same day, same clean title, and the same clock time count as one event. */
+function dedupeCalendarEvents(events: CalendarEvent[]): CalendarEvent[] {
+  const seen = new Set<string>()
+  const unique: CalendarEvent[] = []
+  for (const event of [...events].sort(compareEvents)) {
+    const identity = eventIdentity(event.title)
+    const key = [
+      event.event_date.slice(0, 10),
+      identity.title.trim().toLowerCase(),
+      event.start_time ?? '',
+      event.end_time ?? '',
+    ].join('|')
+    if (seen.has(key)) continue
+    seen.add(key)
+    unique.push(event)
+  }
+  return unique
+}
+
 /** One calendar file for the events on screen. Times stay in local floating time. */
 export function buildCalendarIcs(
   events: CalendarEvent[],
@@ -194,7 +257,8 @@ export function buildCalendarIcs(
     'CALSCALE:GREGORIAN',
     foldIcsLine(`X-WR-CALNAME:${icsEscape(options.calendarName)}`),
   ]
-  for (const event of [...events].sort(compareEvents)) {
+  for (const event of dedupeCalendarEvents(events)) {
+    const identity = eventIdentity(event.title)
     const interval = icsInterval(event)
     const startLine = interval.start.startsWith('VALUE=DATE:')
       ? `DTSTART;${interval.start}`
@@ -202,16 +266,17 @@ export function buildCalendarIcs(
     const endLine = interval.end.startsWith('VALUE=DATE:')
       ? `DTEND;${interval.end}`
       : `DTEND:${interval.end}`
+    const description = icsDescription(event)
     lines.push(
       'BEGIN:VEVENT',
       foldIcsLine(`UID:${icsEscape(event.id)}@arsenal`),
       `DTSTAMP:${options.stamp}`,
-      foldIcsLine(`SUMMARY:${icsEscape(event.title)}`),
+      foldIcsLine(`SUMMARY:${icsEscape(identity.title)}`),
       startLine,
       endLine,
     )
     if (event.location) lines.push(foldIcsLine(`LOCATION:${icsEscape(event.location)}`))
-    if (event.notes) lines.push(foldIcsLine(`DESCRIPTION:${icsEscape(event.notes)}`))
+    if (description) lines.push(foldIcsLine(`DESCRIPTION:${icsEscape(description)}`))
     lines.push('END:VEVENT')
   }
   lines.push('END:VCALENDAR')

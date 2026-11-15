@@ -3621,6 +3621,7 @@
 }
 
 .cal__event {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -3629,6 +3630,34 @@
   border-left: 3px solid var(--cal-kind, var(--color-navy));
   border-radius: var(--radius-sm);
   background: var(--surface);
+  cursor: pointer;
+}
+
+.cal__open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal__event:has(> .cal__check) > .cal__open {
+  padding-right: 4.5rem;
+}
+
+.cal__event > .cal__check {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
 }
 
 .cal__event-top {
@@ -3789,6 +3818,7 @@
   border: 1px solid var(--border-subtle);
   border-left: 3px solid var(--color-scarlet);
   background: var(--surface);
+  cursor: pointer;
 }
 
 .cal__task .cal__row-time {
@@ -3798,6 +3828,106 @@
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.cal__dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: rgba(0, 30, 46, 0.46);
+}
+
+.cal__dialog {
+  width: min(560px, 100%);
+  max-height: min(80vh, 720px);
+  overflow: auto;
+  padding: var(--space-5);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: var(--shadow-panel);
+  outline: none;
+}
+
+.cal__dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.cal__dialog-close {
+  height: 34px;
+  padding: 0 var(--space-4);
+  border: 2px solid var(--color-scarlet);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-scarlet);
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cal__dialog-close:hover {
+  background: var(--color-scarlet);
+  color: #fff;
+}
+
+.cal__dialog-title {
+  margin: var(--space-4) 0 var(--space-4);
+  color: var(--color-scarlet);
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.cal__dialog-facts {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.cal__dialog-facts div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: baseline;
+}
+
+.cal__dialog-facts dt {
+  margin: 0;
+  color: var(--color-gold);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.cal__dialog-facts dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.cal__dialog-notes {
+  margin: var(--space-4) 0 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.cal__dialog .cal__check {
+  margin-top: var(--space-4);
 }
 
 @media (max-width: 980px) {

@@ -100,7 +100,7 @@ export function formatSpokenDuration(totalSeconds: number): string {
   const hours = Math.floor(minutesTotal / 60)
   const minutes = minutesTotal % 60
   const parts: string[] = []
-  if (hours > 0) parts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`)
+  if (hours > 0) parts.push(`${hours} ${hours === 1 ? 'hr' : 'hrs'}`)
   if (minutes > 0) parts.push(`${minutes} ${minutes === 1 ? 'min' : 'mins'}`)
   return parts.join(' ')
 }

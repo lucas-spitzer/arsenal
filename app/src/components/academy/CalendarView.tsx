@@ -1,10 +1,13 @@
 import { CalendarPlus, ChevronLeft, ChevronRight, Clock, MapPin } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import {
   addDays,
   buildCalendarIcs,
+  chipLabel,
   countByKind,
+  eventIdentity,
+  eventTimeLabel,
   formatDateRange,
   formatDayHeading,
   formatTimeRange,
@@ -41,7 +44,7 @@ function KindChip({ event }: { event: CalendarEvent }) {
   return (
     <span className={`cal__kind ${meta.cls}`} title={meta.label}>
       <Icon size={12} aria-hidden />
-      {meta.chip}
+      {chipLabel(event)}
     </span>
   )
 }
@@ -78,12 +81,12 @@ function TaskCheck({
 }) {
   const done = Boolean(event.completed_at)
   return (
-    <label className="cal__check">
+    <label className="cal__check" onClick={(click) => click.stopPropagation()}>
       <input
         type="checkbox"
         checked={done}
         disabled={pending}
-        aria-label={done ? `Mark not done: ${event.title}` : `Mark done: ${event.title}`}
+        aria-label={done ? `Mark not done: ${eventIdentity(event.title).title}` : `Mark done: ${eventIdentity(event.title).title}`}
         onChange={() => onToggle(event)}
       />
       {done ? <span>Done</span> : null}
@@ -91,27 +94,108 @@ function TaskCheck({
   )
 }
 
-function EventCard({
+function EventDialog({
   event,
   pending,
+  onClose,
   onToggle,
 }: {
   event: CalendarEvent
   pending: boolean
+  onClose: () => void
+  onToggle: (event: CalendarEvent) => void
+}) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  const identity = eventIdentity(event.title)
+  const time = eventTimeLabel(event)
+
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [event.id])
+
+  useEffect(() => {
+    const onKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  return (
+    <div className="cal__dialog-backdrop" onClick={onClose} role="presentation">
+      <div
+        ref={panelRef}
+        className="cal__dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cal-dialog-title"
+        tabIndex={-1}
+        onClick={(click) => click.stopPropagation()}
+      >
+        <div className="cal__dialog-head">
+          <KindChip event={event} />
+          <button type="button" className="cal__dialog-close" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <h3 id="cal-dialog-title" className="cal__dialog-title">
+          {identity.title}
+        </h3>
+        <dl className="cal__dialog-facts">
+          {identity.id ? (
+            <div>
+              <dt>ID</dt>
+              <dd>{identity.id}</dd>
+            </div>
+          ) : null}
+          {time ? (
+            <div>
+              <dt>Time</dt>
+              <dd>{time}</dd>
+            </div>
+          ) : null}
+          {event.location ? (
+            <div>
+              <dt>Location</dt>
+              <dd>{event.location}</dd>
+            </div>
+          ) : null}
+        </dl>
+        {event.notes ? <p className="cal__dialog-notes">{event.notes}</p> : null}
+        {event.kind === 'deadline' ? <TaskCheck event={event} pending={pending} onToggle={onToggle} /> : null}
+      </div>
+    </div>
+  )
+}
+
+function EventCard({
+  event,
+  pending,
+  onOpen,
+  onToggle,
+}: {
+  event: CalendarEvent
+  pending: boolean
+  onOpen: (event: CalendarEvent) => void
   onToggle: (event: CalendarEvent) => void
 }) {
   const done = event.kind === 'deadline' && Boolean(event.completed_at)
+  const identity = eventIdentity(event.title)
   return (
-    <li className={`cal__event ${kindMeta[event.kind].cls}${done ? ' is-done' : ''}`}>
-      <div className="cal__event-top">
-        <KindChip event={event} />
-        {event.kind === 'deadline' ? (
-          <TaskCheck event={event} pending={pending} onToggle={onToggle} />
-        ) : null}
-      </div>
-      <p className="cal__event-title">{event.title}</p>
-      <EventMeta event={event} />
-      {event.notes && <p className="cal__event-notes">{event.notes}</p>}
+    <li
+      className={`cal__event ${kindMeta[event.kind].cls}${done ? ' is-done' : ''}`}
+      onClick={() => onOpen(event)}
+    >
+      <button type="button" className="cal__open" onClick={() => onOpen(event)}>
+        <span className="cal__event-top">
+          <KindChip event={event} />
+        </span>
+        <span className="cal__event-title">{identity.title}</span>
+        <EventMeta event={event} />
+      </button>
+      {event.kind === 'deadline' ? (
+        <TaskCheck event={event} pending={pending} onToggle={onToggle} />
+      ) : null}
     </li>
   )
 }
@@ -141,6 +225,7 @@ export function CalendarView() {
   const [taskResult, setTaskResult] = useState<LoadState | null>(null)
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set())
   const [taskError, setTaskError] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const rangeStart = toIsoDate(weekStart)
   const rangeEnd = toIsoDate(addDays(weekStart, 6))
@@ -183,6 +268,10 @@ export function CalendarView() {
 
   const weekEvents = useMemo(() => weekResult?.events ?? [], [weekResult])
   const tasks = useMemo(() => taskResult?.events ?? [], [taskResult])
+  const selectedEvent = useMemo(() => {
+    if (!selectedId) return null
+    return weekEvents.find((event) => event.id === selectedId) ?? tasks.find((event) => event.id === selectedId) ?? null
+  }, [selectedId, tasks, weekEvents])
   const tasksByDay = useMemo(() => groupEventsByDay(tasks), [tasks])
   const days = useMemo(() => weekDays(weekStart), [weekStart])
   const weekByDay = useMemo(() => groupEventsByDay(weekEvents), [weekEvents])
@@ -344,6 +433,7 @@ export function CalendarView() {
                         key={event.id}
                         event={event}
                         pending={pendingIds.has(event.id)}
+                        onOpen={(item) => setSelectedId(item.id)}
                         onToggle={toggleTask}
                       />
                     ))}
@@ -383,16 +473,18 @@ export function CalendarView() {
                 <ul className="cal__tasks">
                   {dayEvents.map((event) => {
                     const done = Boolean(event.completed_at)
-                    const due =
-                      formatTimeRange(event.start_time, event.end_time) ??
-                      (event.kind === 'deadline' ? 'Due EOD' : 'All day')
+                    const due = eventTimeLabel(event) ?? 'Due EOD'
+                    const identity = eventIdentity(event.title)
                     return (
-                      <li key={event.id} className={`cal__task${done ? ' is-done' : ''}`}>
+                      <li
+                        key={event.id}
+                        className={`cal__task${done ? ' is-done' : ''}`}
+                        onClick={() => setSelectedId(event.id)}
+                      >
                         <TaskCheck event={event} pending={pendingIds.has(event.id)} onToggle={toggleTask} />
-                        <div className="cal__row-body">
-                          <p className="cal__event-title">{event.title}</p>
-                          {event.notes && <p className="cal__event-notes">{event.notes}</p>}
-                        </div>
+                        <button type="button" className="cal__open" onClick={() => setSelectedId(event.id)}>
+                          <span className="cal__event-title">{identity.title}</span>
+                        </button>
                         <span className="cal__row-time">{due}</span>
                       </li>
                     )
@@ -403,6 +495,14 @@ export function CalendarView() {
           })}
         </div>
       )}
+      {selectedEvent ? (
+        <EventDialog
+          event={selectedEvent}
+          pending={pendingIds.has(selectedEvent.id)}
+          onClose={() => setSelectedId(null)}
+          onToggle={toggleTask}
+        />
+      ) : null}
     </section>
   )
 }

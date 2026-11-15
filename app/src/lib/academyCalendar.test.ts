@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildCalendarIcs,
+  chipLabel,
   countByKind,
+  eventIdentity,
+  eventTimeLabel,
   formatTime,
   formatTimeRange,
   formatWeekRange,
@@ -91,6 +94,49 @@ describe('countByKind', () => {
   })
 })
 
+describe('eventIdentity', () => {
+  it('splits a leading course code from the title', () => {
+    expect(eventIdentity('B023029 End of day routine')).toEqual({
+      id: 'B023029',
+      title: 'End of day routine',
+    })
+    expect(eventIdentity('BS230009 Morning routine')).toEqual({
+      id: 'BS230009',
+      title: 'Morning routine',
+    })
+    expect(eventIdentity('B140310 Rifle range: ARQ day three, holds')).toEqual({
+      id: 'B140310',
+      title: 'Rifle range: ARQ day three, holds',
+    })
+    expect(eventIdentity('Hike to WTBN')).toEqual({ id: null, title: 'Hike to WTBN' })
+  })
+})
+
+describe('deadline marks', () => {
+  it('labels Range Week SPINS as due at ODT and other undated deadlines as due EOD', () => {
+    expect(chipLabel(event({ kind: 'deadline', title: 'Read Range Week SPINS' }))).toBe('Due ODT')
+    expect(eventTimeLabel(event({ kind: 'deadline', title: 'Read Range Week SPINS' }))).toBe('Due ODT')
+    expect(eventTimeLabel(event({ kind: 'deadline', title: 'Acquire map gear' }))).toBe('Due EOD')
+    expect(
+      eventTimeLabel(event({ kind: 'deadline', title: 'Contribute to the study guide', start_time: '23:59:00' })),
+    ).toBe('2359')
+  })
+})
+
+describe('Friday hike order', () => {
+  it('places the untimed hike after pistol qualification and before de-issue', () => {
+    const grouped = groupEventsByDay([
+      event({ id: 'deissue', title: 'Pistol de-issue', kind: 'schedule', event_date: '2026-11-20', start_time: '12:00:00', end_time: '18:00:00' }),
+      event({ id: 'hike', title: 'Hike to McGlothlin Hall', kind: 'schedule', event_date: '2026-11-20' }),
+      event({ id: 'range', title: 'B140310 Pistol range: blocks 4-5, pre-qualification and qualification', kind: 'evaluation', event_date: '2026-11-20', start_time: '08:00:00' }),
+      event({ id: 'formation', title: 'B023029 Formation', kind: 'schedule', event_date: '2026-11-20', start_time: '18:10:00' }),
+    ])
+
+    expect(grouped.get('2026-11-20')?.map((item) => item.id)).toEqual(['range', 'hike', 'deissue', 'formation'])
+    expect(eventTimeLabel(event({ title: 'Hike to McGlothlin Hall', kind: 'schedule' }))).toBeNull()
+  })
+})
+
 describe('time formatting', () => {
   it('uses 24-hour military time', () => {
     expect(formatTime('08:00:00')).toBe('0800')
@@ -153,6 +199,46 @@ describe('buildCalendarIcs', () => {
     expect(ics).toContain('DTEND;VALUE=DATE:20261117')
     expect(ics).toContain('DTSTART:20261123T234400')
     expect(ics).toContain('DTEND:20261123T235900')
+  })
+
+  it('drops the course code from the title and skips a repeated block', () => {
+    const ics = buildCalendarIcs(
+      [
+        event({
+          id: 'routine-coded',
+          kind: 'schedule',
+          title: 'BS230009 Morning routine',
+          event_date: '2026-11-16',
+          start_time: '04:00:00',
+          end_time: '04:30:00',
+          notes: 'Accountability report is due to the XO.',
+        }),
+        event({
+          id: 'routine-copy',
+          kind: 'schedule',
+          title: 'Morning routine',
+          event_date: '2026-11-16',
+          start_time: '04:00:00',
+          end_time: '04:30:00',
+        }),
+        event({
+          id: 'range',
+          kind: 'prac_app',
+          title: 'B140310 Rifle range: ARQ day three, holds',
+          event_date: '2026-11-16',
+          start_time: '06:00:00',
+        }),
+      ],
+      { calendarName: 'Arsenal', stamp },
+    )
+
+    expect(ics).toContain('SUMMARY:Morning routine')
+    expect(ics).not.toContain('SUMMARY:BS230009')
+    expect(ics).toContain('SUMMARY:Rifle range: ARQ day three\\, holds')
+    expect(ics).not.toContain('SUMMARY:B140310')
+    expect(ics).toContain('DESCRIPTION:ID: BS230009\\nAccountability report is due to the XO.')
+    expect(ics).toContain('DESCRIPTION:ID: B140310')
+    expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(2)
   })
 })
 

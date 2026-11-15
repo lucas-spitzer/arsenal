@@ -238,7 +238,7 @@ describe('library artifact cards', () => {
     )
     expect(card).toMatchObject({
       chipLabel: 'Audiobook',
-      title: '12 hours 5 mins',
+      title: '12 hrs 5 mins',
       isAudiobook: true,
       isNarration: false,
       isAudio: true,
@@ -250,7 +250,7 @@ describe('library artifact cards', () => {
           manifest: { duration_seconds: 3660 },
         }),
       ).title,
-    ).toBe('1 hour 1 min')
+    ).toBe('1 hr 1 min')
     expect(
       outputChipLabel({
         kind: 'audio',
