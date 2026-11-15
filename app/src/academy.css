@@ -3492,12 +3492,6 @@
   font-size: 0.85rem;
 }
 
-.cal__task-note {
-  margin: var(--space-3) 0 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
 /* --- Kind chips ----------------------------------------------------------- */
 
 .cal__kind {

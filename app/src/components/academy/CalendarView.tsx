@@ -267,7 +267,13 @@ export function CalendarView() {
   }, [workspaceId, taskKey])
 
   const weekEvents = useMemo(() => weekResult?.events ?? [], [weekResult])
-  const tasks = useMemo(() => taskResult?.events ?? [], [taskResult])
+  const tasks = useMemo(
+    () =>
+      (taskResult?.events ?? []).filter(
+        (event) => event.event_date >= rangeStart,
+      ),
+    [rangeStart, taskResult],
+  )
   const selectedEvent = useMemo(() => {
     if (!selectedId) return null
     return weekEvents.find((event) => event.id === selectedId) ?? tasks.find((event) => event.id === selectedId) ?? null
@@ -448,11 +454,10 @@ export function CalendarView() {
       ) : tasksByDay.size === 0 ? (
         <div className="lib__empty">
           <p className="lib__empty-title">No tasks</p>
-          <p className="lib__empty-copy">Deadlines you can check off will show up here.</p>
+          <p className="lib__empty-copy">No deadlines are posted for this week or later.</p>
         </div>
       ) : (
         <div className="cal__agenda">
-          <p className="cal__task-note">Every deadline, not only this week. The arrows still move the schedule.</p>
           {[...tasksByDay.entries()].map(([iso, dayEvents]) => {
             const day = parseLocalDate(iso)
             const isToday = iso === todayIso
