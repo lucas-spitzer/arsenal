@@ -369,7 +369,7 @@ export function CalendarView() {
             disabled={weekLoading || weekEvents.length === 0}
           >
             <CalendarPlus size={14} aria-hidden />
-            Add to Google Calendar
+            Add to personal calendar
           </button>
           <div className="disc__seg" role="group" aria-label="Calendar layout">
             {(['schedule', 'tasks'] as const).map((value) => (
