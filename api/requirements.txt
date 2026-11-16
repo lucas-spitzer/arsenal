@@ -4,7 +4,7 @@ openai
 anthropic
 google-genai
 ebooklib
-pymupdf
+pymupdf==1.28.2
 python-pptx
 python-docx
 pillow
