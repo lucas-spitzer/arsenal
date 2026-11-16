@@ -6,7 +6,7 @@ resolved from configuration at runtime, so any step can be repointed at any
 current or future model without code changes.
 """
 
-from app.llm_defaults import HAIKU_45_MODEL
+from app.llm_defaults import HAIKU_55_MODEL
 from app.services.llm.anthropic_client import AnthropicClient
 from app.services.llm.base import LLMClient, LLMCompletionResult
 from app.services.llm.factory import (
@@ -25,7 +25,7 @@ __all__ = [
     "ActionOverride",
     "AnthropicClient",
     "GeminiClient",
-    "HAIKU_45_MODEL",
+    "HAIKU_55_MODEL",
     "LLMClient",
     "LLMCompletionResult",
     "OpenAILLMClient",
