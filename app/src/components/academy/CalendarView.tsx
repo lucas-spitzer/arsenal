@@ -348,8 +348,8 @@ export function CalendarView() {
         description="The week's events, classes, and tasks. Check off a task when you finish it."
         stats={[
           { value: weekEvents.length, label: 'this week' },
-          { value: counts.deadline, label: 'due' },
-          { value: counts.prac_app + counts.evaluation, label: 'field' },
+          { value: counts.deadline, label: 'tasks' },
+          { value: counts.prac_app + counts.evaluation, label: 'events' },
         ]}
       />
 
