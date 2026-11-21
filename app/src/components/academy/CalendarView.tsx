@@ -401,7 +401,7 @@ export function CalendarView() {
 
       {taskError ? <p className="cal__task-error">{taskError}</p> : null}
 
-      {activeResult === null && activeLoading ? (
+      {activeLoading ? (
         <div className="lib__empty">
           <FoundryLoader label={mode === 'schedule' ? 'Loading calendar' : 'Loading tasks'} size="sm" />
         </div>
