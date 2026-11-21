@@ -113,13 +113,50 @@ describe('eventIdentity', () => {
 })
 
 describe('deadline marks', () => {
-  it('labels Range Week SPINS as due at ODT and other undated deadlines as due EOD', () => {
+  it('labels ODT, clocked, and EOD deadlines distinctly', () => {
     expect(chipLabel(event({ kind: 'deadline', title: 'Read Range Week SPINS' }))).toBe('Due ODT')
     expect(eventTimeLabel(event({ kind: 'deadline', title: 'Read Range Week SPINS' }))).toBe('Due ODT')
+    expect(chipLabel(event({ kind: 'deadline', title: 'Read MCDP-1 Warfighting' }))).toBe('Due ODT')
+    expect(eventTimeLabel(event({ kind: 'deadline', title: 'Read MCDP-1 Warfighting' }))).toBe('Due ODT')
     expect(eventTimeLabel(event({ kind: 'deadline', title: 'Acquire map gear' }))).toBe('Due EOD')
     expect(
-      eventTimeLabel(event({ kind: 'deadline', title: 'Contribute to the study guide', start_time: '23:59:00' })),
-    ).toBe('2359')
+      chipLabel(event({ kind: 'deadline', title: 'Contributions to Exam I Study Guide', start_time: '23:59:00' })),
+    ).toBe('Due at 2359')
+    expect(
+      eventTimeLabel(event({ kind: 'deadline', title: 'Contributions to Exam I Study Guide', start_time: '23:59:00' })),
+    ).toBe('Due at 2359')
+  })
+
+  it('orders ODT, then EOD, then clocked due times', () => {
+    const grouped = groupEventsByDay([
+      event({
+        id: 'eod',
+        title: 'Peer Evaluations & Self Reflection',
+        kind: 'deadline',
+        event_date: '2026-11-23',
+      }),
+      event({
+        id: 'late',
+        title: 'Asynchronous Assignments',
+        kind: 'deadline',
+        event_date: '2026-11-23',
+        start_time: '23:59:00',
+      }),
+      event({
+        id: 'odt',
+        title: 'Read MCDP-1 Warfighting',
+        kind: 'deadline',
+        event_date: '2026-11-23',
+      }),
+      event({
+        id: 'eod-z',
+        title: 'Tactical task and tac planning shortcards',
+        kind: 'deadline',
+        event_date: '2026-11-23',
+      }),
+    ])
+
+    expect(grouped.get('2026-11-23')?.map((item) => item.id)).toEqual(['odt', 'eod', 'eod-z', 'late'])
   })
 })
 
@@ -187,7 +224,7 @@ describe('buildCalendarIcs', () => {
         event({
           id: 'guide',
           kind: 'deadline',
-          title: 'Contribute to the study guide',
+          title: 'Contributions to Exam I Study Guide',
           event_date: '2026-11-23',
           start_time: '23:59:00',
         }),

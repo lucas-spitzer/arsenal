@@ -1,7 +1,8 @@
 import { ArrowLeft, ArrowRight, BookOpen, ChevronRight, Maximize2, Minimize2, Target } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Lesson } from '../../lib/lessonsApi'
+import { useAcademyChrome } from './academyChromeContext'
 
 /* Shared chrome for the live study views (Flashcards, Quiz, Scenarios,
    Discussions): roster-style page header, a focusable session panel with
@@ -20,16 +21,33 @@ export function StudyHead({
   stats?: { value: string | number; label: string }[]
   children?: ReactNode
 }) {
+  const { compact } = useAcademyChrome()
+  const [detailsOpen, setDetailsOpen] = useState(false)
+
   return (
     <header className="study-session__head">
       <div className="study-session__ident">
         <p className="study-session__eyebrow">{eyebrow}</p>
         <h1>{title}</h1>
-        <p>{description}</p>
+        {compact ? (
+          <>
+            <button
+              type="button"
+              className="study-session__details-toggle"
+              aria-expanded={detailsOpen}
+              onClick={() => setDetailsOpen((open) => !open)}
+            >
+              {detailsOpen ? 'Hide details' : 'Details'}
+            </button>
+            {detailsOpen && <p>{description}</p>}
+          </>
+        ) : (
+          <p>{description}</p>
+        )}
       </div>
       <div className="study-session__head-side">
         {children}
-        {stats && stats.length > 0 && (
+        {stats && stats.length > 0 && (!compact || detailsOpen) && (
           <div className="study-session__summary" aria-label="Study set summary">
             {stats.map((stat) => (
               <span key={stat.label}>
@@ -66,6 +84,7 @@ export function StudyPanel({
   } | null
   children: ReactNode
 }) {
+  const { compact } = useAcademyChrome()
   return (
     <div className={`study-session__panel${fullscreen ? ' study-session__panel--fullscreen' : ''}`}>
       <div className="study-session__panel-bar">
@@ -91,16 +110,18 @@ export function StudyPanel({
             center
           )}
         </div>
-        <button
-          type="button"
-          className="study-session__fullscreen"
-          onClick={onToggleFullscreen}
-          aria-pressed={fullscreen}
-          aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-          title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-        >
-          {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-        </button>
+        {!compact && (
+          <button
+            type="button"
+            className="study-session__fullscreen"
+            onClick={onToggleFullscreen}
+            aria-pressed={fullscreen}
+            aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
+        )}
       </div>
 
       <div className="study-session__panel-body">{children}</div>
@@ -108,11 +129,11 @@ export function StudyPanel({
       {pager && (
         <nav className="study-session__pager" aria-label="Move through the study set">
           <button type="button" disabled={pager.prevDisabled} onClick={pager.onPrev}>
-            <ArrowLeft size={16} /> Previous item
+            <ArrowLeft size={16} /> {compact ? 'Prev' : 'Previous item'}
           </button>
           {pager.label && <span>{pager.label}</span>}
           <button type="button" disabled={pager.nextDisabled} onClick={pager.onNext}>
-            Next item <ArrowRight size={16} />
+            {compact ? 'Next' : 'Next item'} <ArrowRight size={16} />
           </button>
         </nav>
       )}

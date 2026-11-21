@@ -1,5 +1,20 @@
-import { ArrowDownUp, BookMarked, BookOpen, FileText, Headphones, HelpCircle, Layers, LayoutGrid, Lightbulb, Search } from 'lucide-react'
+import {
+  ArrowDownUp,
+  BookMarked,
+  BookOpen,
+  FileText,
+  Headphones,
+  HelpCircle,
+  Layers,
+  LayoutGrid,
+  Lightbulb,
+  Search,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react'
+import { useState } from 'react'
 import type { OutputSort, OutputType } from '../../lib/academyOutputs'
+import { useAcademyChrome } from './academyChromeContext'
 
 const TYPE_CHIPS: { value: OutputType; label: string; icon: typeof LayoutGrid }[] = [
   { value: 'all', label: 'All', icon: LayoutGrid },
@@ -50,9 +65,142 @@ export function OutputFilterBar({
   searchPlaceholder = 'Search…',
   hiddenTypes,
 }: Props) {
+  const { compact } = useAcademyChrome()
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const typeChips = hiddenTypes
     ? TYPE_CHIPS.filter((chip) => !hiddenTypes.includes(chip.value))
     : TYPE_CHIPS
+  const activeFilters =
+    (sourceId ? 1 : 0) + (type !== 'all' ? 1 : 0) + (sort !== 'source' ? 1 : 0)
+
+  const sourceSelect = (
+    <label className="lib__select">
+      <span className="lib__select-label">Source</span>
+      <select
+        value={sourceId ?? ''}
+        onChange={(e) => onSource(e.target.value || null)}
+        aria-label="Filter by source"
+      >
+        <option value="">All</option>
+        {sources.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+
+  const sortSelect = (
+    <label className="lib__select">
+      <span className="lib__select-label">Sort</span>
+      <ArrowDownUp size={14} aria-hidden="true" />
+      <select
+        value={sort}
+        onChange={(e) => onSort(e.target.value as OutputSort)}
+        aria-label="Sort outputs"
+      >
+        {SORT_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+
+  const typeChipsEl =
+    showTypes && onType ? (
+      <div className="lib__chips" role="group" aria-label="Filter by type">
+        {typeChips.map((chip) => {
+          const Icon = chip.icon
+          return (
+            <button
+              key={chip.value}
+              type="button"
+              className={`lib__chip${type === chip.value ? ' is-active' : ''}`}
+              onClick={() => onType(chip.value)}
+              aria-pressed={type === chip.value}
+            >
+              <Icon size={14} aria-hidden="true" />
+              {chip.label}
+            </button>
+          )
+        })}
+      </div>
+    ) : null
+
+  if (compact) {
+    return (
+      <div className="lib__filter lib__filter--compact">
+        <div className="lib__bar">
+          {showSearch && onSearch && (
+            <div className="lib__search">
+              <Search size={16} aria-hidden="true" />
+              <input
+                value={search}
+                onChange={(e) => onSearch(e.target.value)}
+                placeholder={searchPlaceholder}
+                aria-label="Search outputs"
+              />
+            </div>
+          )}
+          <button
+            type="button"
+            className={`lib__filter-toggle${activeFilters > 0 ? ' is-active' : ''}`}
+            onClick={() => setFiltersOpen(true)}
+            aria-expanded={filtersOpen}
+            aria-label="Open filters"
+          >
+            <SlidersHorizontal size={16} aria-hidden />
+            Filters
+            {activeFilters > 0 ? <span className="lib__filter-count">{activeFilters}</span> : null}
+          </button>
+        </div>
+
+        {filtersOpen && (
+          <div
+            className="lib__filter-sheet-backdrop"
+            onClick={() => setFiltersOpen(false)}
+            role="presentation"
+          >
+            <div
+              className="lib__filter-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Library filters"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="lib__filter-sheet-head">
+                <p className="lib__filter-sheet-title">Filters</p>
+                <button
+                  type="button"
+                  className="lib__filter-sheet-close"
+                  onClick={() => setFiltersOpen(false)}
+                  aria-label="Close filters"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="lib__filter-sheet-body">
+                {sourceSelect}
+                {sortSelect}
+                {typeChipsEl}
+              </div>
+              <button
+                type="button"
+                className="lib__filter-sheet-done"
+                onClick={() => setFiltersOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="lib__filter">
       <div className="lib__bar">
@@ -67,59 +215,10 @@ export function OutputFilterBar({
             />
           </div>
         )}
-
-        <label className="lib__select">
-          <span className="lib__select-label">Source</span>
-          <select
-            value={sourceId ?? ''}
-            onChange={(e) => onSource(e.target.value || null)}
-            aria-label="Filter by source"
-          >
-            <option value="">All</option>
-            {sources.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="lib__select">
-          <span className="lib__select-label">Sort</span>
-          <ArrowDownUp size={14} aria-hidden="true" />
-          <select
-            value={sort}
-            onChange={(e) => onSort(e.target.value as OutputSort)}
-            aria-label="Sort outputs"
-          >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {sourceSelect}
+        {sortSelect}
       </div>
-
-      {showTypes && onType && (
-        <div className="lib__chips" role="group" aria-label="Filter by type">
-          {typeChips.map((chip) => {
-            const Icon = chip.icon
-            return (
-              <button
-                key={chip.value}
-                type="button"
-                className={`lib__chip${type === chip.value ? ' is-active' : ''}`}
-                onClick={() => onType(chip.value)}
-                aria-pressed={type === chip.value}
-              >
-                <Icon size={14} aria-hidden="true" />
-                {chip.label}
-              </button>
-            )
-          })}
-        </div>
-      )}
+      {typeChipsEl}
     </div>
   )
 }

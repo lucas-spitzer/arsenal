@@ -24,6 +24,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type TouchEvent as ReactTouchEvent,
 } from 'react'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { isAdminAccess } from '../../features/auth/access'
@@ -55,7 +56,9 @@ import {
   spreadsForColumns,
   totalColumns,
   wordBlocksForChapter,
+  type PagesPerView,
 } from '../../lib/readerChapters'
+import { useAcademyChrome } from './academyChromeContext'
 import {
   createReaderLoadSignal,
   isAbortError,
@@ -78,9 +81,11 @@ import { useReaderFlip } from './useReaderFlip'
 import { getNarrationAudioUrl, type NarrationSegment } from '../../lib/sourcesApi'
 
 const SESSION_SECONDS = 25 * 60
-// Gap between the two pages of a spread (and between overflow columns). Must
-// match the value used in the translate math; we feed it to CSS as a var.
+// Gap between pages of a spread (and between overflow columns). Must match
+// the value used in the translate math; we feed it to CSS as a var.
 const GAP = 48
+const MOBILE_GAP = 24
+const SWIPE_MIN_PX = 56
 // Simulated narration cadence, used when no synthesized audio exists yet.
 // Base words-per-minute at 1× playback speed.
 const BASE_WPM = 165
@@ -169,10 +174,14 @@ export function ReaderView({
   const { activeWorkspace } = useWorkspace()
   const { sources, wikiEntries, addWikiEntry, isLoading } = useWorkspaceData()
   const { approvedUser } = useAuth()
+  const { compact } = useAcademyChrome()
+  const pagesPerView: PagesPerView = compact ? 1 : 2
+  const readerGap = compact ? MOBILE_GAP : GAP
   const canEditWiki = isAdminAccess(approvedUser?.role)
   const workspaceId = activeWorkspace?.id ?? null
   const activeSource = sources.find((source) => source.id === sourceId)
   const ebookTitle = activeSource ? sourceDisplayName(activeSource) : 'Ebook'
+  const [controlsOpen, setControlsOpen] = useState(false)
 
   const [live, setLive] = useState<LiveContent>(() => {
     if (!sourceId || !workspaceId) return EMPTY_LIVE
@@ -384,6 +393,11 @@ export function ReaderView({
   const chapterIndexRef = useRef(0)
   const localSpreadRef = useRef(0)
   const columnCountsRef = useRef<(number | undefined)[]>([])
+  const pagesPerViewRef = useRef(pagesPerView)
+  const readerGapRef = useRef(readerGap)
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  pagesPerViewRef.current = pagesPerView
+  readerGapRef.current = readerGap
   const pendingEdgeRef = useRef<'end' | null>(null)
 
   const [reducedMotion, setReducedMotion] = useState(
@@ -650,7 +664,12 @@ export function ReaderView({
     definePop?.kind === 'wiki' ? entryById.get(definePop.entryId) : undefined
 
   const { visible: chromeVisible, bind: idleBind } = useIdleChrome({
-    pinned: tocOpen || definePop != null || showBreak || hoverChrome,
+    pinned:
+      tocOpen ||
+      definePop != null ||
+      showBreak ||
+      controlsOpen ||
+      (!compact && hoverChrome),
   })
   const chromeHover = {
     onMouseEnter: () => setHoverChrome(true),
@@ -668,6 +687,19 @@ export function ReaderView({
     }
     return entries
   }, [blocks])
+
+  // Remeasure when phone/desktop page density changes (rotate into portrait).
+  const layoutModeRef = useRef(`${pagesPerView}:${readerGap}`)
+  useEffect(() => {
+    const key = `${pagesPerView}:${readerGap}`
+    if (layoutModeRef.current === key) return
+    layoutModeRef.current = key
+    setGeometry({ width: 0, height: 0, counts: [] })
+    setColStride(0)
+    setLocalSpread(0)
+    localSpreadRef.current = 0
+    setViewportTick((tick) => tick + 1)
+  }, [pagesPerView, readerGap])
 
   // --- Pagination measurement ---------------------------------------------
   // The on-screen flow is one chapter. Its column count is measured here.
@@ -687,16 +719,17 @@ export function ReaderView({
     const height = vp.clientHeight
     if (width <= 0 || height <= 0) return
 
-    flow.style.columnWidth = `${(width - GAP) / 2}px`
-    const stride = columnStride(width, GAP)
+    flow.style.columnWidth = `${(width - (pagesPerView - 1) * readerGap) / pagesPerView}px`
+    const stride = columnStride(width, readerGap, pagesPerView)
     const last = chapter.blocks[chapter.blocks.length - 1]
     const lastEl = blockRefs.current.get(last.seq)
     const lastRight = lastEl ? lastEl.offsetLeft + lastEl.offsetWidth : 0
     const extent = Math.max(flow.scrollWidth, lastRight)
-    const columns = columnCountFromExtent(extent, width, GAP)
+    const columns = columnCountFromExtent(extent, width, readerGap, pagesPerView)
     setColStride(stride)
 
-    const edgeLocal = pendingEdgeRef.current === 'end' ? spreadsForColumns(columns) - 1 : null
+    const edgeLocal =
+      pendingEdgeRef.current === 'end' ? spreadsForColumns(columns, pagesPerView) - 1 : null
     if (edgeLocal != null) pendingEdgeRef.current = null
 
     setGeometry((prev) => {
@@ -713,7 +746,7 @@ export function ReaderView({
       localSpreadRef.current = edgeLocal
       setLocalSpread(edgeLocal)
     }
-  }, [chapters, visibleChapter, viewportTick])
+  }, [chapters, visibleChapter, viewportTick, pagesPerView, readerGap])
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const measureAt = nextUnmeasuredChapter(chapters.length, columnCounts, chapterIndex)
@@ -723,6 +756,8 @@ export function ReaderView({
     if (!measureChapter || geometry.width <= 0 || geometry.height <= 0) return
     let cancelled = false
     const width = geometry.width
+    const ppv = pagesPerView
+    const gap = readerGap
     const idle = scheduleIdle(() => {
       if (cancelled) return
       const flow = measureFlowRef.current
@@ -731,7 +766,7 @@ export function ReaderView({
       const lastEl = measureRefs.current.get(last.seq)
       const lastRight = lastEl ? lastEl.offsetLeft + lastEl.offsetWidth : 0
       const extent = Math.max(flow.scrollWidth, lastRight)
-      const columns = columnCountFromExtent(extent, width, GAP)
+      const columns = columnCountFromExtent(extent, width, gap, ppv)
       setGeometry((prev) => {
         if (prev.width !== width || prev.counts.length !== chapters.length) return prev
         if (prev.counts[measureChapter.index] === columns) return prev
@@ -744,7 +779,7 @@ export function ReaderView({
       cancelled = true
       cancelIdle(idle)
     }
-  }, [measureChapter, geometry.width, geometry.height, chapters.length])
+  }, [measureChapter, geometry.width, geometry.height, chapters.length, pagesPerView, readerGap])
 
   useEffect(() => {
     const vp = viewportRef.current
@@ -766,9 +801,10 @@ export function ReaderView({
 
   const activeChapterIndex = visibleChapter?.index ?? 0
   const knownColumns = columnCounts[activeChapterIndex]
-  const localSpreadCount = knownColumns == null ? 1 : spreadsForColumns(knownColumns)
+  const localSpreadCount =
+    knownColumns == null ? 1 : spreadsForColumns(knownColumns, pagesPerView)
   const safeLocal = Math.min(localSpread, Math.max(localSpreadCount - 1, 0))
-  const spreadIndex = globalSpread(columnCounts, activeChapterIndex, safeLocal)
+  const spreadIndex = globalSpread(columnCounts, activeChapterIndex, safeLocal, pagesPerView)
   const measuredPages = totalColumns(columnCounts)
   const geometryReady = measuredPages != null
   const pageCount = measuredPages ?? knownColumns ?? 0
@@ -834,9 +870,9 @@ export function ReaderView({
     if (!el) return
     pendingTargetRef.current = null
     const col = Math.round(el.offsetLeft / colStride)
-    goToLocal(index, Math.floor(col / 2), 'none')
+    goToLocal(index, Math.floor(col / pagesPerView), 'none')
     setTargetSeq(target)
-  }, [colStride, blocks, chapters, chapterIndex, goToLocal])
+  }, [colStride, blocks, chapters, chapterIndex, goToLocal, pagesPerView])
 
   // Restore the saved bookmark once enough chapters are measured to know which
   // spread it is. A deep-link target always takes precedence.
@@ -853,11 +889,11 @@ export function ReaderView({
       bookmarkRestoredRef.current = true
       return
     }
-    const location = locateSpread(columnCounts, val)
+    const location = locateSpread(columnCounts, val, pagesPerView)
     if (!location) return
     bookmarkRestoredRef.current = true
     goToLocal(location.chapterIndex, location.localSpread, 'none')
-  }, [columnCounts, blocks, seg, bookmarkKey, goToLocal])
+  }, [columnCounts, blocks, seg, bookmarkKey, goToLocal, pagesPerView])
 
   useEffect(() => {
     if (targetSeq == null) return
@@ -878,11 +914,13 @@ export function ReaderView({
   const turn = useCallback(
     (delta: 1 | -1) => {
       setDefinePop(null)
+      setControlsOpen(false)
       const currentChapter = chapterIndexRef.current
       const currentLocal = localSpreadRef.current
       const columns = columnCountsRef.current[currentChapter]
       if (columns == null) return
-      const spreads = spreadsForColumns(columns)
+      const ppv = pagesPerViewRef.current
+      const spreads = spreadsForColumns(columns, ppv)
       const nextLocal = currentLocal + delta
       if (nextLocal >= 0 && nextLocal < spreads) {
         goToLocal(currentChapter, nextLocal, 'flip')
@@ -892,7 +930,8 @@ export function ReaderView({
       if (nextChapter < 0 || nextChapter >= chapters.length) return
       const nextColumns = columnCountsRef.current[nextChapter]
       if (delta === -1 && nextColumns == null) pendingEdgeRef.current = 'end'
-      const landing = delta === 1 || nextColumns == null ? 0 : spreadsForColumns(nextColumns) - 1
+      const landing =
+        delta === 1 || nextColumns == null ? 0 : spreadsForColumns(nextColumns, ppv) - 1
       goToLocal(nextChapter, landing, 'fade')
     },
     [chapters.length, goToLocal],
@@ -909,13 +948,14 @@ export function ReaderView({
         if (el) {
           const col = Math.round(el.offsetLeft / colStride)
           pendingTargetRef.current = null
-          goToLocal(index, Math.floor(col / 2), 'fade')
+          goToLocal(index, Math.floor(col / pagesPerView), 'fade')
         }
       }
       setTocOpen(false)
       setDefinePop(null)
+      setControlsOpen(false)
     },
-    [chapters, colStride, goToLocal],
+    [chapters, colStride, goToLocal, pagesPerView],
   )
 
   // Toggle a bookmark at the current spread. Saving again on the bookmarked
@@ -1330,12 +1370,38 @@ export function ReaderView({
   // --- Render -------------------------------------------------------------
   const runningChapter = visibleChapter?.title ?? ''
   const located = geometryReady
-    ? spreadPageNumbers(columnCounts, activeChapterIndex, safeLocal)
+    ? spreadPageNumbers(columnCounts, activeChapterIndex, safeLocal, pagesPerView)
     : null
-  const leftNum = located?.left ?? (spreadIndex ?? safeLocal) * 2 + 1
+  const leftNum =
+    located?.left ?? (spreadIndex ?? safeLocal) * pagesPerView + 1
   const rightNum =
     located?.right ??
-    Math.min((spreadIndex ?? safeLocal) * 2 + 2, Math.max(pageCount, leftNum))
+    Math.min(
+      (spreadIndex ?? safeLocal) * pagesPerView + pagesPerView,
+      Math.max(pageCount, leftNum),
+    )
+
+  const onReaderTouchStart = (event: ReactTouchEvent) => {
+    if (!compact || event.touches.length !== 1) return
+    const touch = event.touches[0]
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY }
+  }
+
+  const onReaderTouchEnd = (event: ReactTouchEvent) => {
+    if (!compact || !touchStartRef.current || event.changedTouches.length !== 1) {
+      touchStartRef.current = null
+      return
+    }
+    const start = touchStartRef.current
+    touchStartRef.current = null
+    if (window.getSelection() && !window.getSelection()?.isCollapsed) return
+    const touch = event.changedTouches[0]
+    const dx = touch.clientX - start.x
+    const dy = touch.clientY - start.y
+    if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.4) return
+    if (dx < 0) turn(1)
+    else turn(-1)
+  }
 
   const opening = (isLive && live.loading) || (!isLive && isLoading)
   const noBook = !isLive && !isLoading
@@ -1347,10 +1413,12 @@ export function ReaderView({
   return (
     <section
       ref={readerRootRef}
-      className={`reader${evening ? ' reader--warm' : ''}${fullscreen ? ' reader--fullscreen' : ''}${chromeVisible ? '' : ' reader--chrome-hidden'}`}
+      className={`reader${evening ? ' reader--warm' : ''}${fullscreen ? ' reader--fullscreen' : ''}${compact ? ' reader--compact' : ''}${chromeVisible ? '' : ' reader--chrome-hidden'}`}
       {...idleBind}
+      onTouchStart={onReaderTouchStart}
+      onTouchEnd={onReaderTouchEnd}
     >
-      <div className="reader__topline" {...chromeHover}>
+      <div className="reader__topline" {...(compact ? {} : chromeHover)}>
         <div className="reader__topline-left">
           <button
             type="button"
@@ -1389,45 +1457,63 @@ export function ReaderView({
           </button>
         </div>
         <div className="reader__session">
-          <button
-            type="button"
-            className="reader__timer-btn"
-            onClick={() => void toggleFullscreen()}
-            aria-pressed={fullscreen}
-            aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-          >
-            {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          </button>
-          <span className="reader__timer" aria-label="Session time remaining">
-            <Clock size={14} aria-hidden="true" />
-            {formatTime(remaining)}
-          </span>
-          <button
-            type="button"
-            className="reader__timer-btn"
-            onClick={() => setTimerRunning((r) => !r)}
-            aria-label={timerRunning ? 'Pause session timer' : 'Start session timer'}
-          >
-            {timerRunning ? <Pause size={14} /> : <Play size={14} />}
-          </button>
-          <button
-            type="button"
-            className="reader__timer-btn"
-            onClick={() => {
-              setRemaining(SESSION_SECONDS)
-              setTimerRunning(false)
-            }}
-            aria-label="Reset session timer"
-          >
-            <RotateCcw size={14} />
-          </button>
+          {!compact && (
+            <button
+              type="button"
+              className="reader__timer-btn"
+              onClick={() => void toggleFullscreen()}
+              aria-pressed={fullscreen}
+              aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            >
+              {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+          )}
+          {compact ? (
+            <button
+              type="button"
+              className="reader__timer-btn"
+              onClick={() => setControlsOpen((open) => !open)}
+              aria-expanded={controlsOpen}
+              aria-label="Reading controls"
+              title="Controls"
+            >
+              <Clock size={14} />
+              <span className="reader__timer-inline">{formatTime(remaining)}</span>
+            </button>
+          ) : (
+            <>
+              <span className="reader__timer" aria-label="Session time remaining">
+                <Clock size={14} aria-hidden="true" />
+                {formatTime(remaining)}
+              </span>
+              <button
+                type="button"
+                className="reader__timer-btn"
+                onClick={() => setTimerRunning((r) => !r)}
+                aria-label={timerRunning ? 'Pause session timer' : 'Start session timer'}
+              >
+                {timerRunning ? <Pause size={14} /> : <Play size={14} />}
+              </button>
+              <button
+                type="button"
+                className="reader__timer-btn"
+                onClick={() => {
+                  setRemaining(SESSION_SECONDS)
+                  setTimerRunning(false)
+                }}
+                aria-label="Reset session timer"
+              >
+                <RotateCcw size={14} />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       <div className="reader__stage">
         <div
           className="reader__book"
-          style={{ '--reader-gap': `${GAP}px` } as CSSProperties}
+          style={{ '--reader-gap': `${readerGap}px` } as CSSProperties}
         >
         {showBook && (
           <div className="reader__running-head" aria-hidden="true">
@@ -1482,7 +1568,7 @@ export function ReaderView({
                 style={
                   {
                     '--reader-spread': safeLocal,
-                    '--reader-gap': `${GAP}px`,
+                    '--reader-gap': `${readerGap}px`,
                   } as CSSProperties
                 }
               >
@@ -1512,9 +1598,9 @@ export function ReaderView({
                     className="reader__flow"
                     style={
                       {
-                        columnWidth: `${(geometry.width - GAP) / 2}px`,
+                        columnWidth: `${(geometry.width - (pagesPerView - 1) * readerGap) / pagesPerView}px`,
                         '--reader-spread': 0,
-                        '--reader-gap': `${GAP}px`,
+                        '--reader-gap': `${readerGap}px`,
                       } as CSSProperties
                     }
                   >
@@ -1538,7 +1624,7 @@ export function ReaderView({
             </>
           )}
 
-          {showBook && <div className="reader__spine" aria-hidden="true" />}
+          {showBook && !compact && <div className="reader__spine" aria-hidden="true" />}
 
           {tocOpen && (
             <>
@@ -1587,10 +1673,13 @@ export function ReaderView({
         </div>
         {showBook && (
           <>
-            <span className="reader__folio reader__folio--left" aria-hidden="true">
+            <span
+              className={`reader__folio${compact ? ' reader__folio--center' : ' reader__folio--left'}`}
+              aria-hidden="true"
+            >
               {leftNum}
             </span>
-            {rightNum > leftNum && (
+            {!compact && rightNum > leftNum && (
               <span className="reader__folio reader__folio--right" aria-hidden="true">
                 {rightNum}
               </span>
@@ -1598,27 +1687,31 @@ export function ReaderView({
           </>
         )}
         </div>
-        <button
-          type="button"
-          className="reader__zone reader__zone--prev"
-          onClick={() => turn(-1)}
-          disabled={atStart}
-          aria-label="Previous page"
-        >
-          <ChevronLeft size={22} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="reader__zone reader__zone--next"
-          onClick={() => turn(1)}
-          disabled={atEnd}
-          aria-label="Next page"
-        >
-          <ChevronRight size={22} aria-hidden="true" />
-        </button>
+        {!compact && (
+          <>
+            <button
+              type="button"
+              className="reader__zone reader__zone--prev"
+              onClick={() => turn(-1)}
+              disabled={atStart}
+              aria-label="Previous page"
+            >
+              <ChevronLeft size={22} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="reader__zone reader__zone--next"
+              onClick={() => turn(1)}
+              disabled={atEnd}
+              aria-label="Next page"
+            >
+              <ChevronRight size={22} aria-hidden="true" />
+            </button>
+          </>
+        )}
       </div>
 
-      <div className="reader__footer" {...chromeHover}>
+      <div className="reader__footer" {...(compact ? {} : chromeHover)}>
         <div className="reader__player">
           <button
             type="button"
@@ -1628,38 +1721,42 @@ export function ReaderView({
           >
             {playing ? <Pause size={20} /> : <Play size={20} />}
           </button>
-          <button
-            type="button"
-            className="reader__timer-btn"
-            onClick={restartNarration}
-            aria-label="Restart narration"
-            title="Restart narration"
-          >
-            <RotateCcw size={14} />
-          </button>
-          <span className="reader__timer" aria-label="Narration">
-            <Volume2 size={14} aria-hidden="true" />
-            {spoken < 0
-              ? hasAudio
-                ? 'Audio narration'
-                : 'Narration'
-              : `${Math.min(spoken + 1, total)} / ${total} words`}
-          </span>
-          <label className="reader__speed">
-            <span className="reader__speed-label">Speed</span>
-            <select
-              className="reader__speed-select"
-              value={speed}
-              onChange={(e) => setSpeed(Number(e.target.value) as (typeof SPEEDS)[number])}
-              aria-label="Narration speed"
-            >
-              {SPEEDS.map((s) => (
-                <option key={s} value={s}>
-                  {s}×
-                </option>
-              ))}
-            </select>
-          </label>
+          {!compact && (
+            <>
+              <button
+                type="button"
+                className="reader__timer-btn"
+                onClick={restartNarration}
+                aria-label="Restart narration"
+                title="Restart narration"
+              >
+                <RotateCcw size={14} />
+              </button>
+              <span className="reader__timer" aria-label="Narration">
+                <Volume2 size={14} aria-hidden="true" />
+                {spoken < 0
+                  ? hasAudio
+                    ? 'Audio narration'
+                    : 'Narration'
+                  : `${Math.min(spoken + 1, total)} / ${total} words`}
+              </span>
+              <label className="reader__speed">
+                <span className="reader__speed-label">Speed</span>
+                <select
+                  className="reader__speed-select"
+                  value={speed}
+                  onChange={(e) => setSpeed(Number(e.target.value) as (typeof SPEEDS)[number])}
+                  aria-label="Narration speed"
+                >
+                  {SPEEDS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}×
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
         </div>
         <div className="reader__pager">
           <button
@@ -1688,7 +1785,7 @@ export function ReaderView({
             <ChevronRight size={22} />
           </button>
         </div>
-        {speed > SPEED_WARN_ABOVE && (
+        {!compact && speed > SPEED_WARN_ABOVE && (
           <p className="reader__speed-warn" role="status">
             <AlertTriangle size={14} aria-hidden="true" />
             High speeds boost coverage but reduce retention — slow down for material you need to
@@ -1702,6 +1799,80 @@ export function ReaderView({
           </p>
         )}
       </div>
+
+      {compact && controlsOpen && (
+        <div
+          className="reader__controls-backdrop"
+          onClick={() => setControlsOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="reader__controls-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Reading controls"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="reader__controls-handle" aria-hidden />
+            <p className="reader__controls-title">Controls</p>
+            <div className="reader__controls-row">
+              <span>Session</span>
+              <strong>{formatTime(remaining)}</strong>
+              <button
+                type="button"
+                className="reader__timer-btn"
+                onClick={() => setTimerRunning((r) => !r)}
+                aria-label={timerRunning ? 'Pause session timer' : 'Start session timer'}
+              >
+                {timerRunning ? <Pause size={16} /> : <Play size={16} />}
+              </button>
+              <button
+                type="button"
+                className="reader__timer-btn"
+                onClick={() => {
+                  setRemaining(SESSION_SECONDS)
+                  setTimerRunning(false)
+                }}
+                aria-label="Reset session timer"
+              >
+                <RotateCcw size={16} />
+              </button>
+            </div>
+            <div className="reader__controls-row">
+              <span>Narration</span>
+              <button
+                type="button"
+                className="reader__timer-btn"
+                onClick={restartNarration}
+                aria-label="Restart narration"
+              >
+                <RotateCcw size={16} />
+              </button>
+              <label className="reader__speed">
+                <span className="reader__speed-label">Speed</span>
+                <select
+                  className="reader__speed-select"
+                  value={speed}
+                  onChange={(e) => setSpeed(Number(e.target.value) as (typeof SPEEDS)[number])}
+                  aria-label="Narration speed"
+                >
+                  {SPEEDS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}×
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {speed > SPEED_WARN_ABOVE && (
+              <p className="reader__speed-warn" role="status">
+                <AlertTriangle size={14} aria-hidden="true" />
+                High speeds can reduce retention.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {showBreak && (
         <div className="reader__break" role="dialog" aria-label="Break reminder">
@@ -1736,8 +1907,12 @@ export function ReaderView({
             aria-hidden="true"
           />
           <aside
-            className="reader__term-pop"
-            style={{ left: definePop.left, bottom: definePop.bottom, top: 'auto' }}
+            className={`reader__term-pop${compact ? ' reader__term-pop--sheet' : ''}`}
+            style={
+              compact
+                ? undefined
+                : { left: definePop.left, bottom: definePop.bottom, top: 'auto' }
+            }
             role="dialog"
             aria-label={
               definePop.kind === 'wiki'

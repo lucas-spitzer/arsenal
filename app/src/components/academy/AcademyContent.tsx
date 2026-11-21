@@ -1,6 +1,8 @@
+import { useMemo } from 'react'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { defaultReaderSourceId, useOutputs } from '../../lib/academyOutputs'
 import { useLibraryFocus } from '../../lib/libraryFocus'
+import { AcademyChromeProvider } from './academyChromeContext'
 import { CalendarView } from './CalendarView'
 import { DiscussionsView } from './DiscussionsView'
 import { FlashcardsView } from './FlashcardsView'
@@ -21,6 +23,7 @@ type AcademyContentProps = {
   resourceId?: string | null
   scope: AcademyScope
   onOpen: (page: AcademyPage, scope: AcademyScope) => void
+  compact?: boolean
 }
 
 export function AcademyContent({
@@ -31,6 +34,7 @@ export function AcademyContent({
   resourceId = null,
   scope,
   onOpen,
+  compact = false,
 }: AcademyContentProps) {
   const { activeWorkspace } = useWorkspace()
   const { focus } = useLibraryFocus(activeWorkspace?.id ?? null)
@@ -43,50 +47,53 @@ export function AcademyContent({
     books: items.filter((item) => item.isEbook),
     workspaceName: activeWorkspace?.name ?? null,
   })
+  const chrome = useMemo(() => ({ compact }), [compact])
 
   return (
-    <div className="academy academy--integrated">
-      <div className="academy__main">
-        {page === 'library' && <LibraryView onOpen={onOpen} />}
-        {page === 'reader' && <ReaderView sourceId={readerSourceId} seg={seg} onOpen={onOpen} />}
-        {page === 'wiki' && <AcademyWiki sourceId={scope.sourceId} targetId={scope.targetId} />}
-        {page === 'flashcards' && (
-          <FlashcardsView
-            sourceId={scope.sourceId}
-            targetId={scope.targetId}
-            projectId={scope.projectId}
-          />
-        )}
-        {page === 'quiz' && (
-          <QuizView
-            key={`${scope.sourceId ?? ''}:${scope.projectId ?? ''}:${scope.batchKey ?? ''}`}
-            sourceId={scope.sourceId}
-            targetId={scope.targetId}
-            projectId={scope.projectId}
-            batchKey={scope.batchKey}
-          />
-        )}
-        {page === 'analytics' && <AnalyticsView onOpen={onOpen} />}
-        {page === 'scenarios' && (
-          <ScenarioView
-            sourceId={scope.sourceId}
-            targetId={scope.targetId}
-            projectId={scope.projectId}
-          />
-        )}
-        {page === 'discussions' && (
-          <DiscussionsView sourceId={scope.sourceId} threadId={scope.threadId ?? null} />
-        )}
-        {page === 'calendar' && <CalendarView />}
-        {page === 'objectives' && (
-          <ObjectivesView
-            key={lessonId ?? 'all'}
-            focusLessonId={lessonId}
-            focusResourceId={resourceId}
-            onOpen={onOpen}
-          />
-        )}
+    <AcademyChromeProvider value={chrome}>
+      <div className={`academy academy--integrated${compact ? ' academy--compact' : ''}`}>
+        <div className="academy__main">
+          {page === 'library' && <LibraryView onOpen={onOpen} />}
+          {page === 'reader' && <ReaderView sourceId={readerSourceId} seg={seg} onOpen={onOpen} />}
+          {page === 'wiki' && <AcademyWiki sourceId={scope.sourceId} targetId={scope.targetId} />}
+          {page === 'flashcards' && (
+            <FlashcardsView
+              sourceId={scope.sourceId}
+              targetId={scope.targetId}
+              projectId={scope.projectId}
+            />
+          )}
+          {page === 'quiz' && (
+            <QuizView
+              key={`${scope.sourceId ?? ''}:${scope.projectId ?? ''}:${scope.batchKey ?? ''}`}
+              sourceId={scope.sourceId}
+              targetId={scope.targetId}
+              projectId={scope.projectId}
+              batchKey={scope.batchKey}
+            />
+          )}
+          {page === 'analytics' && <AnalyticsView onOpen={onOpen} />}
+          {page === 'scenarios' && (
+            <ScenarioView
+              sourceId={scope.sourceId}
+              targetId={scope.targetId}
+              projectId={scope.projectId}
+            />
+          )}
+          {page === 'discussions' && (
+            <DiscussionsView sourceId={scope.sourceId} threadId={scope.threadId ?? null} />
+          )}
+          {page === 'calendar' && <CalendarView />}
+          {page === 'objectives' && (
+            <ObjectivesView
+              key={lessonId ?? 'all'}
+              focusLessonId={lessonId}
+              focusResourceId={resourceId}
+              onOpen={onOpen}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </AcademyChromeProvider>
   )
 }

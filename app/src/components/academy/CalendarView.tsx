@@ -50,7 +50,8 @@ function KindChip({ event }: { event: CalendarEvent }) {
 }
 
 function EventMeta({ event }: { event: CalendarEvent }) {
-  const time = formatTimeRange(event.start_time, event.end_time)
+  // Deadline due time lives on the chip ("Due at 2359"); skip the gray meta line.
+  const time = event.kind === 'deadline' ? null : formatTimeRange(event.start_time, event.end_time)
   if (!time && !event.location) return null
   return (
     <div className="cal__event-meta">
@@ -74,22 +75,25 @@ function TaskCheck({
   event,
   pending,
   onToggle,
+  showLabel = false,
 }: {
   event: CalendarEvent
   pending: boolean
   onToggle: (event: CalendarEvent) => void
+  showLabel?: boolean
 }) {
   const done = Boolean(event.completed_at)
+  const title = eventIdentity(event.title).title
   return (
     <label className="cal__check" onClick={(click) => click.stopPropagation()}>
       <input
         type="checkbox"
         checked={done}
         disabled={pending}
-        aria-label={done ? `Mark not done: ${eventIdentity(event.title).title}` : `Mark done: ${eventIdentity(event.title).title}`}
+        aria-label={done ? `Mark not done: ${title}` : `Mark done: ${title}`}
         onChange={() => onToggle(event)}
       />
-      {done ? <span>Done</span> : null}
+      {done ? <span>Done</span> : showLabel ? <span>Mark done</span> : null}
     </label>
   )
 }
@@ -162,7 +166,9 @@ function EventDialog({
           ) : null}
         </dl>
         {event.notes ? <p className="cal__dialog-notes">{event.notes}</p> : null}
-        {event.kind === 'deadline' ? <TaskCheck event={event} pending={pending} onToggle={onToggle} /> : null}
+        {event.kind === 'deadline' ? (
+          <TaskCheck event={event} pending={pending} onToggle={onToggle} showLabel />
+        ) : null}
       </div>
     </div>
   )

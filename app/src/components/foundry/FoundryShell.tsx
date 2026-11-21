@@ -2,6 +2,7 @@ import { LogOut } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { matchPath, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AcademyContent } from '../academy/AcademyContent'
+import { AcademyDock } from '../academy/AcademyDock'
 import {
   emptyAcademyScope,
   academyPageForRole,
@@ -13,6 +14,7 @@ import {
 import { isAdminAccess } from '../../features/auth/access'
 import { signOut } from '../../features/auth/authService'
 import { useAuth } from '../../features/auth/authContext'
+import { useAcademyMobile } from '../../hooks/useAcademyMobile'
 import { FoundryCalendar } from './FoundryCalendar'
 import { FoundryDesign } from './design/FoundryDesign'
 import { FoundryObjectives } from './FoundryObjectives'
@@ -119,12 +121,15 @@ export function FoundryShell() {
   const seg = Number.isFinite(parsedSeg) ? parsedSeg : null
 
   const isAcademy = !isAdmin || isRouted || mode === 'academy'
+  const academyMobile = useAcademyMobile()
+  const academyCompact = isAcademy && academyMobile
   const activeAcademyPage: AcademyPage = routedSourceId
     ? 'reader'
     : routedLessonId
       ? 'objectives'
       : academyPageForRole(academyPage, isAdmin)
-  const navItems = isAcademy ? academyRailForRole(isAdmin) : railItems
+  const academyNavItems = academyRailForRole(isAdmin)
+  const navItems = isAcademy ? academyNavItems : railItems
   const activePage = isAcademy ? activeAcademyPage : foundryPage
 
   const toggleMode = () => {
@@ -158,57 +163,67 @@ export function FoundryShell() {
     setAcademyPage(nextPage)
   }
 
-  return (
-    <div className={`as-console${isAcademy ? ' as-console--academy' : ''}`}>
-      <nav
-        className="as-console__rail"
-        aria-label={isAcademy ? 'Academy navigation' : 'Foundry navigation'}
-      >
-        {isAdmin ? (
-          <button
-            type="button"
-            className={`as-console__rail-mark${isAcademy ? ' is-academy' : ''}`}
-            onClick={toggleMode}
-            title={isAcademy ? 'Switch to Foundry' : 'Switch to Academy'}
-            aria-label={isAcademy ? 'Academy, switch to Foundry' : 'Foundry, switch to Academy'}
-          >
-            {isAcademy ? 'A' : 'F'}
-          </button>
-        ) : (
-          <div className="as-console__rail-mark is-academy" aria-label="Academy">
-            A
-          </div>
-        )}
-        {navItems.map((item) => {
-          const Icon = item.icon
-          const railName = 'name' in item ? item.name : undefined
-          return (
-            <button
-              key={item.id}
-              className={`as-console__rail-btn${activePage === item.id ? ' is-active' : ''}`}
-              onClick={() => setPage(item.id)}
-              aria-current={activePage === item.id ? 'page' : undefined}
-              aria-label={railName}
-              title={railName}
-            >
-              <Icon className="as-console__rail-icon" size={railIconSize} strokeWidth={1.75} aria-hidden />
-              {item.label}
-            </button>
-          )
-        })}
+  const shellClass = [
+    'as-console',
+    isAcademy ? 'as-console--academy' : '',
+    academyCompact ? 'as-console--academy-mobile' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
-        <div className="as-console__rail-foot">
-          <button
-            type="button"
-            className="as-console__rail-btn as-console__rail-btn--account"
-            onClick={() => void signOut()}
-            title={`Sign out (${displayEmail})`}
-          >
-            <LogOut className="as-console__rail-icon" size={railIconSize} strokeWidth={1.75} aria-hidden />
-            OUT
-          </button>
-        </div>
-      </nav>
+  return (
+    <div className={shellClass}>
+      {!academyCompact && (
+        <nav
+          className="as-console__rail"
+          aria-label={isAcademy ? 'Academy navigation' : 'Foundry navigation'}
+        >
+          {isAdmin ? (
+            <button
+              type="button"
+              className={`as-console__rail-mark${isAcademy ? ' is-academy' : ''}`}
+              onClick={toggleMode}
+              title={isAcademy ? 'Switch to Foundry' : 'Switch to Academy'}
+              aria-label={isAcademy ? 'Academy, switch to Foundry' : 'Foundry, switch to Academy'}
+            >
+              {isAcademy ? 'A' : 'F'}
+            </button>
+          ) : (
+            <div className="as-console__rail-mark is-academy" aria-label="Academy">
+              A
+            </div>
+          )}
+          {navItems.map((item) => {
+            const Icon = item.icon
+            const railName = 'name' in item ? item.name : undefined
+            return (
+              <button
+                key={item.id}
+                className={`as-console__rail-btn${activePage === item.id ? ' is-active' : ''}`}
+                onClick={() => setPage(item.id)}
+                aria-current={activePage === item.id ? 'page' : undefined}
+                aria-label={railName}
+                title={railName}
+              >
+                <Icon className="as-console__rail-icon" size={railIconSize} strokeWidth={1.75} aria-hidden />
+                {item.label}
+              </button>
+            )
+          })}
+
+          <div className="as-console__rail-foot">
+            <button
+              type="button"
+              className="as-console__rail-btn as-console__rail-btn--account"
+              onClick={() => void signOut()}
+              title={`Sign out (${displayEmail})`}
+            >
+              <LogOut className="as-console__rail-icon" size={railIconSize} strokeWidth={1.75} aria-hidden />
+              OUT
+            </button>
+          </div>
+        </nav>
+      )}
 
       <div className="as-console__main">
         {isAcademy ? (
@@ -220,6 +235,7 @@ export function FoundryShell() {
             resourceId={routedResourceId}
             scope={academyScope}
             onOpen={openAcademy}
+            compact={academyCompact}
           />
         ) : (
           <>
@@ -234,6 +250,19 @@ export function FoundryShell() {
           </>
         )}
       </div>
+
+      {academyCompact && (
+        <AcademyDock
+          items={academyNavItems}
+          activePage={activeAcademyPage}
+          onSelect={setPage}
+          isAdmin={isAdmin}
+          isAcademy={isAcademy}
+          onToggleMode={toggleMode}
+          onSignOut={() => void signOut()}
+          displayEmail={displayEmail}
+        />
+      )}
     </div>
   )
 }

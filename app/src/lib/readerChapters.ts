@@ -33,17 +33,29 @@ export function splitReaderChapters(blocks: readonly Block[]): ReaderChapter[] {
   return chapters
 }
 
-export function spreadsForColumns(columns: number): number {
-  return Math.max(1, Math.ceil(columns / 2))
+/** How many book pages show at once. Desktop uses a two-page spread; phones use one. */
+export type PagesPerView = 1 | 2
+
+export function spreadsForColumns(columns: number, pagesPerView: PagesPerView = 2): number {
+  return Math.max(1, Math.ceil(columns / pagesPerView))
 }
 
-export function columnStride(viewportWidth: number, gap: number): number {
-  return (viewportWidth + gap) / 2
+export function columnStride(
+  viewportWidth: number,
+  gap: number,
+  pagesPerView: PagesPerView = 2,
+): number {
+  return (viewportWidth + gap) / pagesPerView
 }
 
 /** Same extent math the reader uses on a measured column flow. */
-export function columnCountFromExtent(extent: number, viewportWidth: number, gap: number): number {
-  const stride = columnStride(viewportWidth, gap)
+export function columnCountFromExtent(
+  extent: number,
+  viewportWidth: number,
+  gap: number,
+  pagesPerView: PagesPerView = 2,
+): number {
+  const stride = columnStride(viewportWidth, gap, pagesPerView)
   if (stride <= 0) return 1
   return Math.max(1, Math.round((extent + gap) / stride))
 }
@@ -57,20 +69,21 @@ export type SpreadLocation = { chapterIndex: number; localSpread: number }
 export function locateSpread(
   columnCounts: readonly (number | undefined)[],
   globalSpread: number,
+  pagesPerView: PagesPerView = 2,
 ): SpreadLocation | null {
   if (columnCounts.length === 0) return null
   let remaining = Math.max(0, Math.floor(globalSpread))
   for (let index = 0; index < columnCounts.length; index += 1) {
     const columns = columnCounts[index]
     if (columns == null) return null
-    const spreads = spreadsForColumns(columns)
+    const spreads = spreadsForColumns(columns, pagesPerView)
     if (remaining < spreads) return { chapterIndex: index, localSpread: remaining }
     remaining -= spreads
   }
   const last = columnCounts.length - 1
   const lastColumns = columnCounts[last]
   if (lastColumns == null) return null
-  return { chapterIndex: last, localSpread: spreadsForColumns(lastColumns) - 1 }
+  return { chapterIndex: last, localSpread: spreadsForColumns(lastColumns, pagesPerView) - 1 }
 }
 
 /** Inverse of locateSpread. Null when a chapter before this one is unmeasured. */
@@ -78,13 +91,14 @@ export function globalSpread(
   columnCounts: readonly (number | undefined)[],
   chapterIndex: number,
   localSpread: number,
+  pagesPerView: PagesPerView = 2,
 ): number | null {
   if (chapterIndex < 0 || chapterIndex >= columnCounts.length) return null
   let total = 0
   for (let index = 0; index < chapterIndex; index += 1) {
     const columns = columnCounts[index]
     if (columns == null) return null
-    total += spreadsForColumns(columns)
+    total += spreadsForColumns(columns, pagesPerView)
   }
   return total + Math.max(0, localSpread)
 }
@@ -109,6 +123,7 @@ export function spreadPageNumbers(
   columnCounts: readonly (number | undefined)[],
   chapterIndex: number,
   localSpread: number,
+  pagesPerView: PagesPerView = 2,
 ): { left: number; right: number } | null {
   if (chapterIndex < 0 || chapterIndex >= columnCounts.length) return null
   let start = 0
@@ -119,10 +134,13 @@ export function spreadPageNumbers(
   }
   const columns = columnCounts[chapterIndex]
   if (columns == null || columns <= 0) return null
-  const spread = Math.min(Math.max(0, Math.floor(localSpread)), spreadsForColumns(columns) - 1)
-  const localLeft = spread * 2
+  const spread = Math.min(
+    Math.max(0, Math.floor(localSpread)),
+    spreadsForColumns(columns, pagesPerView) - 1,
+  )
+  const localLeft = spread * pagesPerView
   const leftIndex = start + Math.min(localLeft, columns - 1)
-  const rightIndex = start + Math.min(localLeft + 1, columns - 1)
+  const rightIndex = start + Math.min(localLeft + (pagesPerView - 1), columns - 1)
   return { left: leftIndex + 1, right: rightIndex + 1 }
 }
 

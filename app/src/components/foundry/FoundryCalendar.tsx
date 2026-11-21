@@ -380,7 +380,7 @@ export function FoundryCalendar() {
             className="as-wiki__input"
             value={draft.title}
             onChange={(change) => update('title', change.target.value)}
-            placeholder={draft.kind === 'deadline' ? 'Contribute to the study guide' : 'TCCC Prac App'}
+            placeholder={draft.kind === 'deadline' ? 'Contributions to Exam I Study Guide' : 'TCCC Prac App'}
             autoFocus
             disabled={isSaving}
           />

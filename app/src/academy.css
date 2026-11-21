@@ -3644,7 +3644,8 @@
   cursor: pointer;
 }
 
-.cal__event:has(> .cal__check) > .cal__open {
+.cal__event:has(> .cal__check) > .cal__open > .cal__event-top {
+  align-self: stretch;
   padding-right: 4.5rem;
 }
 
@@ -3704,12 +3705,14 @@
 .cal__row.cal__kind--due { --cal-kind: var(--color-scarlet); }
 
 .cal__event-title {
+  align-self: stretch;
+  width: 100%;
   margin: 0;
   color: var(--text-primary);
   font-size: 0.95rem;
   font-weight: 600;
   line-height: 1.3;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .cal__event-meta {
@@ -3836,6 +3839,9 @@
 }
 
 .cal__dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
   width: min(560px, 100%);
   max-height: min(80vh, 720px);
   overflow: auto;
@@ -3875,7 +3881,7 @@
 }
 
 .cal__dialog-title {
-  margin: var(--space-4) 0 var(--space-4);
+  margin: 0;
   color: var(--color-scarlet);
   font-family: var(--font-display);
   font-size: 1.75rem;
@@ -3884,16 +3890,16 @@
 }
 
 .cal__dialog-facts {
-  display: grid;
-  gap: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
   margin: 0;
 }
 
 .cal__dialog-facts div {
-  display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
-  gap: var(--space-3);
+  display: flex;
   align-items: baseline;
+  gap: var(--space-2);
 }
 
 .cal__dialog-facts dt {
@@ -3914,14 +3920,18 @@
 }
 
 .cal__dialog-notes {
-  margin: var(--space-4) 0 0;
+  margin: 0;
   color: var(--text-primary);
   font-size: 1rem;
   line-height: 1.5;
 }
 
 .cal__dialog .cal__check {
-  margin-top: var(--space-4);
+  align-self: stretch;
+  width: 100%;
+  margin: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
 }
 
 @media (max-width: 980px) {

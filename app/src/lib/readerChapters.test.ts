@@ -62,6 +62,16 @@ describe('column geometry', () => {
     expect(spreadsForColumns(4)).toBe(2)
   })
 
+  it('counts one page per turn on phones', () => {
+    const gap = 24
+    const width = 360
+    const stride = width + gap
+    const extent = stride * 3 - gap
+    expect(columnCountFromExtent(extent, width, gap, 1)).toBe(3)
+    expect(spreadsForColumns(3, 1)).toBe(3)
+    expect(spreadPageNumbers([3], 0, 1, 1)).toEqual({ left: 2, right: 2 })
+  })
+
   it('locates a book-wide spread once earlier chapters are measured', () => {
     expect(locateSpread([4, 2], 0)).toEqual({ chapterIndex: 0, localSpread: 0 })
     expect(locateSpread([4, 2], 1)).toEqual({ chapterIndex: 0, localSpread: 1 })

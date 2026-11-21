@@ -47,7 +47,7 @@ export function weekDays(weekStart: Date): Date[] {
 }
 
 const COURSE_CODE = /^((?:BS|B)\d+)\s+(.+)$/
-const ODT_DEADLINE = 'Read Range Week SPINS'
+const ODT_DEADLINES = new Set(['Read Range Week SPINS', 'Read MCDP-1 Warfighting'])
 const HIKE_BACK = 'Hike to McGlothlin Hall'
 /** Sort-only clock for the untimed Friday hike, after the range and before de-issue. */
 const HIKE_BACK_SORT_TIME = '11:59:59'
@@ -59,8 +59,14 @@ export function eventIdentity(title: string): { id: string | null; title: string
   return { id: match[1], title: match[2] }
 }
 
-export function chipLabel(event: Pick<CalendarEvent, 'kind' | 'title'>): string {
-  if (event.kind === 'deadline' && event.title === ODT_DEADLINE) return 'Due ODT'
+function isOdtDeadline(event: Pick<CalendarEvent, 'kind' | 'title'>): boolean {
+  return event.kind === 'deadline' && ODT_DEADLINES.has(event.title)
+}
+
+export function chipLabel(
+  event: Pick<CalendarEvent, 'kind' | 'title' | 'start_time' | 'end_time'>,
+): string {
+  if (event.kind === 'deadline') return deadlineDueLabel(event)
   return kindMeta[event.kind].chip
 }
 
@@ -68,14 +74,28 @@ export function chipLabel(event: Pick<CalendarEvent, 'kind' | 'title'>): string 
 export function eventTimeLabel(
   event: Pick<CalendarEvent, 'kind' | 'title' | 'start_time' | 'end_time'>,
 ): string | null {
-  if (event.kind === 'deadline' && event.title === ODT_DEADLINE) return 'Due ODT'
-  const range = formatTimeRange(event.start_time, event.end_time)
-  if (range) return range
-  if (event.kind === 'deadline') return 'Due EOD'
-  return null
+  if (event.kind === 'deadline') return deadlineDueLabel(event)
+  return formatTimeRange(event.start_time, event.end_time)
 }
 
+function deadlineDueLabel(
+  event: Pick<CalendarEvent, 'kind' | 'title' | 'start_time' | 'end_time'>,
+): string {
+  if (isOdtDeadline(event)) return 'Due ODT'
+  const due = formatTime(event.end_time ?? event.start_time)
+  if (due) return `Due at ${due}`
+  return 'Due EOD'
+}
+
+/** Sort-only clocks: ODT first, untimed EOD just before late clock times like 2359. */
+const ODT_SORT_TIME = '00:00:00'
+const EOD_SORT_TIME = '23:58:00'
+
 function sortTime(event: CalendarEvent): string | null {
+  if (isOdtDeadline(event)) return ODT_SORT_TIME
+  if (event.kind === 'deadline' && event.start_time == null && event.end_time == null) {
+    return EOD_SORT_TIME
+  }
   if (event.start_time == null && event.end_time == null && event.title === HIKE_BACK) {
     return HIKE_BACK_SORT_TIME
   }
@@ -94,7 +114,7 @@ export function compareEvents(a: CalendarEvent, b: CalendarEvent): number {
   return a.title.localeCompare(b.title)
 }
 
-/** Events keyed by `YYYY-MM-DD`, each day sorted with untimed items first. */
+/** Events keyed by `YYYY-MM-DD`, each day sorted by time (ODT, then day times, EOD before 2359). */
 export function groupEventsByDay(events: CalendarEvent[]): Map<string, CalendarEvent[]> {
   const grouped = new Map<string, CalendarEvent[]>()
   for (const event of [...events].sort(compareEvents)) {
