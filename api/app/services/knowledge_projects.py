@@ -1016,6 +1016,11 @@ class KnowledgeProjectService:
                         "significance": entry.get("significance"),
                         "category": entry.get("category"),
                         "items": entry.get("items") or [],
+                        "aliases": [
+                            str(alias).strip()
+                            for alias in entry.get("aliases") or []
+                            if str(alias).strip()
+                        ],
                         "entry_kind": entry.get("entry_kind") or "term",
                         "importance": entry.get("importance") or "supporting",
                         "plan_id": str(plan["id"]),

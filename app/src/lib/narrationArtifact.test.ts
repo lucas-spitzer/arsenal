@@ -268,6 +268,7 @@ describe('library artifact cards', () => {
         isAudiobook: true,
         narrationDownload: null,
         projectId: null,
+        lessonId: null,
       }),
     ).toBe('Audiobook')
   })

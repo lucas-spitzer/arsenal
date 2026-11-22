@@ -161,7 +161,7 @@ export function FlashcardsView({
       seededRng(combineSeed(questionSeed, quiz.id)),
     )
     return {
-      question: result.question,
+      question: result.question ?? quiz.question,
       options: result.options,
       correct: result.correct,
     }

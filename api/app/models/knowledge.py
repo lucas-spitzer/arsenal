@@ -91,6 +91,7 @@ class KnowledgeEntryView(BaseModel):
     significance: str | None = None
     category: str | None = None
     items: list[dict[str, Any]] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
     entry_kind: str
     importance: str
     plan_id: str

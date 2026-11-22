@@ -66,6 +66,7 @@ export interface KnowledgeEntry {
   significance: string | null
   category: string | null
   items: { name: string; details?: string; a?: string; b?: string }[]
+  aliases?: string[]
   entry_kind: string
   importance: string
   plan_id: string

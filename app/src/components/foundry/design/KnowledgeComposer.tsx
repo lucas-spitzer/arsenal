@@ -305,7 +305,7 @@ export function KnowledgeComposer({
 }
 
 function SourcePane({ entry }: { entry: KnowledgeEntry }) {
-  const poles = entry.aliases.map((alias) => alias.trim()).filter(Boolean)
+  const poles = (entry.aliases ?? []).map((alias) => alias.trim()).filter(Boolean)
   const left = poles[0] ?? 'A'
   const right = poles[1] ?? 'B'
   return (
