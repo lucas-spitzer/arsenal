@@ -32,6 +32,7 @@ from app.knowledge.cards import (
 )
 from app.knowledge.plans import enabled_flashcard_wiki_ids, flashcard_plan_rows, item_plan_rows
 from app.knowledge.structured_notes import StructuredNotes, StructuredNotesError, require_structured_notes
+from app.knowledge.uploads import KnowledgeUploadError, require_question_images
 from app.knowledge.visuals import (
     VisualError,
     normalize_visual,
@@ -101,6 +102,7 @@ class KnowledgeProjectService:
         content_type: str | None,
         content: bytes | None,
         storage: SupabaseStorageClient,
+        images: dict[str, bytes] | None = None,
     ) -> dict[str, Any]:
         cleaned_title = " ".join(title.split())
         if not cleaned_title:
@@ -108,6 +110,19 @@ class KnowledgeProjectService:
         notes = raw_notes.strip()
         has_file = bool(content)
         structured = _structured_upload(filename, content_type, content) if has_file else None
+        named_images = images or {}
+        if named_images and structured is None:
+            raise KnowledgeProjectError("Images can only be uploaded with JSON notes.")
+        if structured is not None:
+            parsed = require_structured_notes(structured[0], filename=structured[1])
+            try:
+                require_question_images(
+                    parsed.questions,
+                    named_images,
+                    max_bytes=self.settings.study_material.max_file_bytes,
+                )
+            except KnowledgeUploadError as exc:
+                raise KnowledgeProjectError(str(exc)) from exc
         if has_file and notes:
             raise KnowledgeProjectError("Upload a notes file or paste notes, not both.")
         if not has_file and not notes:
@@ -154,6 +169,7 @@ class KnowledgeProjectService:
                 filename=structured[1],
                 text=structured[0],
                 content=content or b"",
+                images=named_images,
                 storage=storage,
             )
         run = await self.production_runs.create(
@@ -232,6 +248,7 @@ class KnowledgeProjectService:
         filename: str,
         text: str,
         content: bytes,
+        images: dict[str, bytes],
         storage: SupabaseStorageClient,
     ) -> dict[str, Any]:
         source_slug = str(source.get("slug") or "").strip()
@@ -269,13 +286,22 @@ class KnowledgeProjectService:
                 catalog = await self._citation_catalog(str(project["workspace_id"]), saved)
                 rows = _imported_question_rows(project, notes.questions, catalog)
                 saved_rows = await self.projects.insert_rows("quizzes", rows)
-                await self.projects.insert_plans(
+                saved_plans = await self.projects.insert_plans(
                     item_plan_rows(
                         project_id=project_id,
                         workspace_id=str(project["workspace_id"]),
                         rows=saved_rows,
                         item_type="question",
                     ),
+                )
+                await self._attach_imported_images(
+                    project=project,
+                    workspace_slug=workspace_slug,
+                    questions=notes.questions,
+                    quizzes=saved_rows,
+                    plans=saved_plans,
+                    images=images,
+                    storage=storage,
                 )
             composable = any(
                 str(entry.get("entry_kind") or "") in {"term", "list", "abbreviation", "compare"}
@@ -787,6 +813,39 @@ class KnowledgeProjectService:
                 },
             )
         await self.projects.insert_plans(plan_rows)
+
+    async def _attach_imported_images(
+        self,
+        *,
+        project: dict[str, Any],
+        workspace_slug: str,
+        questions: list[dict[str, Any]],
+        quizzes: list[dict[str, Any]],
+        plans: list[dict[str, Any]],
+        images: dict[str, bytes],
+        storage: SupabaseStorageClient,
+    ) -> None:
+        """Store each question's named picture on its plan and quiz."""
+        plans_by_quiz = {str(plan.get("assessment_id") or ""): plan for plan in plans}
+        for question, quiz in zip(questions, quizzes, strict=True):
+            image = question.get("image")
+            if not isinstance(image, dict):
+                continue
+            plan = plans_by_quiz.get(str(quiz.get("id") or ""))
+            if plan is None:
+                raise KnowledgeProjectError("Could not attach an image to its question.")
+            await self.save_visual(
+                project=project,
+                plan=plan,
+                workspace_slug=workspace_slug,
+                filename=str(image.get("filename") or ""),
+                content_type=None,
+                content=images[str(image.get("filename") or "")],
+                kind="diagram",
+                placement="stem",
+                alt=str(image.get("alt") or "") or None,
+                storage=storage,
+            )
 
     async def save_visual(
         self,

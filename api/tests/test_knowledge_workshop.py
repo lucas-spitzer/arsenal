@@ -596,8 +596,25 @@ class _Projects:
         return self.created
 
     async def insert_plans(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        self.plans.extend(rows)
-        return rows
+        start = len(self.plans)
+        saved = [{**row, "id": f"plan-{start + index}"} for index, row in enumerate(rows, start=1)]
+        self.plans.extend(saved)
+        return saved
+
+    async def update_plan(self, plan_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+        for index, plan in enumerate(self.plans):
+            if plan.get("id") == plan_id:
+                self.plans[index] = {**plan, **changes}
+                return self.plans[index]
+        raise AssertionError(plan_id)
+
+    async def update_row(self, table: str, row_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        assert table == "quizzes"
+        for index, quiz in enumerate(self.quizzes):
+            if quiz.get("id") == row_id:
+                self.quizzes[index] = {**quiz, **payload}
+                return self.quizzes[index]
+        return None
 
     async def insert_rows(self, table: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         saved = [{**row, "id": f"quiz-{len(self.quizzes) + index}"} for index, row in enumerate(rows, start=1)]
@@ -631,9 +648,11 @@ class _Batches:
 class _Storage:
     def __init__(self) -> None:
         self.uploaded: str | None = None
+        self.uploads: list[dict[str, Any]] = []
 
     async def upload(self, **kwargs: Any) -> None:
         self.uploaded = kwargs["path"]
+        self.uploads.append(kwargs)
 
 
 def test_notes_file_is_the_batch_attachment_and_the_book_stays_the_source(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -956,6 +975,111 @@ def test_questions_without_wiki_entries_open_ready() -> None:
     assert projects.created is not None
     assert projects.created["status"] == "ready"
     assert projects.quizzes[0]["citations"] == []
+    assert projects.quizzes[0].get("visual") is None
+    assert projects.plans[0]["visual"] is None
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"pixels"
+
+
+def _questions_with_image(*, image: dict[str, str] | None) -> bytes:
+    second: dict[str, Any] = {
+        "question": "What does the picture show?",
+        "correct": ["A column"],
+        "distractors": ["A line"],
+    }
+    if image is not None:
+        second["image"] = image
+    return json.dumps(
+        {
+            "questions": [
+                {
+                    "question": "Which force is the largest MAGTF?",
+                    "correct": ["MEF"],
+                    "distractors": ["MEB"],
+                },
+                second,
+            ],
+        },
+    ).encode()
+
+
+def test_question_image_is_stored_on_the_plan_and_the_quiz() -> None:
+    service, projects, _wiki = _question_pack_service()
+    storage = _Storage()
+
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Questions",
+        source={"id": "book-1", "slug": "warfighting", "status": "ready", "source_kind": "document"},
+        raw_notes="",
+        filename="questions.json",
+        content_type="application/json",
+        content=_questions_with_image(image={"filename": "figure.png", "alt": "A formation"}),
+        images={"figure.png": PNG},
+        storage=storage,
+    ))
+
+    assert projects.created is not None
+    assert projects.created["status"] == "ready"
+    assert projects.quizzes[0].get("visual") is None
+    visual = projects.quizzes[1]["visual"]
+    assert visual["kind"] == "diagram"
+    assert visual["placement"] == "stem"
+    assert visual["alt"] == "A formation"
+    assert visual["filename"] == "figure.png"
+    assert visual["storage_path"].endswith("/visuals/plan-2/figure.png")
+    plan = next(row for row in projects.plans if row["assessment_id"] == "quiz-2")
+    assert plan["visual"]["placement"] == "stem"
+    stored = next(item for item in storage.uploads if "/visuals/" in item["path"])
+    assert stored["content"] == PNG
+    assert stored["content_type"] == "image/png"
+
+
+def test_missing_question_image_fails_before_quizzes_are_written() -> None:
+    service, projects, _wiki = _question_pack_service()
+
+    with pytest.raises(KnowledgeProjectError, match="figure.png"):
+        asyncio.run(service.create(
+            workspace_id="ws-1",
+            owner_id="user-1",
+            workspace_slug="acme",
+            title="Questions",
+            source={"id": "book-1", "slug": "warfighting", "status": "ready", "source_kind": "document"},
+            raw_notes="",
+            filename="questions.json",
+            content_type="application/json",
+            content=_questions_with_image(image={"filename": "figure.png", "alt": ""}),
+            images={},
+            storage=_Storage(),
+        ))
+
+    assert projects.created is None
+    assert projects.quizzes == []
+
+
+def test_unusable_question_image_fails_before_quizzes_are_written() -> None:
+    service, projects, _wiki = _question_pack_service()
+
+    with pytest.raises(KnowledgeProjectError, match="does not look like"):
+        asyncio.run(service.create(
+            workspace_id="ws-1",
+            owner_id="user-1",
+            workspace_slug="acme",
+            title="Questions",
+            source={"id": "book-1", "slug": "warfighting", "status": "ready", "source_kind": "document"},
+            raw_notes="",
+            filename="questions.json",
+            content_type="application/json",
+            content=_questions_with_image(image={"filename": "figure.png", "alt": ""}),
+            images={"figure.png": b"not a png"},
+            storage=_Storage(),
+        ))
+
+    assert projects.created is None
+    assert projects.quizzes == []
 
 
 def test_question_can_cite_an_existing_term() -> None:

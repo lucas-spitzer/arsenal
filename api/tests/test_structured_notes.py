@@ -279,3 +279,73 @@ def test_question_keeps_a_citation_that_is_not_in_the_file() -> None:
     )
     assert notes is not None
     assert notes.questions[0]["citation"] == {"kind": "abbreviation", "label": "MEF"}
+    assert notes.questions[0]["image"] is None
+
+
+def test_question_image_is_a_filename_or_an_object_with_alt() -> None:
+    named = parse_structured_notes(
+        json.dumps(
+            {
+                "questions": [
+                    {
+                        "question": "What does the picture show?",
+                        "correct": ["A column"],
+                        "distractors": ["A line"],
+                        "image": "figure.png",
+                    },
+                ],
+            },
+        ),
+    )
+    assert named is not None
+    assert named.questions[0]["image"] == {"filename": "figure.png", "alt": ""}
+
+    described = parse_structured_notes(
+        json.dumps(
+            {
+                "questions": [
+                    {
+                        "question": "What does the picture show?",
+                        "correct": ["A column"],
+                        "distractors": ["A line"],
+                        "image": {"filename": "figure.png", "alt": "A formation"},
+                    },
+                ],
+            },
+        ),
+    )
+    assert described is not None
+    assert described.questions[0]["image"] == {"filename": "figure.png", "alt": "A formation"}
+
+
+def test_question_image_filename_must_not_be_a_path() -> None:
+    with pytest.raises(StructuredNotesError, match="not a path"):
+        parse_structured_notes(
+            json.dumps(
+                {
+                    "questions": [
+                        {
+                            "question": "What does the picture show?",
+                            "correct": ["A column"],
+                            "distractors": ["A line"],
+                            "image": "images/figure.png",
+                        },
+                    ],
+                },
+            ),
+        )
+    with pytest.raises(StructuredNotesError, match="needs a filename"):
+        parse_structured_notes(
+            json.dumps(
+                {
+                    "questions": [
+                        {
+                            "question": "What does the picture show?",
+                            "correct": ["A column"],
+                            "distractors": ["A line"],
+                            "image": {"alt": "A formation"},
+                        },
+                    ],
+                },
+            ),
+        )

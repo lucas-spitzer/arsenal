@@ -175,13 +175,13 @@ export function deleteKnowledgeProject(projectId: string): Promise<void> {
 
 export function createKnowledgeProject(
   workspaceId: string,
-  input: { title: string; sourceId: string; notes: string; file: File | null },
+  input: { title: string; sourceId: string; notes: string; files: File[] },
 ): Promise<KnowledgeProjectDetail> {
   const form = new FormData()
   form.set('title', input.title)
   form.set('source_id', input.sourceId)
-  form.set('raw_notes', input.file ? '' : input.notes)
-  if (input.file) form.set('file', input.file)
+  form.set('raw_notes', input.files.length > 0 ? '' : input.notes)
+  for (const file of input.files) form.append('file', file)
   return postForm(`/workspaces/${workspaceId}/knowledge-projects`, form)
 }
 

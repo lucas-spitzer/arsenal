@@ -147,11 +147,11 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
   const [title, setTitle] = useState('')
   const [sourceId, setSourceId] = useState(readySources[0]?.id ?? '')
   const [notes, setNotes] = useState('')
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const ready = title.trim().length > 0 && sourceId.length > 0 && (file !== null || notes.trim().length > 0)
+  const ready = title.trim().length > 0 && sourceId.length > 0 && (files.length > 0 || notes.trim().length > 0)
 
   const submit = async () => {
     if (!ready || !activeWorkspace) return
@@ -162,7 +162,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
         title: title.trim(),
         sourceId,
         notes: notes.trim(),
-        file,
+        files,
       })
       onCreated(project.id)
     } catch (caught) {
@@ -219,23 +219,24 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
               id="kproj-file"
               type="file"
               hidden
-              accept=".json,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp"
+              multiple
+              accept=".json,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp,.zip"
               onChange={(event) => {
-                const next = event.target.files?.[0] ?? null
-                setFile(next)
-                if (next) setNotes('')
+                const next = event.target.files ? Array.from(event.target.files) : []
+                setFiles(next)
+                if (next.length > 0) setNotes('')
               }}
             />
             <button type="button" className="as-console__cta as-console__cta--ghost" onClick={() => fileInputRef.current?.click()}>
               ⇪ Upload notes
             </button>
-            {file ? <span className="kproj-file__name">{file.name}</span> : null}
-            {file ? (
+            {files.length > 0 ? <span className="kproj-file__name">{files.map((item) => item.name).join(', ')}</span> : null}
+            {files.length > 0 ? (
               <button
                 type="button"
                 className="kproj-file__clear"
                 onClick={() => {
-                  setFile(null)
+                  setFiles([])
                   if (fileInputRef.current) fileInputRef.current.value = ''
                 }}
               >
@@ -244,7 +245,9 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
             ) : null}
           </div>
           <p className="dsn-hint">
-            JSON with terms, key lists, and ELOs is imported as wiki entries. Other files are transcribed first.
+            JSON with terms, key lists, and ELOs is imported as wiki entries. Other files are transcribed first. A
+            question pack with pictures is a zip of the JSON and the images, or the JSON and the image files selected
+            together. The image file name has to match the filename on the question.
           </p>
         </div>
         <div className="kproj-field">
@@ -256,7 +259,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
             className="as-wiki__input kproj-notes"
             rows={8}
             value={notes}
-            disabled={file !== null}
+            disabled={files.length > 0}
             onChange={(event) => setNotes(event.target.value)}
           />
         </div>

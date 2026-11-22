@@ -68,6 +68,7 @@ class KnowledgeQuestionView(BaseModel):
     explanation: str | None = None
     difficulty: str = "medium"
     draft: dict[str, Any] | None = None
+    visual: AssessmentVisualResponse | None = None
 
 
 class KnowledgeScenarioView(BaseModel):

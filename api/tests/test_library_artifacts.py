@@ -365,3 +365,32 @@ def test_unknown_question_citation_is_omitted() -> None:
     assert result["question_count"] == 1
     assert wiki.inserted == []
     assert quizzes.rows[0]["citations"] == []
+
+
+def test_question_image_is_rejected_on_a_library_import() -> None:
+    content = json.dumps(
+        {
+            "questions": [
+                {
+                    "question": "What does the picture show?",
+                    "correct": ["A column"],
+                    "distractors": ["A line"],
+                    "image": "figure.png",
+                },
+            ],
+        },
+    ).encode()
+    wiki = _Wiki()
+    quizzes = _Quizzes()
+
+    with pytest.raises(LibraryArtifactError, match="Design Forge"):
+        _upload(
+            artifact_type="knowledge",
+            filename="questions.json",
+            content=content,
+            wiki=wiki,
+            quizzes=quizzes,
+        )
+
+    assert wiki.inserted == []
+    assert quizzes.rows == []

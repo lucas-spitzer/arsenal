@@ -244,6 +244,10 @@ async def _import_knowledge(
         notes = require_structured_notes(text, filename=safe_filename)
     except StructuredNotesError as exc:
         raise LibraryArtifactError(str(exc)) from exc
+    if any(isinstance(question.get("image"), dict) for question in notes.questions):
+        raise LibraryArtifactError(
+            "Question images belong in a Design Forge upload that includes the image files.",
+        )
 
     existing = await wiki_entries.list_for_workspace(workspace_id, status="canonical", limit=1000)
     saved = await _save_wiki_entries(

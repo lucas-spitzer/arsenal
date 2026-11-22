@@ -12,8 +12,9 @@ A term needs a label and a definition. A list needs a label plus an overview
 or at least one item. An ELO needs ``elo`` and ``response``. An abbreviation
 needs ``abbreviation``, ``title``, and ``definition``. A compare needs ``a``,
 ``b``, and at least one diff. A question needs a stem, one correct answer, and
-one distractor. ``prerequisites`` (wiki export) is accepted as
-``prerequisite_labels``.
+one distractor. An optional ``image`` is a file name, or an object with
+``filename`` and ``alt``. The file name is a base name, not a path.
+``prerequisites`` (wiki export) is accepted as ``prerequisite_labels``.
 """
 
 from __future__ import annotations
@@ -374,6 +375,7 @@ def _questions(raw_items: list[Any], _entries: list[dict[str, Any]]) -> list[dic
                 "explanation": _optional_text(raw.get("explanation")),
                 "difficulty": difficulty,
                 "bloom_level": bloom,
+                "image": _question_image(raw, index),
             },
         )
     return questions
@@ -385,6 +387,28 @@ _CITE_FIELDS = (
     ("concept", "list"),
     ("compare", "compare"),
 )
+
+
+def _question_image(raw: dict[str, Any], index: int) -> dict[str, str] | None:
+    """A supporting image named in the question pack, or none."""
+    if "image" not in raw or raw.get("image") is None:
+        return None
+    value = raw.get("image")
+    if isinstance(value, str):
+        filename = value.strip()
+        if not filename:
+            return None
+        alt = ""
+    elif isinstance(value, dict):
+        filename = str(value.get("filename") or "").strip()
+        if not filename:
+            raise StructuredNotesError(f"Question {index} image needs a filename.")
+        alt = " ".join(str(value.get("alt") or "").split())
+    else:
+        raise StructuredNotesError(f"Question {index} image must be a filename.")
+    if filename in {".", ".."} or "/" in filename or "\\" in filename:
+        raise StructuredNotesError(f"Question {index} image filename must be a file name, not a path.")
+    return {"filename": filename, "alt": alt}
 
 
 def _question_citation(raw: dict[str, Any], index: int) -> dict[str, str] | None:

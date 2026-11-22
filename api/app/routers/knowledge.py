@@ -10,6 +10,7 @@ from app.dependencies.services import (
     get_workspace_repository,
 )
 from app.dependencies.workspace import require_workspace
+from app.knowledge.uploads import KnowledgeUploadError, UploadedPart, resolve_knowledge_upload
 from app.knowledge.visuals import VisualError
 from app.models.auth import CurrentUser
 from app.models.knowledge import (
@@ -84,7 +85,7 @@ async def create_knowledge_project(
     title: Annotated[str, Form()],
     source_id: Annotated[str, Form()],
     raw_notes: Annotated[str, Form()] = "",
-    file: Annotated[UploadFile | None, File()] = None,
+    file: Annotated[list[UploadFile] | None, File()] = None,
 ) -> KnowledgeProjectDetail:
     source = await sources.get_for_workspace(source_id, workspace.id, user.id)
     if not source:
@@ -92,8 +93,22 @@ async def create_knowledge_project(
     owner_workspace = await workspaces.get_for_owner(workspace.id, user.id)
     if not owner_workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
-    content = await file.read() if file and file.filename else None
+    parts: list[UploadedPart] = []
+    for upload in file or []:
+        if not upload.filename:
+            continue
+        parts.append(
+            UploadedPart(
+                filename=upload.filename,
+                content_type=upload.content_type,
+                content=await upload.read(),
+            ),
+        )
     try:
+        resolved = resolve_knowledge_upload(
+            parts,
+            max_bytes=service.settings.study_material.max_file_bytes,
+        )
         project = await service.create(
             workspace_id=workspace.id,
             owner_id=user.id,
@@ -101,12 +116,13 @@ async def create_knowledge_project(
             title=title,
             source=source,
             raw_notes=raw_notes,
-            filename=file.filename if file else None,
-            content_type=file.content_type if file else None,
-            content=content,
+            filename=resolved.filename,
+            content_type=resolved.content_type,
+            content=resolved.content,
+            images=resolved.images,
             storage=storage,
         )
-    except (KnowledgeProjectError, WikiTranscriptionError, VisualError) as exc:
+    except (KnowledgeProjectError, KnowledgeUploadError, WikiTranscriptionError, VisualError) as exc:
         code = status.HTTP_503_SERVICE_UNAVAILABLE if "queued" in str(exc).lower() else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=str(exc)) from exc
     return await _detail(service, project, storage)
