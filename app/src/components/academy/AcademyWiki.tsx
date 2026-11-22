@@ -1,5 +1,6 @@
 import { Search } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { isAdminAccess } from '../../features/auth/access'
 import { useAuth } from '../../features/auth/authContext'
@@ -51,15 +52,150 @@ function KindPill({ value }: { value: string }) {
   return <span className={`academy-wiki__pill academy-wiki__pill--${value}`}>{value}</span>
 }
 
+function entryHasDetail(entry: WikiEntry): boolean {
+  if (entry.definition.trim()) return true
+  if (entry.significance?.trim()) return true
+  return (entry.items ?? []).length > 0
+}
+
+function EntryDetail({ entry }: { entry: WikiEntry }) {
+  const items = entry.items ?? []
+  return (
+    <>
+      {entry.category ? <div className="academy-wiki__category">{entry.category}</div> : null}
+      {entry.definition}
+      {entry.significance ? <p className="academy-wiki__significance">{entry.significance}</p> : null}
+      {entry.entry_kind === 'list' && items.length > 0 ? (
+        <ol className="academy-wiki__items">
+          {items.map((item) => (
+            <li key={item.name}>
+              <strong>{item.name}</strong>
+              {item.details ? <span> — {item.details}</span> : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {entry.entry_kind === 'compare' && items.length > 0 ? (
+        <ol className="academy-wiki__items">
+          {items.map((item) => {
+            const poles = entry.aliases.map((alias) => alias.trim()).filter(Boolean)
+            const left = poles[0] ?? 'A'
+            const right = poles[1] ?? 'B'
+            return (
+              <li key={item.name}>
+                <strong>{item.name}</strong>
+                {item.a && item.b ? (
+                  <span>
+                    {' '}
+                    — {left}: {item.a} · {right}: {item.b}
+                  </span>
+                ) : null}
+              </li>
+            )
+          })}
+        </ol>
+      ) : null}
+    </>
+  )
+}
+
+function EntryDialog({
+  entry,
+  sourceName,
+  passage,
+  readerLink,
+  onClose,
+}: {
+  entry: WikiEntry
+  sourceName: string
+  passage: string
+  readerLink: string | null
+  onClose: () => void
+}) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  const titleId = `academy-wiki-dialog-${entry.id}`
+
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [entry.id])
+
+  useEffect(() => {
+    const onKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  return createPortal(
+    <div className="academy-wiki__dialog-backdrop" onClick={onClose} role="presentation">
+      <div
+        ref={panelRef}
+        className="academy-wiki__dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onClick={(click) => click.stopPropagation()}
+      >
+        <div className="academy-wiki__dialog-head">
+          <button type="button" className="academy-wiki__dialog-close" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <h3 id={titleId} className="academy-wiki__dialog-title">
+          {entry.preferred_label}
+        </h3>
+        <dl className="academy-wiki__dialog-facts">
+          <div>
+            <dt>Kind</dt>
+            <dd>
+              <KindPill value={entry.entry_kind} />
+            </dd>
+          </div>
+          {sourceName ? (
+            <div>
+              <dt>Source</dt>
+              <dd>{sourceName}</dd>
+            </div>
+          ) : null}
+          {passage ? (
+            <div>
+              <dt>Passage</dt>
+              <dd>{passage}</dd>
+            </div>
+          ) : null}
+        </dl>
+        <div className="academy-wiki__definition">
+          <EntryDetail entry={entry} />
+        </div>
+        {readerLink ? (
+          <a
+            href={readerLink}
+            target="_blank"
+            rel="noreferrer"
+            className="academy-wiki__reader-link"
+          >
+            Open passage
+          </a>
+        ) : null}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 function EntryRow({
   entry,
   canEdit,
+  detailInDialog,
   onChanged,
   onEditingChange,
   startEditing = false,
 }: {
   entry: WikiEntry
   canEdit: boolean
+  detailInDialog: boolean
   onChanged: () => Promise<void>
   onEditingChange: (editing: boolean) => void
   startEditing?: boolean
@@ -78,6 +214,8 @@ function EntryRow({
   const [instruction, setInstruction] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const moreRef = useRef<HTMLButtonElement>(null)
 
   const save = async () => {
     if (!activeWorkspace) return
@@ -161,11 +299,18 @@ function EntryRow({
   const readerLink = entry.evidence.find((record) => record.reader_link)?.reader_link ?? null
   const sourceName = citedSourceName(entry.origin, sources)
   const passage = citedPassage(entry.origin)
+  const showDetail = detailInDialog && entryHasDetail(entry)
+  const columnCount = detailInDialog ? 4 : 6
+
+  const closeDetail = () => {
+    setDetailOpen(false)
+    moreRef.current?.focus()
+  }
 
   if (canEdit && isEditing) {
     return (
       <tr className="academy-wiki__row academy-wiki__row--edit">
-        <td colSpan={6}>
+        <td colSpan={columnCount}>
           <div className="academy-wiki__edit">
             {sourceName || passage || readerLink ? (
               <p className="academy-wiki__citation">
@@ -416,7 +561,7 @@ function EntryRow({
     >
       <td className="academy-wiki__label">
         {entry.preferred_label}
-        {readerLink ? (
+        {!detailInDialog && readerLink ? (
           <>
             {' '}
             <a
@@ -431,78 +576,73 @@ function EntryRow({
           </>
         ) : null}
       </td>
-      <td className="academy-wiki__definition" colSpan={2}>
-        {entry.category ? <div className="academy-wiki__category">{entry.category}</div> : null}
-        {entry.definition}
-        {entry.significance ? <p className="academy-wiki__significance">{entry.significance}</p> : null}
-        {entry.entry_kind === 'list' && entry.items?.length ? (
-          <ol className="academy-wiki__items">
-            {entry.items.map((item) => (
-              <li key={item.name}>
-                <strong>{item.name}</strong>
-                {item.details ? <span> — {item.details}</span> : null}
-              </li>
-            ))}
-          </ol>
-        ) : null}
-        {entry.entry_kind === 'compare' && entry.items?.length ? (
-          <ol className="academy-wiki__items">
-            {entry.items.map((item) => {
-              const poles = entry.aliases.map((alias) => alias.trim()).filter(Boolean)
-              const left = poles[0] ?? 'A'
-              const right = poles[1] ?? 'B'
-              return (
-                <li key={item.name}>
-                  <strong>{item.name}</strong>
-                  {item.a && item.b ? (
-                    <span>
-                      {' '}
-                      — {left}: {item.a} · {right}: {item.b}
-                    </span>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ol>
-        ) : null}
-      </td>
-      <td>
+      {detailInDialog ? null : (
+        <td className="academy-wiki__definition" colSpan={2}>
+          <EntryDetail entry={entry} />
+        </td>
+      )}
+      <td className="academy-wiki__kind">
         <KindPill value={entry.entry_kind} />
       </td>
       <td className="academy-wiki__source">
         {sourceName}
         {passage ? <span className="academy-wiki__passage">{passage}</span> : null}
       </td>
-      {canEdit ? (
-      <td>
-        <div className="academy-wiki__actions">
-          <button
-            type="button"
-            className="academy-wiki__action academy-wiki__action--edit"
-            disabled={isBusy}
-            onClick={() => {
-              setIsEditing(true)
-              onEditingChange(true)
-            }}
-          >
-            Edit
-          </button>
-          {entry.status === 'canonical' ? (
-            <button
-              type="button"
-              className="academy-wiki__action academy-wiki__action--deprecate"
-              disabled={isBusy}
-              onClick={() => void deprecate()}
-              title="Soft delete: the entry stops feeding assessments and the assistant"
-            >
-              Deprecate
-            </button>
-          ) : (
-            <span className="academy-wiki__pill">{entry.status}</span>
-          )}
-        </div>
-        {error ? <p className="academy-wiki__error">{error}</p> : null}
-      </td>
+      {detailInDialog || canEdit ? (
+        <td className="academy-wiki__row-actions">
+          <div className="academy-wiki__actions">
+            {showDetail ? (
+              <button
+                ref={moreRef}
+                type="button"
+                className="academy-wiki__action"
+                onClick={() => setDetailOpen(true)}
+                aria-label={`More about ${entry.preferred_label}`}
+              >
+                More
+              </button>
+            ) : null}
+            {canEdit ? (
+              <>
+                <button
+                  type="button"
+                  className="academy-wiki__action academy-wiki__action--edit"
+                  disabled={isBusy}
+                  onClick={() => {
+                    setDetailOpen(false)
+                    setIsEditing(true)
+                    onEditingChange(true)
+                  }}
+                >
+                  Edit
+                </button>
+                {entry.status === 'canonical' ? (
+                  <button
+                    type="button"
+                    className="academy-wiki__action academy-wiki__action--deprecate"
+                    disabled={isBusy}
+                    onClick={() => void deprecate()}
+                    title="Soft delete: the entry stops feeding assessments and the assistant"
+                  >
+                    Deprecate
+                  </button>
+                ) : (
+                  <span className="academy-wiki__pill">{entry.status}</span>
+                )}
+              </>
+            ) : null}
+          </div>
+          {error ? <p className="academy-wiki__error">{error}</p> : null}
+          {detailOpen ? (
+            <EntryDialog
+              entry={entry}
+              sourceName={sourceName}
+              passage={passage}
+              readerLink={readerLink}
+              onClose={closeDetail}
+            />
+          ) : null}
+        </td>
       ) : null}
     </tr>
   )
@@ -605,14 +745,14 @@ export function AcademyWiki({
             <span className="academy-wiki__count">{visibleEntries.length}</span>
           </div>
           <div className="academy-wiki__table-wrap">
-            <table className="academy-wiki__table">
+            <table className={elosOnly ? 'academy-wiki__table academy-wiki__table--elo' : 'academy-wiki__table'}>
               <thead>
                 <tr>
                   <th>Label</th>
-                  <th colSpan={2}>Definition</th>
+                  {elosOnly ? null : <th colSpan={2}>Definition</th>}
                   <th>Kind</th>
                   <th>Source</th>
-                  {canEdit ? <th>Actions</th> : null}
+                  {elosOnly || canEdit ? <th>{canEdit ? 'Actions' : <span className="sr-only">Details</span>}</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -621,6 +761,7 @@ export function AcademyWiki({
                     key={entry.id}
                     entry={entry}
                     canEdit={canEdit}
+                    detailInDialog={elosOnly}
                     onChanged={refresh}
                     onEditingChange={setIsEditing}
                     startEditing={canEdit && entry.id === targetId}
