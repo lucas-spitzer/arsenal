@@ -54,10 +54,15 @@ class SupabaseService:
                 "This account is not approved for Arsenal access.",
             ) from exc
 
+        name = approved_user.get("name")
+        rank = approved_user.get("rank")
+
         return CurrentUser(
             id=user_id,
             email=email,
             role=role,
+            name=name if isinstance(name, str) else None,
+            rank=rank if isinstance(rank, str) else None,
         )
 
     async def send_email_code(self, email: str) -> None:
@@ -94,7 +99,7 @@ class SupabaseService:
                         "Accept": "application/json",
                     },
                     params={
-                        "select": "email,role,is_active",
+                        "select": "email,role,is_active,name,rank",
                         "email": f"eq.{email}",
                         "is_active": "eq.true",
                         "limit": "1",

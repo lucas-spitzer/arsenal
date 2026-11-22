@@ -1,5 +1,5 @@
 import type { StudyMaterial } from '../../../lib/studyMaterialApi'
-import { FoundryLoader } from '../FoundryLoader'
+import { Loader } from '../../shared/Loader'
 import { RunSteps } from './RunSteps'
 
 interface GeneratingViewProps {
@@ -24,7 +24,7 @@ export function GeneratingView({ material, onBack }: GeneratingViewProps) {
       <div className="as-console__scroll">
         <div className="dsn-generating">
           <section className="as-console__panel dsn-generating__stage">
-            <FoundryLoader label="Generating components and laying out the page" />
+            <Loader label="Generating components and laying out the page" />
             <p className="dsn-hint">
               Diagrams and images generate first so text can be written around them. You can leave
               this tab; progress also shows in Production Operations.

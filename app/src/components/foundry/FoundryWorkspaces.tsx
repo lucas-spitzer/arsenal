@@ -5,7 +5,7 @@ import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { formatDate, statusLabel } from '../../lib/foundryFormat'
 import { ErrorBanner } from './ErrorBanner'
 import { FoundryDialog } from './FoundryDialog'
-import { FoundryLoader } from './FoundryLoader'
+import { Loader } from '../shared/Loader'
 
 export function FoundryWorkspaces() {
   const { activeWorkspace, workspaces, isLoading, error, selectWorkspace, createWorkspace } =
@@ -108,7 +108,7 @@ export function FoundryWorkspaces() {
 
         {isLoading && workspaces.length === 0 ? (
           <div className="as-console__empty">
-            <FoundryLoader label="Loading workspaces" size="sm" />
+            <Loader label="Loading workspaces" size="sm" />
           </div>
         ) : workspaces.length === 0 ? (
           <div className="as-console__empty">

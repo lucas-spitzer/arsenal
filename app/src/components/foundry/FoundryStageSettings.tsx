@@ -14,7 +14,7 @@ import {
   type TtsCatalogModel,
 } from '../../lib/workspaceApi'
 import { ErrorBanner } from './ErrorBanner'
-import { FoundryLoader } from './FoundryLoader'
+import { Loader } from '../shared/Loader'
 
 const AUDIO_NARRATION_ACTION = 'audio_narration'
 const DESIGN_IMAGE_ACTION = 'study_material_image'
@@ -363,7 +363,7 @@ export function FoundryStageSettings() {
           <div className="as-console__empty">Select a workspace to configure stage models.</div>
         ) : isLoading && settings.length === 0 ? (
           <div className="as-console__empty">
-            <FoundryLoader label="Loading stage settings" size="sm" />
+            <Loader label="Loading stage settings" size="sm" />
           </div>
         ) : (
           <div className="as-console__stage-settings">

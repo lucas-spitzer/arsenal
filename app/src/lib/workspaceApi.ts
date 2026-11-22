@@ -102,6 +102,8 @@ export interface Flashcard {
   back: string
   difficulty: string
   tags: string[]
+  citations?: { uri?: string; type?: string }[]
+  origin?: Record<string, unknown> | null
   visual?: AssessmentVisual | null
   created_at: string
 }
@@ -122,6 +124,7 @@ export interface Quiz {
   explanation: string | null
   difficulty: string
   citations?: { uri?: string; type?: string }[]
+  origin?: Record<string, unknown> | null
   visual?: AssessmentVisual | null
   created_at: string
 }

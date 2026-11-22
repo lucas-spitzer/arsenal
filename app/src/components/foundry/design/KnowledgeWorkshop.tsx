@@ -16,7 +16,7 @@ import {
 } from '../../../lib/knowledgeApi'
 import { ErrorBanner } from '../ErrorBanner'
 import { FoundryDialog } from '../FoundryDialog'
-import { FoundryLoader } from '../FoundryLoader'
+import { Loader } from '../../shared/Loader'
 import { KnowledgeComposer } from './KnowledgeComposer'
 import { RunSteps } from './RunSteps'
 
@@ -115,7 +115,7 @@ function KnowledgeList({
       <div className="as-console__scroll">
         {error ? <ErrorBanner message={error} onDismiss={() => setError(null)} /> : null}
         {projects === null ? (
-          <FoundryLoader label="Loading knowledge projects" size="sm" />
+          <Loader label="Loading knowledge projects" size="sm" />
         ) : projects.length === 0 ? (
           <div className="as-console__empty">
             <p>No knowledge projects yet. Upload notes against an ingested book to draft study items.</p>
@@ -302,7 +302,7 @@ function KnowledgeProject({
   if (!project) {
     return (
       <div className="as-console__scroll">
-        {error ? <ErrorBanner message={error} /> : <FoundryLoader label="Loading" size="sm" />}
+        {error ? <ErrorBanner message={error} /> : <Loader label="Loading" size="sm" />}
       </div>
     )
   }
@@ -326,7 +326,7 @@ function KnowledgeProject({
         <div className="as-console__scroll">
           <h3 className="kproj-doc-title">{project.title}</h3>
           <section className="as-console__panel">
-            <FoundryLoader label={label} />
+            <Loader label={label} />
             <p className="dsn-hint">Progress also shows in Production Operations.</p>
           </section>
           <RunSteps runId={runId} />

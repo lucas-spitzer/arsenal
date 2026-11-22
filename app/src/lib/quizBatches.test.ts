@@ -31,6 +31,23 @@ describe('listQuizBatches', () => {
     expect(batches[0]).toMatchObject({ key: quizBatchKey('src-a', null), sourceName: 'AFO' })
     expect(batches[3]?.sourceName).toBe('Unassigned')
   })
+
+  it('hides wiki-term questions from Quiz batches', () => {
+    const batches = listQuizBatches(
+      [
+        ...quizzes,
+        {
+          source_id: 'src-a',
+          knowledge_project_id: 'proj-term',
+          created_at: '2026-10-22T00:00:00Z',
+          origin: { source: 'wiki_term' },
+        },
+      ],
+      [...titles, { id: 'proj-term', title: 'Term practice' }],
+      nameOf,
+    )
+    expect(batches.some((batch) => batch.projectId === 'proj-term')).toBe(false)
+  })
 })
 
 describe('defaultQuizBatch', () => {

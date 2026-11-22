@@ -82,7 +82,8 @@ export function FoundryShell() {
   const { mode, foundryPage, academyPage, academyScope } = shell
   const { approvedUser, user } = useAuth()
   const isAdmin = isAdminAccess(approvedUser?.role)
-  const displayEmail = approvedUser?.email ?? user?.email ?? 'Signed in'
+  const displayEmail =
+    approvedUser?.name ?? approvedUser?.email ?? user?.email ?? 'Signed in'
 
   useEffect(() => {
     sessionStorage.setItem(SHELL_STORAGE_KEY, JSON.stringify(shell))

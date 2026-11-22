@@ -81,8 +81,16 @@ Run these only on databases that already have a Foundry schema and need a target
 | `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. The file stays on the machine that has it. |
 | `../maintenance/add-audiobook-artifact.sql` | DB was created before direct audiobook uploads. Adds `audiobook` to `artifacts_type_check`. Idempotent aside from the constraint swap. |
 | `../maintenance/add-quiz-results.sql` | DB was created before personal quiz results. Adds `quiz_results` with RLS and role revokes. Idempotent. |
+| `alter-approved-users-name-rank.sql` | DB was created before roster display name and rank. Adds nullable `approved_users.name` and `approved_users.rank`. Idempotent. Then run `seed-approved-users-roster.sql` to upsert the platoon roster (match on email; updates name/rank only). |
 
 Delete scripts and seed SQL stay on the machine that has them so they do not leak confidential information about the platform and its plans. See [`supabase/maintenance/README.md`](../maintenance/README.md).
+
+### Approved users name and rank
+
+```bash
+supabase db execute --file supabase/setup/alter-approved-users-name-rank.sql
+supabase db execute --file supabase/setup/seed-approved-users-roster.sql
+```
 
 ### Academics calendar
 

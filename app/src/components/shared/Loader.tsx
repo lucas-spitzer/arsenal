@@ -1,4 +1,4 @@
-interface FoundryLoaderProps {
+interface LoaderProps {
   label: string
   size?: 'sm' | 'lg'
 }
@@ -13,7 +13,7 @@ function Cartridge({ x }: { x: number }) {
   )
 }
 
-export function FoundryLoader({ label, size = 'lg' }: FoundryLoaderProps) {
+export function Loader({ label, size = 'lg' }: LoaderProps) {
   return (
     <div className={`as-console__loader as-console__loader--${size}`} role="status" aria-live="polite">
       <span className="as-console__loader-mark" aria-hidden="true">

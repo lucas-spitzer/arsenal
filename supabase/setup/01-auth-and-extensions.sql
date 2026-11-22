@@ -21,6 +21,8 @@ create table public.approved_users (
   email citext unique not null,
   role text not null default 'student',
   is_active boolean not null default true,
+  name text,
+  rank text,
   created_at timestamptz not null default now(),
   constraint approved_users_role_check
     check (role in ('admin', 'student'))

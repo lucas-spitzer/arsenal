@@ -302,6 +302,7 @@ def test_draft_keeps_definition_cards() -> None:
 
     assert flashcards.calls == []
     assert questions.calls[0]["wiki_ids"] == {"wiki-term"}
+    assert questions.calls[0]["items_per_concept"] == 3
     kept = db.assessments["flashcards"][0]
     assert kept["id"] == "kept-card"
     assert kept["back"] == "Resistance in war."
@@ -309,7 +310,7 @@ def test_draft_keeps_definition_cards() -> None:
     assert linked["assessment_id"] == "kept-card"
 
 
-def test_definition_cards_are_written_for_terms_and_lists() -> None:
+def test_definition_cards_are_written_for_terms_lists_and_abbreviations() -> None:
     from app.knowledge.cards import definition_card_back, flashcard_sides
 
     assert definition_card_back(
@@ -325,6 +326,17 @@ def test_definition_cards_are_written_for_terms_and_lists() -> None:
             ],
         },
     ) == "1. Friction\n2. Chance"
+    assert definition_card_back(
+        {
+            "entry_kind": "abbreviation",
+            "preferred_label": "METT-T",
+            "significance": "Mission, Enemy, Terrain and Weather, Troops and Support Available, Time Available",
+            "definition": "A planning framework.",
+        },
+    ) == (
+        "Mission, Enemy, Terrain and Weather, Troops and Support Available, Time Available\n"
+        "A planning framework."
+    )
     listed = {
         "entry_kind": "list",
         "preferred_label": "Forms",
@@ -338,6 +350,7 @@ def test_definition_cards_are_written_for_terms_and_lists() -> None:
     db.plans = [
         {"id": "plan-term", "item_type": "flashcard", "wiki_entry_id": "wiki-term"},
         {"id": "plan-list", "item_type": "flashcard", "wiki_entry_id": "wiki-list"},
+        {"id": "plan-abbr", "item_type": "flashcard", "wiki_entry_id": "wiki-abbr"},
         {"id": "plan-insight", "item_type": "flashcard", "wiki_entry_id": "wiki-insight"},
     ]
     entries = [
@@ -349,16 +362,25 @@ def test_definition_cards_are_written_for_terms_and_lists() -> None:
             "definition": "The forms.",
             "items": [{"name": "Friction", "details": "Resistance."}],
         },
+        {
+            "id": "wiki-abbr",
+            "entry_kind": "abbreviation",
+            "preferred_label": "METT-T",
+            "significance": "Mission Enemy Terrain Troops Time",
+            "definition": "A planning framework.",
+        },
         {"id": "wiki-insight", "entry_kind": "insight", "preferred_label": "Aside", "definition": "Not a card."},
     ]
     KnowledgeRunner(db=db)._write_definition_flashcards(project, db.plans, entries)
 
-    assert [row["front"] for row in db.assessments["flashcards"]] == ["Friction", "Forms"]
+    assert [row["front"] for row in db.assessments["flashcards"]] == ["Friction", "Forms", "METT-T"]
     assert db.assessments["flashcards"][1]["back"] == "1. Friction"
+    assert db.assessments["flashcards"][2]["back"] == "Mission Enemy Terrain Troops Time\nA planning framework."
     assert all(row["origin"]["source"] == "wiki_definition" for row in db.assessments["flashcards"])
     linked = {plan["id"]: plan.get("assessment_id") for plan in db.plans}
     assert linked["plan-term"]
     assert linked["plan-list"]
+    assert linked["plan-abbr"]
     assert linked["plan-insight"] is None
 
 
@@ -788,7 +810,8 @@ def test_question_pack_writes_abbreviations_and_quizzes_without_a_draft() -> Non
     assert quiz["question"] == "What does MEF stand for?"
     assert quiz["correct_answer"] in quiz["options"]
     assert "Marine Expeditionary Force" in quiz["answer_pool"]["correct"]
-    assert quiz["origin"]["source"] == "structured_notes"
+    assert quiz["origin"]["source"] == "wiki_term"
+    assert quiz["origin"]["from"] == "structured_notes"
     assert quiz["citations"] == [{"uri": f"wiki://{abbreviation['id']}", "type": "wiki"}]
     flashcards = [plan for plan in projects.plans if plan["item_type"] == "flashcard"]
     questions = [plan for plan in projects.plans if plan["item_type"] == "question"]

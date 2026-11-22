@@ -26,7 +26,7 @@ import {
 import { useLessons } from '../../lib/useLessons'
 import { ErrorBanner } from './ErrorBanner'
 import { FoundryDialog } from './FoundryDialog'
-import { FoundryLoader } from './FoundryLoader'
+import { Loader } from '../shared/Loader'
 
 const POLL_MS = 5000
 
@@ -288,7 +288,7 @@ export function FoundryObjectives() {
         {!hasLoaded && isLoading ? (
           <section className="as-console__panel">
             <div className="as-console__empty">
-              <FoundryLoader label="Loading ELOs" size="sm" />
+              <Loader label="Loading ELOs" size="sm" />
             </div>
           </section>
         ) : lessons.length === 0 ? (

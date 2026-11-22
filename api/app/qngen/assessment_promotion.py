@@ -82,6 +82,14 @@ def promote_quizzes(
     rows: list[dict[str, Any]] = []
 
     for question in questions:
+        origin: dict[str, Any] = {
+            "stage_run_id": stage_run_id,
+            "stage_id": stage_id,
+            "stage_version": stage_version,
+        }
+        # Knowledge-project quizzes practice wiki terms in the Flashcards tab.
+        if knowledge_project_id:
+            origin["source"] = "wiki_term"
         rows.append(
             {
                 "workspace_id": workspace_id,
@@ -101,11 +109,7 @@ def promote_quizzes(
                     segment_ids=question.get("segment_ids_used") or [],
                     source_id=source_id,
                 ),
-                "origin": {
-                    "stage_run_id": stage_run_id,
-                    "stage_id": stage_id,
-                    "stage_version": stage_version,
-                },
+                "origin": origin,
                 **({"knowledge_project_id": knowledge_project_id} if knowledge_project_id else {}),
             },
         )

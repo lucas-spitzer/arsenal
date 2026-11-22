@@ -112,6 +112,8 @@ async def get_me(
         id=user.id,
         email=user.email,
         role=user.role,
+        name=user.name,
+        rank=user.rank,
     )
 
 

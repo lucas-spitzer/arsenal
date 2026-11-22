@@ -24,7 +24,7 @@ import {
 } from '../../lib/discussionPrompts'
 import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { useLessons } from '../../lib/useLessons'
-import { FoundryLoader } from '../foundry/FoundryLoader'
+import { Loader } from '../shared/Loader'
 import { ChatRichText } from './ChatRichText'
 import {
   StudyHead,
@@ -416,7 +416,7 @@ export function DiscussionsView({
         ) : (
           <div className="disc-starters">
             {!threadsLoaded ? (
-              <FoundryLoader label="Loading conversations" size="sm" />
+              <Loader label="Loading conversations" size="sm" />
             ) : (
               <>
                 {sourceGroup && batch ? (

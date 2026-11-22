@@ -19,4 +19,21 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ['src/components/academy/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/components/foundry', '**/components/foundry/**', '**/foundry/*', '../foundry', '../foundry/*'],
+              message:
+                'Academy must not import Foundry. Use components/shared for shared UI.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ])

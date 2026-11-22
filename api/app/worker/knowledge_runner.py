@@ -214,7 +214,8 @@ class KnowledgeRunner:
                 detail="Definition cards kept",
             )
 
-        if project.get("draft_questions") and drafted_ids and _has_step(pipeline, "generate-questions"):
+        # Every Knowledge draft writes three term questions per drafted wiki entry.
+        if drafted_ids and _has_step(pipeline, "generate-questions"):
             pipeline = self._run_named_step(
                 pipeline,
                 "generate-questions",
@@ -224,6 +225,7 @@ class KnowledgeRunner:
                     source=source,
                     wiki_ids=drafted_ids,
                     knowledge_project_id=project_id,
+                    items_per_concept=3,
                 ),
             )
             self.db.update_production_run(str(run["id"]), {"pipeline": pipeline})
@@ -332,7 +334,7 @@ class KnowledgeRunner:
         rows: list[dict[str, Any]] = []
         used: list[dict[str, Any]] = []
         for entry in entries:
-            if str(entry.get("entry_kind") or "") not in {"term", "list"}:
+            if str(entry.get("entry_kind") or "") not in {"term", "list", "abbreviation"}:
                 continue
             plan = by_wiki.get(str(entry["id"]))
             if plan is None or not str(entry.get("preferred_label") or "").strip():

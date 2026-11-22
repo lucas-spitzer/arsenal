@@ -5,7 +5,7 @@ import { mapSourceDisplay } from '../../lib/foundryMappers'
 import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { FoundryViewToggle } from './FoundryViewToggle'
 import { ErrorBanner } from './ErrorBanner'
-import { FoundryLoader } from './FoundryLoader'
+import { Loader } from '../shared/Loader'
 import { CreateSourceDialog } from './CreateSourceDialog'
 import { UploadArtifactsDialog } from './UploadArtifactsDialog'
 import type { FoundryView } from './types'
@@ -132,7 +132,7 @@ export function FoundrySources() {
         </div>
         {isLoading && filtered.length === 0 ? (
           <div className="as-console__empty">
-            <FoundryLoader label="Loading sources" size="sm" />
+            <Loader label="Loading sources" size="sm" />
           </div>
         ) : filtered.length === 0 ? (
           <div className="as-console__empty">

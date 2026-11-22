@@ -14,7 +14,7 @@ import {
 } from '../../../lib/studyMaterialApi'
 import { ErrorBanner } from '../ErrorBanner'
 import { FoundryDialog } from '../FoundryDialog'
-import { FoundryLoader } from '../FoundryLoader'
+import { Loader } from '../../shared/Loader'
 import { ConfigureStep } from './ConfigureStep'
 import { DraftView } from './DraftView'
 import { GeneratingView } from './GeneratingView'
@@ -80,7 +80,7 @@ export function FoundryDesign() {
           </div>
         </header>
         <div className="as-console__scroll">
-          {error ? <ErrorBanner message={error} /> : <FoundryLoader label="Loading themes and templates" size="sm" />}
+          {error ? <ErrorBanner message={error} /> : <Loader label="Loading themes and templates" size="sm" />}
         </div>
       </>
     )
@@ -190,7 +190,7 @@ function MaterialWorkspace({
   if (!material) {
     return (
       <div className="as-console__scroll">
-        {error ? <ErrorBanner message={error} /> : <FoundryLoader label="Loading" size="sm" />}
+        {error ? <ErrorBanner message={error} /> : <Loader label="Loading" size="sm" />}
       </div>
     )
   }

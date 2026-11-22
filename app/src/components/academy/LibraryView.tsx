@@ -30,7 +30,7 @@ import {
   type OutputType,
 } from '../../lib/academyOutputs'
 import { getArtifactDownloadUrl } from '../../lib/workspaceApi'
-import { FoundryLoader } from '../foundry/FoundryLoader'
+import { Loader } from '../shared/Loader'
 import { OutputFilterBar } from './OutputFilterBar'
 import { StudyHead } from './StudySessionChrome'
 import type { AcademyPage, AcademyScope } from './types'
@@ -261,7 +261,7 @@ export function LibraryView({
         title="Library"
         description={
           isAdmin
-            ? 'Search, filter, and open every book, audio file, study material, wiki entry, flashcard, question, and scenario in this workspace.'
+            ? 'Search, filter, and open every book, audio file, study material, wiki entry, question, and scenario in this workspace.'
             : 'Search, filter, and open the books, audio, and wiki entries in this workspace.'
         }
         stats={[
@@ -280,10 +280,10 @@ export function LibraryView({
         sort={sort}
         onSort={setSort}
         sources={sources}
-        hiddenTypes={isAdmin ? undefined : studentHiddenLibraryKinds}
+        hiddenTypes={isAdmin ? (['flashcard'] as const) : studentHiddenLibraryKinds}
         searchPlaceholder={
           isAdmin
-            ? 'Search flashcards, questions, scenarios, wiki, books, audio, study material…'
+            ? 'Search questions, scenarios, wiki, books, audio, study material…'
             : 'Search books, audio, and wiki entries…'
         }
       />
@@ -292,7 +292,7 @@ export function LibraryView({
 
       {isLoading && items.length === 0 ? (
         <div className="lib__empty">
-          <FoundryLoader label="Loading library" size="sm" />
+          <Loader label="Loading library" size="sm" />
         </div>
       ) : error && items.length === 0 ? (
         <div className="lib__empty">

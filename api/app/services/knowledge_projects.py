@@ -874,7 +874,8 @@ class KnowledgeProjectService:
         self._require_status(project, "composing")
         plans = await self.projects.list_plans(str(project["id"]))
         flashcards = bool(enabled_flashcard_wiki_ids(plans))
-        questions = bool(project.get("draft_questions"))
+        # Term questions always draft: three per wiki entry for the Flashcards tab.
+        questions = True
         scenarios = bool(project.get("draft_scenarios"))
         if not flashcards and not questions and not scenarios:
             raise KnowledgeProjectError("Turn on at least one flashcard, or draft questions or scenarios.")
@@ -1135,7 +1136,11 @@ def _assessment_rows(
             "citations": [
                 {"uri": f"wiki://{wiki_id}", "type": "wiki"} for wiki_id in item.get("wiki_ids_cited") or []
             ],
-            "origin": {"source": "knowledge_batch", "category": category, "format": item_format},
+            "origin": {
+                "source": "wiki_term" if kind == "question" else "knowledge_batch",
+                "category": category,
+                "format": item_format,
+            },
         }
         if kind == "question":
             rows.append(
@@ -1191,7 +1196,7 @@ def _imported_question_rows(
             "difficulty": item.get("difficulty") or "medium",
             "bloom_level": item.get("bloom_level"),
             "citations": citations,
-            "origin": {"source": "structured_notes", "format": subtype},
+            "origin": {"source": "wiki_term", "format": subtype, "from": "structured_notes"},
             "question": rendered.question or item["question"],
             "question_type": subtype,
             "options": rendered.options,

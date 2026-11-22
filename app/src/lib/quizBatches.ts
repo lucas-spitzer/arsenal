@@ -1,9 +1,12 @@
+import { isWikiTermQuiz } from './assessmentOrigin'
+
 const UNASSIGNED = 'Unassigned'
 
 export interface QuizBatchInput {
   source_id?: string | null
   knowledge_project_id?: string | null
   created_at: string
+  origin?: Record<string, unknown> | null
 }
 
 export interface QuizBatchTitle {
@@ -34,6 +37,8 @@ export function listQuizBatches(
   const titleById = new Map(titles.map((title) => [title.id, title.title]))
   const groups = new Map<string, QuizBatchInput[]>()
   for (const quiz of quizzes) {
+    // Wiki-term questions practice on the Flashcards tab only.
+    if (isWikiTermQuiz(quiz)) continue
     const sourceId = quiz.source_id ?? null
     const projectId = quiz.knowledge_project_id ?? null
     const key = quizBatchKey(sourceId, projectId)

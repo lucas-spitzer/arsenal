@@ -27,7 +27,7 @@ import {
   listCalendarEvents,
   type CalendarEvent,
 } from '../../lib/calendarApi'
-import { FoundryLoader } from '../foundry/FoundryLoader'
+import { Loader } from '../shared/Loader'
 import { StudyHead } from './StudySessionChrome'
 
 type CalendarMode = 'schedule' | 'tasks'
@@ -403,7 +403,7 @@ export function CalendarView() {
 
       {activeLoading ? (
         <div className="lib__empty">
-          <FoundryLoader label={mode === 'schedule' ? 'Loading calendar' : 'Loading tasks'} size="sm" />
+          <Loader label={mode === 'schedule' ? 'Loading calendar' : 'Loading tasks'} size="sm" />
         </div>
       ) : activeResult?.error ? (
         <div className="lib__empty">

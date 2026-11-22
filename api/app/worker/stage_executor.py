@@ -580,6 +580,7 @@ class QuizGenStageExecutor:
         wiki_ids: set[str] | None = None,
         knowledge_project_id: str | None = None,
         skip_importance_filter: bool = False,
+        items_per_concept: int | None = None,
     ) -> str:
         return _run_qngen_stage(
             db=self.db,
@@ -606,6 +607,7 @@ class QuizGenStageExecutor:
             wiki_ids=wiki_ids,
             knowledge_project_id=knowledge_project_id,
             skip_importance_filter=skip_importance_filter,
+            items_per_concept=items_per_concept,
         )
 
 
@@ -677,6 +679,7 @@ def _run_qngen_stage(
     wiki_ids: set[str] | None = None,
     knowledge_project_id: str | None = None,
     skip_importance_filter: bool = False,
+    items_per_concept: int | None = None,
 ) -> str:
     source_id = source["id"]
     segments = db.list_ndr_segments_for_source(source_id)
@@ -746,14 +749,17 @@ def _run_qngen_stage(
         chapter_rows = db.list_document_chapters_for_source(source_id)
         chapters = chapters_from_document_chapters(chapter_rows)
 
-        output, execution = stage.run(
-            source_metadata=source_metadata,
-            concepts=concepts,
-            concept_batches=concept_batches,
-            learning_objectives=[],
-            chapters=chapters,
-            skip_importance_filter=skip_importance_filter,
-        )
+        run_kwargs: dict[str, Any] = {
+            "source_metadata": source_metadata,
+            "concepts": concepts,
+            "concept_batches": concept_batches,
+            "learning_objectives": [],
+            "chapters": chapters,
+            "skip_importance_filter": skip_importance_filter,
+        }
+        if items_per_concept is not None:
+            run_kwargs["items_per_concept"] = items_per_concept
+        output, execution = stage.run(**run_kwargs)
         output_data = output.model_dump()
         items = output_data[output_key]
 

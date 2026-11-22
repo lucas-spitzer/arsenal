@@ -1,0 +1,4 @@
+# Re-include private local docs for agent search/indexing.
+# Git still ignores them via .gitignore.
+!docs/internal/
+!docs/internal/**

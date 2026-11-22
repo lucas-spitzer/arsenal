@@ -17,6 +17,7 @@ import {
   type QuizResultDraft,
   type QuizResultDraftAnswer,
 } from '../../lib/quizResultsApi'
+import { isWikiTermQuiz } from '../../lib/assessmentOrigin'
 import type { Quiz } from '../../lib/workspaceApi'
 import {
   StudyHead,
@@ -134,6 +135,7 @@ export function QuizView({
     ? filterAndSortRecords(
         quizzes.filter(
           (quiz) =>
+            !isWikiTermQuiz(quiz) &&
             (quiz.source_id ?? null) === batch.sourceId &&
             (quiz.knowledge_project_id ?? null) === batch.projectId,
         ),

@@ -11,7 +11,7 @@ import {
 } from '../../lib/lessonObjectives'
 import { lessonResourceUrl, type Lesson, type LessonResource } from '../../lib/lessonsApi'
 import { useLessons } from '../../lib/useLessons'
-import { FoundryLoader } from '../foundry/FoundryLoader'
+import { Loader } from '../shared/Loader'
 import { StudyHead } from './StudySessionChrome'
 import { emptyAcademyScope, type AcademyPage, type AcademyScope } from './types'
 
@@ -172,7 +172,7 @@ export function ObjectivesView({ focusLessonId = null, focusResourceId = null, o
   if (!hasLoaded && isLoading) {
     body = (
       <div className="lib__empty">
-        <FoundryLoader label="Loading ELOs" size="sm" />
+        <Loader label="Loading ELOs" size="sm" />
       </div>
     )
   } else if (error) {

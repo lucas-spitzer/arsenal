@@ -24,7 +24,7 @@ import {
 } from '../../lib/calendarApi'
 import { ErrorBanner } from './ErrorBanner'
 import { FoundryDialog } from './FoundryDialog'
-import { FoundryLoader } from './FoundryLoader'
+import { Loader } from '../shared/Loader'
 
 type EventDraft = {
   title: string
@@ -277,7 +277,7 @@ export function FoundryCalendar() {
         <section className="as-console__panel">
           {isLoading && events.length === 0 ? (
             <div className="as-console__empty">
-              <FoundryLoader label="Loading calendar" size="sm" />
+              <Loader label="Loading calendar" size="sm" />
             </div>
           ) : events.length === 0 ? (
             <div className="as-console__empty">

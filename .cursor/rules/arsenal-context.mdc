@@ -1,0 +1,32 @@
+---
+description: Arsenal sources of truth, names, ownership, and verify commands
+alwaysApply: true
+---
+
+# Arsenal agent context
+
+## Read first
+
+- Vocabulary: `CONTEXT.md`
+- Surfaces and Foundry systems: `docs/internal/system/system-overview.md` (local only; may be missing on a fresh clone)
+- Stage inventory: `api/app/pipeline.py`
+
+## Names
+
+Use Foundry, Academy, Library, Intellex, Mathesys, QnGen as defined in `CONTEXT.md` and the system overview. Do not call Foundry a CMS, Academy an LMS, or Intellex "Library."
+
+## Ownership
+
+- Wiki entries → Intellex
+- File artifacts (ebook, narration, study material, wiki JSON snapshot) → Mathesys
+- Assessments (flashcards, quizzes, scenarios) → QnGen
+
+Do not stuff wiki into Mathesys or assessments into the artifact catalog.
+
+## Verify
+
+- `cd app && npm run lint`
+- `cd app && npm test`
+- `cd api && python -m pytest tests/`
+
+Prefer lint rules and tests over new prose when correcting repeated agent mistakes.

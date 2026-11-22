@@ -2,7 +2,7 @@ import { ChevronRight } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
-import { FoundryLoader } from '../foundry/FoundryLoader'
+import { Loader } from '../shared/Loader'
 import {
   accuracyPercent,
   resultBatchKey,
@@ -103,7 +103,7 @@ export function AnalyticsView({
   } else if (results == null) {
     body = (
       <div className="lib__empty">
-        <FoundryLoader label="Loading analytics" size="sm" />
+        <Loader label="Loading analytics" size="sm" />
       </div>
     )
   } else if (results.length === 0) {

@@ -9,7 +9,7 @@ import {
   type StudyTheme,
 } from '../../../lib/studyMaterialApi'
 import { ErrorBanner } from '../ErrorBanner'
-import { FoundryLoader } from '../FoundryLoader'
+import { Loader } from '../../shared/Loader'
 import { RunSteps } from './RunSteps'
 
 const CSS_PX_PER_IN = 96
@@ -153,7 +153,7 @@ export function DraftView({
                   }}
                 />
               ) : (
-                <FoundryLoader label="Loading the draft" size="sm" />
+                <Loader label="Loading the draft" size="sm" />
               )}
             </div>
           </section>
@@ -161,7 +161,7 @@ export function DraftView({
           <aside className="dsn-side">
             {finalizing ? (
               <section className="as-console__panel dsn-side__panel">
-                <FoundryLoader label="Validating the page and printing the PDF" size="sm" />
+                <Loader label="Validating the page and printing the PDF" size="sm" />
                 <RunSteps runId={material.production_run_id} />
               </section>
             ) : null}

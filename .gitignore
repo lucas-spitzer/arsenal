@@ -14,7 +14,9 @@ supabase/setup/seed-*.sql
 supabase/setup/05-purge-production-run.sql
 
 node_modules/
-.cursor/
+.cursor/**
+!.cursor/rules/
+!.cursor/rules/**
 docs/external/
 
 .env

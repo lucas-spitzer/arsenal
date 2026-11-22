@@ -39,7 +39,9 @@ class QuizGenStage:
 
         raw_items: list[dict[str, Any]] = []
         execution: dict[str, Any] = {}
-        if blueprint:
+        # A per-concept count (Knowledge draft: 3 questions per wiki term) needs
+        # concept fan-out. Chapter blueprints aim for one question per objective.
+        if blueprint and items_per_concept is None:
             # One question per objective, scoped per chapter (no count band —
             # questions are deterministically objective-driven).
             raw_items, execution = run_blueprinted_generation(

@@ -4,6 +4,7 @@ import type { AcademyPage } from '../components/academy/types'
 import { collapseDuplicateNarrationArtifacts } from './foundryMappers'
 import { formatDuration, formatSpokenDuration } from './foundryFormat'
 import { sourceDisplayName } from './sourceDisplay'
+import { isWikiTermQuiz } from './assessmentOrigin'
 import type { Artifact, Source, WikiEntry } from './workspaceApi'
 
 export type OutputKind = 'audio' | 'book' | 'artifact' | 'material' | 'flashcard' | 'question' | 'scenario' | 'wiki'
@@ -364,23 +365,18 @@ export function knowledgeLibraryItems<T extends KnowledgeRecord>(
 }
 
 export function useOutputs(): { items: OutputItem[]; sources: { id: string; name: string }[] } {
-  const { flashcards, quizzes, scenarios, artifacts, wikiEntries, sources } = useWorkspaceData()
+  const { quizzes, scenarios, artifacts, wikiEntries, sources } = useWorkspaceData()
 
   return useMemo(() => {
     const byId = new Map(sources.map((s) => [s.id, s]))
     const nameOf = (id: string | null | undefined) =>
       id ? sourceLabel(byId.get(id)) : UNASSIGNED
 
+    // Flashcards and wiki-term questions live only on the Flashcards tab.
+    const libraryQuizzes = quizzes.filter((quiz) => !isWikiTermQuiz(quiz))
+
     const items: OutputItem[] = [
-      ...knowledgeLibraryItems(flashcards, {
-        kind: 'flashcard',
-        runnerPage: 'flashcards',
-        unit: 'card',
-        plural: 'cards',
-        searchOf: (card) => `${card.front} ${card.back}`,
-        nameOf,
-      }),
-      ...knowledgeLibraryItems(quizzes, {
+      ...knowledgeLibraryItems(libraryQuizzes, {
         kind: 'question',
         runnerPage: 'quiz',
         unit: 'question',
@@ -440,7 +436,7 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
       .sort((a, b) => a.name.localeCompare(b.name))
 
     return { items, sources: sourceList }
-  }, [flashcards, quizzes, scenarios, artifacts, wikiEntries, sources])
+  }, [quizzes, scenarios, artifacts, wikiEntries, sources])
 }
 
 export function filterOutputs(

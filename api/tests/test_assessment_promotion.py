@@ -64,6 +64,32 @@ def test_promote_quizzes_maps_rows() -> None:
     )
 
     assert rows[0]["question_type"] == "multiple_choice"
+    assert "source" not in rows[0]["origin"]
+
+
+def test_promote_quizzes_tags_knowledge_project_as_wiki_term() -> None:
+    rows = promote_quizzes(
+        workspace_id="ws-1",
+        source_id="src-1",
+        production_run_id="run-1",
+        stage_run_id="stage-1",
+        stage_id="generate-questions",
+        stage_version="1.0",
+        knowledge_project_id="project-1",
+        questions=[
+            {
+                "question": "Which factor is part of METT-T?",
+                "question_type": "multiple_choice",
+                "options": ["Enemy", "Budget", "Payroll", "Marketing"],
+                "correct_answer": "Enemy",
+                "difficulty": "easy",
+            },
+        ],
+    )
+
+    assert rows[0]["knowledge_project_id"] == "project-1"
+    assert rows[0]["origin"]["source"] == "wiki_term"
+    assert rows[0]["origin"]["stage_id"] == "generate-questions"
 
 
 def test_promote_scenarios_maps_rows() -> None:

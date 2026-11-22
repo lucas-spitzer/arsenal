@@ -16,6 +16,8 @@ export interface CurrentUserResponse {
   id: string
   email: string
   role: string
+  name?: string | null
+  rank?: string | null
 }
 
 export class ApiError extends Error {
