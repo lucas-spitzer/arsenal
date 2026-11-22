@@ -107,8 +107,8 @@ export async function updateWikiEntry(
     definition: string
     significance: string | null
     category: string | null
-    items: { name: string; details: string }[]
-    entry_kind: 'term' | 'list' | 'elo' | 'abbreviation'
+    items: { name: string; details?: string; a?: string; b?: string }[]
+    entry_kind: 'term' | 'list' | 'elo' | 'abbreviation' | 'compare'
     importance: string
     aliases: string[]
     pronunciation: string | null
@@ -125,10 +125,10 @@ export async function createWikiEntry(
   payload: {
     preferred_label: string
     definition: string
-    entry_kind?: 'term' | 'list' | 'elo' | 'abbreviation'
+    entry_kind?: 'term' | 'list' | 'elo' | 'abbreviation' | 'compare'
     significance?: string | null
     category?: string | null
-    items?: { name: string; details: string }[]
+    items?: { name: string; details?: string; a?: string; b?: string }[]
     importance?: 'essential' | 'supporting' | 'contextual'
     aliases?: string[]
     pronunciation?: string | null

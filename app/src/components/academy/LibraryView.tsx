@@ -7,10 +7,12 @@ import {
   Headphones,
   HelpCircle,
   Layers,
+  LayoutGrid,
   Lightbulb,
   Star,
+  Target,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isAdminAccess } from '../../features/auth/access'
 import { useAuth } from '../../features/auth/authContext'
@@ -18,20 +20,34 @@ import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { isFocused, useLibraryFocus, type LibraryFocusState } from '../../lib/libraryFocus'
 import {
-  filterOutputs,
   libraryItemsForRole,
-  isStudentHiddenLibraryKind,
+  libraryShelves,
   outputChipLabel,
-  sortOutputs,
-  studentHiddenLibraryKinds,
   useOutputs,
+  type BookShelfKind,
+  type ClassShelfKind,
+  type LibraryShelf,
+  type LibraryShelfSort,
   type OutputItem,
-  type OutputSort,
-  type OutputType,
 } from '../../lib/academyOutputs'
 import { getArtifactDownloadUrl } from '../../lib/workspaceApi'
 import { Loader } from '../shared/Loader'
-import { OutputFilterBar } from './OutputFilterBar'
+import { useAcademyChrome } from './academyChromeContext'
+import { LibraryKindChips, OutputFilterBar } from './OutputFilterBar'
+
+const BOOK_KIND_CHIPS = [
+  { value: 'all' as const, label: 'All', icon: LayoutGrid },
+  { value: 'book' as const, label: 'Book', icon: BookOpen },
+  { value: 'audio' as const, label: 'Audio', icon: Headphones },
+  { value: 'wiki' as const, label: 'Wiki', icon: BookMarked },
+  { value: 'elo' as const, label: 'ELO', icon: Target },
+]
+
+const CLASS_KIND_CHIPS = [
+  { value: 'all' as const, label: 'All', icon: LayoutGrid },
+  { value: 'elo' as const, label: 'ELO', icon: Target },
+  { value: 'quiz' as const, label: 'Quiz', icon: HelpCircle },
+]
 import { StudyHead } from './StudySessionChrome'
 import type { AcademyPage, AcademyScope } from './types'
 
@@ -47,17 +63,7 @@ const KIND_META: Record<
   question: { cls: 'lib__tchip--q', icon: HelpCircle },
   scenario: { cls: 'lib__tchip--scn', icon: Lightbulb },
   wiki: { cls: 'lib__tchip--wiki', icon: BookMarked },
-}
-
-const KIND_RANK: Record<OutputItem['kind'], number> = {
-  book: 0,
-  audio: 1,
-  wiki: 2,
-  material: 3,
-  flashcard: 4,
-  question: 5,
-  scenario: 6,
-  artifact: 7,
+  elo: { cls: 'lib__tchip--elo', icon: Target },
 }
 
 // Study material and plain audio files already download from the open action.
@@ -90,6 +96,7 @@ function openLabel(item: OutputItem): string {
     case 'wiki':
     case 'question':
     case 'scenario':
+    case 'elo':
       return 'Open'
     default: {
       const _exhaustive: never = item.kind
@@ -137,57 +144,41 @@ export function LibraryView({
 }: {
   onOpen: (page: AcademyPage, scope: AcademyScope) => void
 }) {
-  const { items: catalogItems, sources: catalogSources } = useOutputs()
+  const { items: catalogItems } = useOutputs()
   const { approvedUser } = useAuth()
   const isAdmin = isAdminAccess(approvedUser?.role)
   const items = useMemo(
     () => libraryItemsForRole(catalogItems, isAdmin),
     [catalogItems, isAdmin],
   )
-  const sources = useMemo(() => {
-    const ids = new Set(items.flatMap((item) => (item.sourceId ? [item.sourceId] : [])))
-    return catalogSources.filter((source) => ids.has(source.id))
-  }, [catalogSources, items])
   const { downloadArtifact, error, isLoading } = useWorkspaceData()
   const { activeWorkspace } = useWorkspace()
   const { focus, toggleFocus } = useLibraryFocus(activeWorkspace?.id ?? null)
+  const { compact } = useAcademyChrome()
   const navigate = useNavigate()
 
   const [player, setPlayer] = useState<{ title: string; url: string } | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [type, setType] = useState<OutputType>('all')
-  const [sourceId, setSourceId] = useState<string | null>(null)
-  const [sort, setSort] = useState<OutputSort>('source')
-  const visibleType =
-    !isAdmin && type !== 'all' && isStudentHiddenLibraryKind(type) ? 'all' : type
-  const visibleSourceId = sourceId && sources.some((source) => source.id === sourceId) ? sourceId : null
+  const [bookKind, setBookKind] = useState<BookShelfKind>('all')
+  const [classKind, setClassKind] = useState<ClassShelfKind>('all')
+  const [sort, setSort] = useState<LibraryShelfSort>('name')
 
-  const filtered = useMemo(() => {
-    const sorted = sortOutputs(
-      filterOutputs(items, { search, type: visibleType, sourceId: visibleSourceId }),
-      sort,
-    )
-    // Focused items float to the front, keeping their relative sort order.
-    return [
-      ...sorted.filter((item) => isFocused(focus, item)),
-      ...sorted.filter((item) => !isFocused(focus, item)),
-    ]
-  }, [items, search, visibleType, visibleSourceId, sort, focus])
-
-  const groups = useMemo(() => {
-    if (sort !== 'source' || visibleType !== 'all') return null
-    const map = new Map<string, OutputItem[]>()
-    for (const item of filtered) {
-      const list = map.get(item.sourceName) ?? []
-      list.push(item)
-      map.set(item.sourceName, list)
+  const catalog = useMemo(
+    () => libraryShelves(items, { search, sort }),
+    [items, search, sort],
+  )
+  const sections = useMemo(() => {
+    const next = libraryShelves(items, { search, bookKind, classKind, sort })
+    return {
+      books: floatFocusedShelves(next.books, focus),
+      classes: floatFocusedShelves(next.classes, focus),
     }
-    return [...map.entries()].map(([sourceName, list]): [string, OutputItem[]] => [
-      sourceName,
-      list.toSorted((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]),
-    ])
-  }, [filtered, sort, visibleType])
+  }, [items, search, bookKind, classKind, sort, focus])
+  const visibleCount =
+    sections.books.reduce((total, shelf) => total + shelf.items.length, 0) +
+    sections.classes.reduce((total, shelf) => total + shelf.items.length, 0)
+  const shelfCount = sections.books.length + sections.classes.length
 
   const playAudiobook = async (item: OutputItem) => {
     setPlayError(null)
@@ -224,8 +215,21 @@ export function LibraryView({
       if (item.sourceId) navigate(`/app/reader/${item.sourceId}`)
       return
     }
+    if (item.kind === 'elo') {
+      if (item.lessonId) {
+        navigate(`/app/elo/${item.lessonId}`)
+        return
+      }
+      onOpen('wiki', {
+        sourceId: item.sourceId,
+        targetId: null,
+        projectId: null,
+        wikiKind: 'elo',
+      })
+      return
+    }
     if (item.kind === 'wiki') {
-      onOpen('wiki', { sourceId: item.sourceId, targetId: null, projectId: null })
+      onOpen('wiki', { sourceId: item.sourceId, targetId: null, projectId: null, wikiKind: null })
       return
     }
     if (item.kind === 'flashcard' || item.kind === 'question' || item.kind === 'scenario') {
@@ -261,30 +265,48 @@ export function LibraryView({
         title="Library"
         description={
           isAdmin
-            ? 'Search, filter, and open every book, audio file, study material, wiki entry, question, and scenario in this workspace.'
-            : 'Search, filter, and open the books, audio, and wiki entries in this workspace.'
+            ? 'Search, filter, and open every book, audio file, study material, wiki entry, ELO, question, and scenario in this workspace.'
+            : 'Search, filter, and open the books, audio, wiki entries, and ELOs in this workspace.'
         }
         stats={[
-          { value: filtered.length, label: 'outputs' },
-          { value: sources.length, label: 'sources' },
+          { value: visibleCount, label: 'outputs' },
+          { value: shelfCount, label: 'shelves' },
         ]}
       />
 
       <OutputFilterBar
         search={search}
         onSearch={setSearch}
-        type={visibleType}
-        onType={setType}
-        sourceId={visibleSourceId}
-        onSource={setSourceId}
         sort={sort}
         onSort={setSort}
-        sources={sources}
-        hiddenTypes={isAdmin ? (['flashcard'] as const) : studentHiddenLibraryKinds}
+        bookKind={bookKind}
+        classKind={classKind}
+        filters={
+          <>
+            <div className="lib__sheet-kinds">
+              <p className="lib__sheet-kinds-label">Books</p>
+              <LibraryKindChips
+                label="Book items"
+                value={bookKind}
+                onChange={setBookKind}
+                chips={BOOK_KIND_CHIPS}
+              />
+            </div>
+            <div className="lib__sheet-kinds">
+              <p className="lib__sheet-kinds-label">Classes</p>
+              <LibraryKindChips
+                label="Class items"
+                value={classKind}
+                onChange={setClassKind}
+                chips={CLASS_KIND_CHIPS}
+              />
+            </div>
+          </>
+        }
         searchPlaceholder={
           isAdmin
             ? 'Search questions, scenarios, wiki, books, audio, study material…'
-            : 'Search books, audio, and wiki entries…'
+            : 'Search books, audio, wiki entries, and ELOs…'
         }
       />
 
@@ -299,17 +321,50 @@ export function LibraryView({
           <p className="lib__empty-title">Library unavailable</p>
           <p className="lib__empty-copy">{error}</p>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : catalog.books.length === 0 && catalog.classes.length === 0 ? (
         <div className="lib__empty">
           <p className="lib__empty-title">No matching outputs</p>
           <p className="lib__empty-copy">
             Adjust the filters, or generate material for a source in the console.
           </p>
         </div>
-      ) : groups ? (
-        <SourceShelves groups={groups} {...tileActions} />
       ) : (
-        <TileGrid items={filtered} showKind={visibleType === 'all'} {...tileActions} />
+        <div className="lib__sections">
+          <ShelfSection
+            title="Books"
+            shelves={sections.books}
+            showEmpty={catalog.books.length > 0 && sections.books.length === 0}
+            emptyCopy="No matching books."
+            chips={
+              compact ? null : (
+                <LibraryKindChips
+                  label="Book items"
+                  value={bookKind}
+                  onChange={setBookKind}
+                  chips={BOOK_KIND_CHIPS}
+                />
+              )
+            }
+            {...tileActions}
+          />
+          <ShelfSection
+            title="Classes"
+            shelves={sections.classes}
+            showEmpty={catalog.classes.length > 0 && sections.classes.length === 0}
+            emptyCopy="No matching classes."
+            chips={
+              compact ? null : (
+                <LibraryKindChips
+                  label="Class items"
+                  value={classKind}
+                  onChange={setClassKind}
+                  chips={CLASS_KIND_CHIPS}
+                />
+              )
+            }
+            {...tileActions}
+          />
+        </div>
       )}
       {player ? (
         <div className="lib__player">
@@ -328,20 +383,55 @@ type TileActions = {
   onToggleFocus: (item: OutputItem) => void
 }
 
+function floatFocusedShelves(shelves: LibraryShelf[], focus: LibraryFocusState): LibraryShelf[] {
+  return [
+    ...shelves.filter((shelf) => shelf.items.some((item) => isFocused(focus, item))),
+    ...shelves.filter((shelf) => !shelf.items.some((item) => isFocused(focus, item))),
+  ]
+}
+
+function ShelfSection({
+  title,
+  shelves,
+  showEmpty,
+  emptyCopy,
+  chips,
+  ...actions
+}: TileActions & {
+  title: string
+  shelves: LibraryShelf[]
+  showEmpty: boolean
+  emptyCopy: string
+  chips: ReactNode
+}) {
+  if (shelves.length === 0 && !showEmpty) return null
+  return (
+    <section className="lib__section" aria-label={title}>
+      <div className="lib__band">
+        <h3 className="lib__band-title">{title}</h3>
+        <span className="lib__band-line" />
+      </div>
+      {chips}
+      {shelves.length > 0 ? <SourceShelves groups={shelves} {...actions} /> : null}
+      {showEmpty ? <p className="lib__section-empty">{emptyCopy}</p> : null}
+    </section>
+  )
+}
+
 function SourceShelves({
   groups,
   ...actions
-}: TileActions & { groups: [string, OutputItem[]][] }) {
+}: TileActions & { groups: LibraryShelf[] }) {
   return (
     <div className="lib__shelves">
-      {groups.map(([sourceName, list]) => (
-        <section key={sourceName} className="lib__shelf">
+      {groups.map((group) => (
+        <section key={group.key} className="lib__shelf">
           <div className="lib__shelf-head">
-            <h3 className="lib__shelf-title">{sourceName}</h3>
-            <span className="lib__shelf-meta">{shelfMeta(list)}</span>
+            <h3 className="lib__shelf-title">{group.name}</h3>
+            <span className="lib__shelf-meta">{shelfMeta(group.items)}</span>
           </div>
           <div className="lib__shelf-items">
-            {list.map((item) => (
+            {group.items.map((item) => (
               <OutputTile
                 key={`${item.kind}-${item.id}`}
                 item={item}
@@ -352,26 +442,6 @@ function SourceShelves({
             ))}
           </div>
         </section>
-      ))}
-    </div>
-  )
-}
-
-function TileGrid({
-  items,
-  showKind,
-  ...actions
-}: TileActions & { items: OutputItem[]; showKind: boolean }) {
-  return (
-    <div className="lib__tiles">
-      {items.map((item) => (
-        <OutputTile
-          key={`${item.kind}-${item.id}`}
-          item={item}
-          mode="flat"
-          showKind={showKind}
-          {...actions}
-        />
       ))}
     </div>
   )

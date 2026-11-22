@@ -19,11 +19,11 @@ from pydantic import BaseModel, Field, field_validator
 from app.intellex.wiki_slug import normalize_slug
 
 Importance = Literal["essential", "supporting", "contextual"]
-EntryKind = Literal["term", "list", "elo", "abbreviation"]
+EntryKind = Literal["term", "list", "elo", "abbreviation", "compare"]
 
 
 def canonical_kind(entry_kind: str) -> EntryKind:
-    """Map a stored or proposed kind onto ``term``, ``list``, ``elo``, or ``abbreviation``.
+    """Map a stored or proposed kind onto a live wiki kind.
 
     Older rows used ``concept`` and ``insight``. Both are terms.
     """
@@ -34,6 +34,8 @@ def canonical_kind(entry_kind: str) -> EntryKind:
         return "elo"
     if kind == "abbreviation":
         return "abbreviation"
+    if kind == "compare":
+        return "compare"
     return "term"
 
 
@@ -103,20 +105,30 @@ def definitions_conflict(existing: str, proposed: str) -> bool:
 
 
 def normalize_items(value: object) -> list[dict[str, Any]]:
+    """Normalize list members ``{name, details}`` or compare diffs ``{name, a, b}``."""
     if not isinstance(value, list):
         return []
     items: list[dict[str, Any]] = []
     for raw in value:
         if isinstance(raw, str):
             name = raw.strip()
-            details = ""
-        elif isinstance(raw, dict):
-            name = str(raw.get("name") or raw.get("label") or "").strip()
-            details = str(raw.get("details") or raw.get("definition") or "").strip()
-        else:
+            if name:
+                items.append({"name": name, "details": ""})
             continue
-        if name:
-            items.append({"name": name, "details": details})
+        if not isinstance(raw, dict):
+            continue
+        name = str(
+            raw.get("name") or raw.get("label") or raw.get("dimension") or "",
+        ).strip()
+        if not name:
+            continue
+        left = str(raw.get("a") or "").strip()
+        right = str(raw.get("b") or "").strip()
+        if left and right:
+            items.append({"name": name, "a": left, "b": right})
+            continue
+        details = str(raw.get("details") or raw.get("definition") or "").strip()
+        items.append({"name": name, "details": details})
     return items
 
 
@@ -154,8 +166,13 @@ def entry_embedding_text(
     parts = [label.strip(), definition.strip(), str(significance or "").strip()]
     for item in normalize_items(items):
         parts.append(item["name"])
-        if item["details"]:
-            parts.append(item["details"])
+        if item.get("a") and item.get("b"):
+            parts.append(str(item["a"]))
+            parts.append(str(item["b"]))
+            continue
+        details = str(item.get("details") or "").strip()
+        if details:
+            parts.append(details)
     return ". ".join(part for part in parts if part)
 
 

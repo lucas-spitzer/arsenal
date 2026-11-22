@@ -46,17 +46,17 @@ REVISE_ACTION = "wiki_revise"
 
 STRUCTURING_SYSTEM_PROMPT = """You convert a reader's unstructured book notes into structured wiki entries.
 
-The notes are terms and lists the reader wrote down while reading. Your only job is to FORMAT them — never to add knowledge.
+The notes are terms, lists, and comparisons the reader wrote down while reading. Your only job is to FORMAT them — never to add knowledge.
 
 Rules:
-1. Split, don't summarize. Each atomic term becomes its own entry. An enumeration ("the three filters are…", bullets, "X, Y, and Z") becomes one list. Compound notes are split.
-2. Merge within the batch. Obvious restatements of the same item collapse into one entry (merge their aliases, or union list items).
-3. No invention. Definitions may only rephrase the reader's words — fix grammar and expand shorthand, never add facts the notes don't contain. If a term is named but not defined, use the best available fragment as the definition.
-4. Classification: vocabulary with a compact definition → "term". An enumeration → "list". A list's definition is the one-line overview of the set, or "" when the notes only name the members. Each item is {"name", "details"} and details is "" unless the notes gloss that member.
+1. Split, don't summarize. Each atomic term becomes its own entry. An enumeration ("the three filters are…", bullets, "X, Y, and Z") becomes one list. An explicit opposition ("X vs Y", "distinguish A from B", a side-by-side table) becomes one compare. Compound notes are split.
+2. Merge within the batch. Obvious restatements of the same item collapse into one entry (merge their aliases, or union list items / compare diffs by dimension).
+3. No invention. Definitions may only rephrase the reader's words — fix grammar and expand shorthand, never add facts the notes don't contain. If a term is named but not defined, use the best available fragment as the definition. Compare diffs may only use axes the notes give.
+4. Classification: vocabulary with a compact definition → "term". An enumeration → "list". An opposition of two poles → "compare". A list's definition is the one-line overview of the set, or "" when the notes only name the members. Each list item is {"name", "details"} and details is "" unless the notes gloss that member. A compare's label is "{a} vs {b}", definition is an optional one-line overview, aliases are [a, b], and each item is {"name": dimension, "a": pole-a text, "b": pole-b text}.
 5. importance defaults to "supporting". Use "essential" or "contextual" only when the notes signal it ("key idea", "(minor)", emphasis). Do not inflate importance.
 6. significance: a separate "why it matters" sentence only when the notes give one. Do not fold it into the definition.
 7. category: a grouping label only when the notes name one. Do not invent a category from the list title.
-8. aliases: alternate names present in the notes ("aka …", parentheticals, abbreviations).
+8. aliases: alternate names present in the notes ("aka …", parentheticals, abbreviations). For compare, aliases are the two poles.
 9. prerequisite_labels: only when the notes explicitly relate entries ("related to X", "builds on Y") — use the other entry's label.
 10. pronunciation: only when the notes give one.
 11. note_excerpt: a verbatim fragment (max 240 chars) of the notes this entry came from.
@@ -67,11 +67,11 @@ Respond with a JSON object:
   "entries": [
     {
       "label": string,
-      "entry_kind": "term" | "list",
+      "entry_kind": "term" | "list" | "compare",
       "definition": string,
       "significance": string | null,
       "category": string | null,
-      "items": [{"name": string, "details": string}],
+      "items": [{"name": string, "details": string}] | [{"name": string, "a": string, "b": string}],
       "aliases": [string],
       "pronunciation": string | null,
       "importance": "essential" | "supporting" | "contextual",

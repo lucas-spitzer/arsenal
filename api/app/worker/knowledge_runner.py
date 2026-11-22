@@ -334,7 +334,7 @@ class KnowledgeRunner:
         rows: list[dict[str, Any]] = []
         used: list[dict[str, Any]] = []
         for entry in entries:
-            if str(entry.get("entry_kind") or "") not in {"term", "list", "abbreviation"}:
+            if str(entry.get("entry_kind") or "") not in {"term", "list", "abbreviation", "compare"}:
                 continue
             plan = by_wiki.get(str(entry["id"]))
             if plan is None or not str(entry.get("preferred_label") or "").strip():

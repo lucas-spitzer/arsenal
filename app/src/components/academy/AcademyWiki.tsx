@@ -13,11 +13,18 @@ import { sourceDisplayName } from '../../lib/sourceDisplay'
 import type { Source, WikiEntry, WikiListItem } from '../../lib/workspaceApi'
 import { StudyHead } from './StudySessionChrome'
 
-const ENTRY_KINDS = ['term', 'list', 'elo', 'abbreviation'] as const
+const ENTRY_KINDS = ['term', 'list', 'elo', 'abbreviation', 'compare'] as const
 const IMPORTANCE_LEVELS = ['essential', 'supporting', 'contextual'] as const
 
 function asEntryKind(value: string): (typeof ENTRY_KINDS)[number] {
-  if (value === 'list' || value === 'elo' || value === 'abbreviation') return value
+  if (
+    value === 'list' ||
+    value === 'elo' ||
+    value === 'abbreviation' ||
+    value === 'compare'
+  ) {
+    return value
+  }
   return 'term'
 }
 
@@ -85,9 +92,20 @@ function EntryRow({
         items:
           kind === 'list'
             ? items
-                .map((item) => ({ name: item.name.trim(), details: item.details.trim() }))
+                .map((item) => ({
+                  name: item.name.trim(),
+                  details: (item.details ?? '').trim(),
+                }))
                 .filter((item) => item.name)
-            : [],
+            : kind === 'compare'
+              ? items
+                  .map((item) => ({
+                    name: item.name.trim(),
+                    a: (item.a ?? '').trim(),
+                    b: (item.b ?? '').trim(),
+                  }))
+                  .filter((item) => item.name && item.a && item.b)
+              : [],
         entry_kind: kind,
         importance,
         aliases: aliases
@@ -179,7 +197,7 @@ function EntryRow({
               rows={4}
               value={definition}
               onChange={(event) => setDefinition(event.target.value)}
-              aria-label={kind === 'list' ? 'Overview' : 'Definition'}
+              aria-label={kind === 'list' || kind === 'compare' ? 'Overview' : 'Definition'}
             />
             <textarea
               className="academy-wiki__textarea"
@@ -214,7 +232,7 @@ function EntryRow({
                     />
                     <input
                       className="academy-wiki__input"
-                      value={item.details}
+                      value={item.details ?? ''}
                       aria-label={`Item ${index + 1} details`}
                       placeholder="Details"
                       onChange={(event) => {
@@ -239,6 +257,64 @@ function EntryRow({
                   onClick={() => setItems((current) => [...current, { name: '', details: '' }])}
                 >
                   Add item
+                </button>
+              </div>
+            ) : null}
+            {kind === 'compare' ? (
+              <div className="academy-wiki__items-edit">
+                {items.map((item, index) => (
+                  <div className="academy-wiki__item-edit" key={index}>
+                    <input
+                      className="academy-wiki__input"
+                      value={item.name}
+                      aria-label={`Diff ${index + 1} dimension`}
+                      placeholder="Dimension"
+                      onChange={(event) => {
+                        const name = event.target.value
+                        setItems((current) =>
+                          current.map((row, rowIndex) => (rowIndex === index ? { ...row, name } : row)),
+                        )
+                      }}
+                    />
+                    <input
+                      className="academy-wiki__input"
+                      value={item.a ?? ''}
+                      aria-label={`Diff ${index + 1} pole a`}
+                      placeholder="Pole A"
+                      onChange={(event) => {
+                        const a = event.target.value
+                        setItems((current) =>
+                          current.map((row, rowIndex) => (rowIndex === index ? { ...row, a } : row)),
+                        )
+                      }}
+                    />
+                    <input
+                      className="academy-wiki__input"
+                      value={item.b ?? ''}
+                      aria-label={`Diff ${index + 1} pole b`}
+                      placeholder="Pole B"
+                      onChange={(event) => {
+                        const b = event.target.value
+                        setItems((current) =>
+                          current.map((row, rowIndex) => (rowIndex === index ? { ...row, b } : row)),
+                        )
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="academy-wiki__action academy-wiki__action--cancel"
+                      onClick={() => setItems((current) => current.filter((_, rowIndex) => rowIndex !== index))}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="academy-wiki__action"
+                  onClick={() => setItems((current) => [...current, { name: '', a: '', b: '' }])}
+                >
+                  Add diff
                 </button>
               </div>
             ) : null}
@@ -369,6 +445,26 @@ function EntryRow({
             ))}
           </ol>
         ) : null}
+        {entry.entry_kind === 'compare' && entry.items?.length ? (
+          <ol className="academy-wiki__items">
+            {entry.items.map((item) => {
+              const poles = entry.aliases.map((alias) => alias.trim()).filter(Boolean)
+              const left = poles[0] ?? 'A'
+              const right = poles[1] ?? 'B'
+              return (
+                <li key={item.name}>
+                  <strong>{item.name}</strong>
+                  {item.a && item.b ? (
+                    <span>
+                      {' '}
+                      — {left}: {item.a} · {right}: {item.b}
+                    </span>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ol>
+        ) : null}
       </td>
       <td>
         <KindPill value={entry.entry_kind} />
@@ -415,9 +511,11 @@ function EntryRow({
 export function AcademyWiki({
   sourceId = null,
   targetId = null,
+  wikiKind = null,
 }: {
   sourceId?: string | null
   targetId?: string | null
+  wikiKind?: 'elo' | null
 }) {
   const { wikiEntries, sources, isLoading, error, refresh } = useWorkspaceData()
   const { approvedUser } = useAuth()
@@ -425,10 +523,12 @@ export function AcademyWiki({
   const [query, setQuery] = useState('')
   const [isEditing, setIsEditing] = useState(() => canEdit && Boolean(targetId))
 
+  const elosOnly = wikiKind === 'elo'
   const visibleEntries = useMemo(() => {
     const q = query.toLowerCase()
     return wikiEntries.filter((entry) => {
-      if (entry.status === 'deprecated' || entry.entry_kind === 'elo') return false
+      if (entry.status === 'deprecated') return false
+      if (elosOnly ? entry.entry_kind !== 'elo' : entry.entry_kind === 'elo') return false
       if (targetId) return entry.id === targetId
       if (sourceId) {
         const origin = entry.origin
@@ -449,17 +549,19 @@ export function AcademyWiki({
       }
       return true
     })
-  }, [wikiEntries, sources, query, sourceId, targetId])
+  }, [wikiEntries, sources, query, sourceId, targetId, elosOnly])
 
   return (
     <section className="study-session academy-wiki">
       <StudyHead
         eyebrow="Academy"
-        title="Wiki"
+        title={elosOnly ? 'ELOs' : 'Wiki'}
         description={
-          canEdit
-            ? 'Edit, deprecate, or rewrite canonical entries. Produce new ones with Wiki Knowledge on a New Run.'
-            : 'Canonical entries for the platoon.'
+          elosOnly
+            ? 'Enabling learning objectives for this source.'
+            : canEdit
+              ? 'Edit, deprecate, or rewrite canonical entries. Produce new ones with Wiki Knowledge on a New Run.'
+              : 'Canonical entries for the platoon.'
         }
         stats={[{ value: visibleEntries.length, label: 'entries' }]}
       />
@@ -470,7 +572,7 @@ export function AcademyWiki({
         <div className="lib__search academy-wiki__search">
           <Search size={16} aria-hidden="true" />
           <input
-            placeholder="Search wiki entries…"
+            placeholder={elosOnly ? 'Search ELOs…' : 'Search wiki entries…'}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             aria-label="Search wiki entries"
@@ -486,12 +588,14 @@ export function AcademyWiki({
       ) : visibleEntries.length === 0 ? (
         <div className="lib__empty">
           <p className="lib__empty-title">
-            {query ? 'No matching entries' : 'No wiki entries yet'}
+            {query ? 'No matching entries' : elosOnly ? 'No ELOs for this source' : 'No wiki entries yet'}
           </p>
           <p className="lib__empty-copy">
             {query
               ? 'Adjust the search, or open a different entry from Library.'
-              : 'Run Wiki Knowledge from Foundry OPS, then open an entry from Library.'}
+              : elosOnly
+                ? 'Knowledge ELOs for a book show up here after they are imported.'
+                : 'Run Wiki Knowledge from Foundry OPS, then open an entry from Library.'}
           </p>
         </div>
       ) : (

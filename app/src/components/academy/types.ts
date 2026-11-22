@@ -8,7 +8,6 @@ import {
   Library,
   Lightbulb,
   MessageSquare,
-  Target,
 } from 'lucide-react'
 
 export type AcademyPage =
@@ -33,6 +32,8 @@ export type AcademyScope = {
   threadId?: string | null
   /** Quiz batch to open. An `unassigned:` key selects questions with no knowledge batch. */
   batchKey?: string | null
+  /** Wiki page limited to knowledge ELOs for the source. Null shows every other entry. */
+  wikiKind?: 'elo' | null
 }
 
 export const emptyAcademyScope: AcademyScope = { sourceId: null, targetId: null, projectId: null, threadId: null }
@@ -41,7 +42,6 @@ export const academyRailItems: { id: AcademyPage; label: string; icon: LucideIco
   { id: 'calendar', label: 'CAL', icon: CalendarDays },
   { id: 'library', label: 'LIB', icon: Library },
   { id: 'reader', label: 'RDR', icon: BookOpen },
-  { id: 'objectives', label: 'ELO', icon: Target },
   { id: 'discussions', label: 'DSC', icon: MessageSquare },
   { id: 'flashcards', label: 'FLC', icon: Layers },
   { id: 'quiz', label: 'QIZ', icon: HelpCircle },

@@ -17,6 +17,7 @@ from app.worker.knowledge_runner import KnowledgeRunner
 def test_flashcard_defaults_follow_kind_and_importance() -> None:
     assert flashcard_enabled_by_default({"entry_kind": "term", "importance": "essential"})
     assert flashcard_enabled_by_default({"entry_kind": "list", "importance": "supporting"})
+    assert flashcard_enabled_by_default({"entry_kind": "compare", "importance": "supporting"})
     assert not flashcard_enabled_by_default({"entry_kind": "insight", "importance": "essential"})
     assert flashcard_enabled_by_default({"entry_kind": "term", "importance": "contextual"})
     assert flashcard_enabled_by_default({"entry_kind": "list", "importance": "contextual"})
@@ -40,6 +41,27 @@ def test_checked_list_pulls_component_terms_into_the_draft() -> None:
     ]
 
     assert study_wiki_ids(plans, entries) == {"list-1", "term-friction"}
+
+
+def test_checked_compare_pulls_pole_terms_into_the_draft() -> None:
+    plans = [
+        {"item_type": "flashcard", "wiki_entry_id": "compare-1", "enabled": True},
+        {"item_type": "flashcard", "wiki_entry_id": "term-offense", "enabled": False},
+        {"item_type": "flashcard", "wiki_entry_id": "term-other", "enabled": False},
+    ]
+    entries = [
+        {
+            "id": "compare-1",
+            "entry_kind": "compare",
+            "preferred_label": "Offense vs Defense",
+            "aliases": ["Offense", "Defense"],
+            "items": [{"name": "Initiative", "a": "Seizes it.", "b": "Yields it."}],
+        },
+        {"id": "term-offense", "entry_kind": "term", "preferred_label": "Offense", "items": []},
+        {"id": "term-other", "entry_kind": "term", "preferred_label": "Tempo", "items": []},
+    ]
+
+    assert study_wiki_ids(plans, entries) == {"compare-1", "term-offense"}
 
 
 def test_draft_pipeline_includes_only_requested_stages() -> None:
@@ -337,6 +359,17 @@ def test_definition_cards_are_written_for_terms_lists_and_abbreviations() -> Non
         "Mission, Enemy, Terrain and Weather, Troops and Support Available, Time Available\n"
         "A planning framework."
     )
+    assert definition_card_back(
+        {
+            "entry_kind": "compare",
+            "preferred_label": "Offense vs Defense",
+            "aliases": ["Offense", "Defense"],
+            "definition": "Two forms of combat.",
+            "items": [
+                {"name": "Initiative", "a": "Seizes it.", "b": "Yields it."},
+            ],
+        },
+    ) == "Initiative — Offense: Seizes it. · Defense: Yields it."
     listed = {
         "entry_kind": "list",
         "preferred_label": "Forms",
@@ -351,6 +384,7 @@ def test_definition_cards_are_written_for_terms_lists_and_abbreviations() -> Non
         {"id": "plan-term", "item_type": "flashcard", "wiki_entry_id": "wiki-term"},
         {"id": "plan-list", "item_type": "flashcard", "wiki_entry_id": "wiki-list"},
         {"id": "plan-abbr", "item_type": "flashcard", "wiki_entry_id": "wiki-abbr"},
+        {"id": "plan-compare", "item_type": "flashcard", "wiki_entry_id": "wiki-compare"},
         {"id": "plan-insight", "item_type": "flashcard", "wiki_entry_id": "wiki-insight"},
     ]
     entries = [
@@ -369,18 +403,33 @@ def test_definition_cards_are_written_for_terms_lists_and_abbreviations() -> Non
             "significance": "Mission Enemy Terrain Troops Time",
             "definition": "A planning framework.",
         },
+        {
+            "id": "wiki-compare",
+            "entry_kind": "compare",
+            "preferred_label": "Offense vs Defense",
+            "aliases": ["Offense", "Defense"],
+            "definition": "Two forms.",
+            "items": [{"name": "Initiative", "a": "Seizes it.", "b": "Yields it."}],
+        },
         {"id": "wiki-insight", "entry_kind": "insight", "preferred_label": "Aside", "definition": "Not a card."},
     ]
     KnowledgeRunner(db=db)._write_definition_flashcards(project, db.plans, entries)
 
-    assert [row["front"] for row in db.assessments["flashcards"]] == ["Friction", "Forms", "METT-T"]
+    assert [row["front"] for row in db.assessments["flashcards"]] == [
+        "Friction",
+        "Forms",
+        "METT-T",
+        "Offense vs Defense",
+    ]
     assert db.assessments["flashcards"][1]["back"] == "1. Friction"
     assert db.assessments["flashcards"][2]["back"] == "Mission Enemy Terrain Troops Time\nA planning framework."
+    assert db.assessments["flashcards"][3]["back"] == "Initiative — Offense: Seizes it. · Defense: Yields it."
     assert all(row["origin"]["source"] == "wiki_definition" for row in db.assessments["flashcards"])
     linked = {plan["id"]: plan.get("assessment_id") for plan in db.plans}
     assert linked["plan-term"]
     assert linked["plan-list"]
     assert linked["plan-abbr"]
+    assert linked["plan-compare"]
     assert linked["plan-insight"] is None
 
 

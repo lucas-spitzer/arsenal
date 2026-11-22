@@ -1,6 +1,6 @@
 import { apiRequest, apiRequestVoid } from './apiClient'
 
-// Academy ELO tab. Separate from wiki entries with entry_kind 'elo' (Knowledge runs).
+// A class opened from its Library shelf. Separate from wiki entries with entry_kind 'elo'.
 
 export type LessonResourceKind = 'file' | 'link'
 export type LessonIndexStatus = 'pending' | 'indexing' | 'ready' | 'failed' | 'skipped'

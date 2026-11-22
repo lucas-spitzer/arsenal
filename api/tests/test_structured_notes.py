@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from app.intellex.wiki_candidates import WikiCandidate, promote_candidates
-from app.knowledge.structured_notes import parse_structured_notes
+from app.knowledge.structured_notes import StructuredNotesError, parse_structured_notes
 
 FIXTURE = Path(__file__).parent / "fixtures" / "warfighting-chapter-1.json"
 
@@ -175,6 +177,89 @@ def test_question_pack_becomes_abbreviations_and_questions() -> None:
     assert question["format"] == "multiple_choice"
     assert question["pool"]["correct"] == ["Marine Expeditionary Force"]
     assert question["citation"] == {"kind": "abbreviation", "label": "mef"}
+
+
+def test_compares_become_compare_entries() -> None:
+    notes = parse_structured_notes(
+        json.dumps(
+            {
+                "compares": [
+                    {
+                        "a": "Offense",
+                        "b": "Defense",
+                        "overview": "Two complementary forms of combat.",
+                        "category": "Forms of Combat",
+                        "importance": "essential",
+                        "diffs": [
+                            {
+                                "dimension": "Initiative",
+                                "a": "Seizes and retains it.",
+                                "b": "Yields it until the counterstroke.",
+                            },
+                        ],
+                    },
+                ],
+                "questions": [
+                    {
+                        "question": "Which form of combat seizes initiative?",
+                        "compare": "Offense vs Defense",
+                        "correct": ["Offense"],
+                        "distractors": ["Defense"],
+                    },
+                ],
+            },
+        ),
+    )
+    assert notes is not None
+    compare = notes.entries[0]
+    assert compare["entry_kind"] == "compare"
+    assert compare["label"] == "Offense vs Defense"
+    assert compare["definition"] == "Two complementary forms of combat."
+    assert compare["aliases"] == ["Offense", "Defense"]
+    assert compare["items"] == [
+        {
+            "name": "Initiative",
+            "a": "Seizes and retains it.",
+            "b": "Yields it until the counterstroke.",
+        },
+    ]
+    assert notes.questions[0]["citation"] == {"kind": "compare", "label": "Offense vs Defense"}
+
+    inserts, updates, conflicted = promote_candidates(
+        workspace_id="ws-1",
+        candidates=[
+            WikiCandidate(
+                label=compare["label"],
+                definition=compare["definition"],
+                entry_kind=compare["entry_kind"],
+                items=compare["items"],
+                aliases=compare["aliases"],
+                category=compare["category"],
+                importance=compare["importance"],
+            ),
+        ],
+        existing_entries=[],
+    )
+    assert updates == []
+    assert conflicted == []
+    row = inserts[0]
+    assert row["entry_kind"] == "compare"
+    assert row["preferred_label"] == "Offense vs Defense"
+    assert row["items"] == compare["items"]
+    assert row["aliases"] == ["Offense", "Defense"]
+
+
+def test_compare_without_diffs_is_rejected() -> None:
+    with pytest.raises(StructuredNotesError):
+        parse_structured_notes(
+            json.dumps(
+                {
+                    "compares": [
+                        {"a": "Offense", "b": "Defense", "diffs": []},
+                    ],
+                },
+            ),
+        )
 
 
 def test_question_keeps_a_citation_that_is_not_in_the_file() -> None:

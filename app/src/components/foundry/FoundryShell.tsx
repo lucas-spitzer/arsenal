@@ -31,7 +31,7 @@ const SHELL_STORAGE_KEY = 'arsenal.foundryShell'
 
 const foundryPageIds = new Set(railItems.map((item) => item.id))
 const academyRailPageIds = new Set(academyRailItems.map((item) => item.id))
-const academyPageIds = new Set<AcademyPage>([...academyRailPageIds, 'wiki'])
+const academyPageIds = new Set<AcademyPage>([...academyRailPageIds, 'wiki', 'objectives'])
 
 type ShellState = {
   mode: AppMode
@@ -69,6 +69,7 @@ function readShellState(): ShellState {
             targetId: typeof scope.targetId === 'string' ? scope.targetId : null,
             projectId: typeof scope.projectId === 'string' ? scope.projectId : null,
             threadId: typeof scope.threadId === 'string' ? scope.threadId : null,
+            wikiKind: scope.wikiKind === 'elo' ? 'elo' : null,
           }
         : emptyAcademyScope
     return { mode, foundryPage, academyPage, academyScope }

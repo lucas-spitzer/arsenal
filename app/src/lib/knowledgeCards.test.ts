@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { definitionCardBack, listCardBack } from './knowledgeCards'
+import { compareCardBack, definitionCardBack, listCardBack } from './knowledgeCards'
 
 describe('list card backs', () => {
   it('numbers item names and leaves the overview off', () => {
@@ -38,5 +38,16 @@ describe('list card backs', () => {
 
   it('falls back to the overview when a list has no names', () => {
     expect(listCardBack({ entry_kind: 'list', definition: 'The forms.', items: [] })).toBe('The forms.')
+  })
+
+  it('formats compare diffs with both poles', () => {
+    const entry = {
+      entry_kind: 'compare',
+      definition: 'Two forms of combat.',
+      aliases: ['Offense', 'Defense'],
+      items: [{ name: 'Initiative', a: 'Seizes it.', b: 'Yields it.' }],
+    }
+    expect(compareCardBack(entry)).toBe('Initiative — Offense: Seizes it. · Defense: Yields it.')
+    expect(definitionCardBack(entry)).toBe(compareCardBack(entry))
   })
 })

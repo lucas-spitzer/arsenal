@@ -2,7 +2,7 @@
 
 Accepted shapes:
 
-- ``{"terms": [...], "key_lists": [...], "elos": [...]}`` (notes export)
+- ``{"terms": [...], "key_lists": [...], "elos": [...], "compares": [...]}`` (notes export)
 - ``{"abbreviations": [...], "questions": [...]}`` (question pack), alone or beside the notes export
 - ``{"entries": [ ... ], "unparsed_fragments": [ ... ]}`` (model output or a wiki export)
 - a bare array of entries
@@ -10,9 +10,10 @@ Accepted shapes:
 
 A term needs a label and a definition. A list needs a label plus an overview
 or at least one item. An ELO needs ``elo`` and ``response``. An abbreviation
-needs ``abbreviation``, ``title``, and ``definition``. A question needs a stem,
-one correct answer, and one distractor. ``prerequisites`` (wiki export) is
-accepted as ``prerequisite_labels``.
+needs ``abbreviation``, ``title``, and ``definition``. A compare needs ``a``,
+``b``, and at least one diff. A question needs a stem, one correct answer, and
+one distractor. ``prerequisites`` (wiki export) is accepted as
+``prerequisite_labels``.
 """
 
 from __future__ import annotations
@@ -21,10 +22,11 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.intellex.wiki_candidates import normalize_items
 from app.knowledge.answer_pool import BLOOM_LEVELS, TRUE_FALSE, AnswerPool, AnswerPoolError, Distractor, validate_pool
 from app.knowledge.cards import QUESTION_FORMATS
 
-_DOCUMENT_KEYS = ("terms", "key_lists", "elos", "abbreviations", "questions")
+_DOCUMENT_KEYS = ("terms", "key_lists", "elos", "abbreviations", "compares", "questions")
 _DIFFICULTIES = ("easy", "medium", "hard")
 
 
@@ -87,9 +89,10 @@ def _notes_from_payload(payload: Any) -> StructuredNotes:
         fragments = []
     else:
         raise StructuredNotesError(
-            "JSON needs an entries array, or terms, key_lists, and elos. "
+            "JSON needs an entries array, or terms, key_lists, elos, and compares. "
             "A question pack needs abbreviations or questions. "
-            "Each term needs a label and a definition. Each ELO needs an elo and a response.",
+            "Each term needs a label and a definition. Each ELO needs an elo and a response. "
+            "Each compare needs two poles and at least one diff.",
         )
 
     entries = [normalized for raw in raw_entries if (normalized := _normalize_entry(raw))]
@@ -108,6 +111,7 @@ def _notes_from_chapter(payload: dict[str, Any]) -> StructuredNotes:
     raw_lists = _array(payload, "key_lists")
     raw_elos = _array(payload, "elos")
     raw_abbreviations = _array(payload, "abbreviations")
+    raw_compares = _array(payload, "compares")
     raw_questions = _array(payload, "questions")
 
     entries: list[dict[str, Any]] = []
@@ -173,12 +177,13 @@ def _notes_from_chapter(payload: dict[str, Any]) -> StructuredNotes:
         elo_index += 1
 
     entries.extend(_abbreviations(raw_abbreviations))
+    entries.extend(_compares(raw_compares))
     questions = _questions(raw_questions, entries)
 
     if not entries and not questions:
         raise StructuredNotesError(
             "JSON needs at least one term with a definition, one list with items, "
-            "one ELO with a response, one abbreviation, or one question.",
+            "one ELO with a response, one abbreviation, one compare, or one question.",
         )
     return StructuredNotes(entries=entries, unparsed_fragments=[], questions=questions)
 
@@ -186,12 +191,32 @@ def _notes_from_chapter(payload: dict[str, Any]) -> StructuredNotes:
 def _normalize_entry(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
+    kind = _kind(raw)
+    if kind == "compare":
+        left = str(raw.get("a") or "").strip()
+        right = str(raw.get("b") or "").strip()
+        diffs = _compare_diffs(raw)
+        label = _label(raw) or (f"{left} vs {right}" if left and right else "")
+        if not label or not diffs:
+            return None
+        aliases = raw.get("aliases") if isinstance(raw.get("aliases"), list) else []
+        pole_aliases = [pole for pole in (left, right) if pole]
+        return _entry(
+            label=label,
+            definition=_definition(raw),
+            entry_kind="compare",
+            significance=_optional_text(raw.get("significance")),
+            category=_optional_text(raw.get("category")),
+            items=diffs,
+            aliases=[str(alias) for alias in aliases if str(alias).strip()] or pole_aliases,
+            importance=str(raw.get("importance") or "supporting"),
+            note_excerpt=str(raw.get("note_excerpt") or ""),
+        )
     label = _label(raw)
     if not label:
         return None
     definition = _definition(raw)
     items = _items(raw)
-    kind = _kind(raw)
     if kind == "list":
         if not definition and not items:
             return None
@@ -267,7 +292,7 @@ def _definition(raw: dict[str, Any]) -> str:
 
 def _entry_kind(entry_kind: str) -> str:
     kind = entry_kind.strip().lower()
-    if kind in {"list", "elo", "abbreviation"}:
+    if kind in {"list", "elo", "abbreviation", "compare"}:
         return kind
     return "term"
 
@@ -358,6 +383,7 @@ _CITE_FIELDS = (
     ("abbreviation", "abbreviation"),
     ("term", "term"),
     ("concept", "list"),
+    ("compare", "compare"),
 )
 
 
@@ -414,19 +440,44 @@ def _optional_text(value: Any) -> str | None:
 
 
 def _items(raw: dict[str, Any]) -> list[dict[str, str]]:
-    raw_items = raw.get("items")
-    if not isinstance(raw_items, list):
-        return []
-    items: list[dict[str, str]] = []
-    for item in raw_items:
-        if isinstance(item, str):
-            name = item.strip()
-            details = ""
-        elif isinstance(item, dict):
-            name = str(item.get("name") or item.get("label") or "").strip()
-            details = str(item.get("details") or item.get("definition") or "").strip()
-        else:
-            continue
-        if name:
-            items.append({"name": name, "details": details})
-    return items
+    return normalize_items(raw.get("items"))
+
+
+def _compare_diffs(raw: dict[str, Any]) -> list[dict[str, str]]:
+    """Accept chapter ``diffs`` or already-normalized ``items`` with ``a``/``b``."""
+    if isinstance(raw.get("diffs"), list):
+        return normalize_items(raw.get("diffs"))
+    return [item for item in normalize_items(raw.get("items")) if item.get("a") and item.get("b")]
+
+
+def _compares(raw_items: list[Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_items, start=1):
+        if not isinstance(raw, dict):
+            raise StructuredNotesError(f"Compare {index} must be an object.")
+        left = str(raw.get("a") or "").strip()
+        right = str(raw.get("b") or "").strip()
+        if not left or not right:
+            raise StructuredNotesError(f"Compare {index} needs poles a and b.")
+        diffs = _compare_diffs(raw)
+        if not diffs:
+            raise StructuredNotesError(f"Compare {index} needs at least one diff.")
+        for diff_index, diff in enumerate(diffs, start=1):
+            if not diff.get("a") or not diff.get("b"):
+                raise StructuredNotesError(
+                    f"Compare {index} diff {diff_index} needs a dimension, a, and b.",
+                )
+        entries.append(
+            _entry(
+                label=f"{left} vs {right}",
+                definition=str(raw.get("overview") or raw.get("definition") or "").strip(),
+                entry_kind="compare",
+                significance=_optional_text(raw.get("significance")),
+                category=_optional_text(raw.get("category")),
+                items=diffs,
+                aliases=[left, right],
+                importance=str(raw.get("importance") or "supporting"),
+                elo_reference=_optional_text(raw.get("elo_reference")),
+            ),
+        )
+    return entries

@@ -9,7 +9,7 @@ from app.knowledge.visuals import cited_wiki_id, storage_path_of
 
 def flashcard_enabled_by_default(entry: dict[str, Any]) -> bool:
     kind = str(entry.get("entry_kind") or "")
-    return kind in {"term", "list", "abbreviation"}
+    return kind in {"term", "list", "abbreviation", "compare"}
 
 
 def flashcard_plan_rows(
@@ -37,9 +37,10 @@ def flashcard_plan_rows(
 
 
 def study_wiki_ids(plans: list[dict[str, Any]], entries: list[dict[str, Any]]) -> set[str]:
-    """Enabled flashcard entries, plus the terms named by an enabled list.
+    """Enabled flashcard entries, plus terms named by an enabled list or compare.
 
     Checking a list in Forge Knowledge drafts that list and its components.
+    Checking a compare pulls the pole terms named in its aliases.
     Questions and scenarios use the same set.
     """
     enabled = enabled_flashcard_wiki_ids(plans)
@@ -57,14 +58,21 @@ def study_wiki_ids(plans: list[dict[str, Any]], entries: list[dict[str, Any]]) -
     expanded = set(enabled)
     for wiki_id in enabled:
         entry = by_id.get(wiki_id)
-        if not entry or str(entry.get("entry_kind") or "") != "list":
+        if not entry:
             continue
-        for item in entry.get("items") or []:
-            if not isinstance(item, dict):
-                continue
-            match = by_label.get(str(item.get("name") or "").strip().casefold())
-            if match and match != wiki_id:
-                expanded.add(match)
+        kind = str(entry.get("entry_kind") or "")
+        if kind == "list":
+            for item in entry.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                match = by_label.get(str(item.get("name") or "").strip().casefold())
+                if match and match != wiki_id:
+                    expanded.add(match)
+        elif kind == "compare":
+            for alias in entry.get("aliases") or []:
+                match = by_label.get(str(alias).strip().casefold())
+                if match and match != wiki_id:
+                    expanded.add(match)
     return expanded
 
 

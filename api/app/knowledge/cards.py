@@ -33,14 +33,37 @@ def list_card_back(entry: dict[str, Any]) -> str:
     return "\n".join(f"{index}. {name}" for index, name in enumerate(names, start=1))
 
 
+def compare_card_back(entry: dict[str, Any]) -> str:
+    """One line per diff: dimension — a: … · b: …"""
+    poles = [str(alias).strip() for alias in entry.get("aliases") or [] if str(alias).strip()]
+    left = poles[0] if len(poles) >= 1 else "A"
+    right = poles[1] if len(poles) >= 2 else "B"
+    lines: list[str] = []
+    for item in entry.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        dimension = str(item.get("name") or "").strip()
+        a_text = str(item.get("a") or "").strip()
+        b_text = str(item.get("b") or "").strip()
+        if not dimension or not a_text or not b_text:
+            continue
+        lines.append(f"{dimension} — {left}: {a_text} · {right}: {b_text}")
+    if lines:
+        return "\n".join(lines)
+    return str(entry.get("definition") or "").strip()
+
+
 def definition_card_back(entry: dict[str, Any]) -> str:
     """Definition for a term. A list uses its numbered item names.
 
     An abbreviation shows the expanded title, then the definition.
+    A compare shows each axis with both poles.
     """
     kind = str(entry.get("entry_kind") or "")
     if kind == "list":
         return list_card_back(entry)
+    if kind == "compare":
+        return compare_card_back(entry)
     definition = str(entry.get("definition") or "").strip()
     if kind == "abbreviation":
         title = str(entry.get("significance") or "").strip()

@@ -305,6 +305,9 @@ export function KnowledgeComposer({
 }
 
 function SourcePane({ entry }: { entry: KnowledgeEntry }) {
+  const poles = entry.aliases.map((alias) => alias.trim()).filter(Boolean)
+  const left = poles[0] ?? 'A'
+  const right = poles[1] ?? 'B'
   return (
     <section className="kcomp__pane kcomp__source" aria-label="Source material">
       <h4 className="kcomp__pane-title">Source</h4>
@@ -316,6 +319,16 @@ function SourcePane({ entry }: { entry: KnowledgeEntry }) {
             <li key={item.name}>
               {item.name}
               {item.details ? ` — ${item.details}` : ''}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {entry.entry_kind === 'compare' && entry.items.length ? (
+        <ol className="kproj-entry__items">
+          {entry.items.map((item) => (
+            <li key={item.name}>
+              <strong>{item.name}</strong>
+              {item.a && item.b ? ` — ${left}: ${item.a} · ${right}: ${item.b}` : ''}
             </li>
           ))}
         </ol>

@@ -1,18 +1,22 @@
 import { useMemo } from 'react'
-import { useWorkspaceData } from '../features/workspace/workspaceDataContext'
 import type { AcademyPage } from '../components/academy/types'
+import { useWorkspace } from '../features/workspace/workspaceContext'
+import { useWorkspaceData } from '../features/workspace/workspaceDataContext'
+import { isWikiTermQuiz } from './assessmentOrigin'
 import { collapseDuplicateNarrationArtifacts } from './foundryMappers'
 import { formatDuration, formatSpokenDuration } from './foundryFormat'
+import type { Lesson } from './lessonsApi'
 import { sourceDisplayName } from './sourceDisplay'
-import { isWikiTermQuiz } from './assessmentOrigin'
+import { useLessons } from './useLessons'
 import type { Artifact, Source, WikiEntry } from './workspaceApi'
 
-export type OutputKind = 'audio' | 'book' | 'artifact' | 'material' | 'flashcard' | 'question' | 'scenario' | 'wiki'
+export type OutputKind = 'audio' | 'book' | 'artifact' | 'material' | 'flashcard' | 'question' | 'scenario' | 'wiki' | 'elo'
 export type NarrationDownloadState = 'ready' | 'preparing' | 'failed' | 'absent'
 export type OutputType = 'all' | OutputKind
 export type OutputSort = 'source' | 'newest' | 'difficulty' | 'type'
 
 const UNASSIGNED = 'Unassigned'
+const NO_LESSONS: Lesson[] = []
 export const STUDY_MATERIAL_GROUP = 'Study Material'
 
 export interface OutputItem {
@@ -20,6 +24,8 @@ export interface OutputItem {
   id: string
   title: string
   sourceId: string | null
+  /** Class this tile opens. Null for every item filed under a book. */
+  lessonId: string | null
   sourceName: string
   /** Source title. Material title for study material. */
   footer: string
@@ -73,6 +79,7 @@ const KIND_CHIP: Record<OutputKind, string> = {
   question: 'Question',
   scenario: 'Scenario',
   wiki: 'Wiki',
+  elo: 'ELO',
 }
 
 function difficultyRank(difficulty: string): number {
@@ -288,6 +295,7 @@ export function wikiEntriesToOutputItems(
       id: sourceId ?? 'unassigned',
       title: countLabel(entries.length, 'entry', 'entries'),
       sourceId,
+      lessonId: null,
       sourceName,
       footer: outputFooter('wiki', sourceName, null),
       badge: '',
@@ -302,6 +310,184 @@ export function wikiEntriesToOutputItems(
       searchText: entries.map((entry) => entry.preferred_label).join(' '),
     }
   })
+}
+
+export function wikiElosToOutputItems(
+  wikiEntries: WikiEntry[],
+  nameOf: (id: string | null | undefined) => string,
+): OutputItem[] {
+  const groups = new Map<string, WikiEntry[]>()
+  for (const entry of wikiEntries) {
+    if (entry.status === 'deprecated' || entry.entry_kind !== 'elo') continue
+    const sourceId = wikiSourceId(entry)
+    const key = sourceId ?? ''
+    const list = groups.get(key) ?? []
+    list.push(entry)
+    groups.set(key, list)
+  }
+
+  return [...groups.entries()].map(([key, entries]) => {
+    const sourceId = key || null
+    const sourceName = nameOf(sourceId)
+    const newest = entries.reduce((latest, entry) =>
+      entry.created_at > latest.created_at ? entry : latest,
+    )
+    return {
+      kind: 'elo',
+      id: sourceId ?? 'unassigned',
+      title: countLabel(entries.length, 'ELO'),
+      sourceId,
+      lessonId: null,
+      sourceName,
+      footer: outputFooter('elo', sourceName, null),
+      badge: '',
+      createdAt: newest.created_at,
+      runnerPage: 'wiki',
+      isAudio: false,
+      isEbook: false,
+      isNarration: false,
+      isAudiobook: false,
+      narrationDownload: null,
+      projectId: null,
+      searchText: entries.map((entry) => entry.preferred_label).join(' '),
+    } satisfies OutputItem
+  })
+}
+
+export function lessonLibraryItems(lessons: Lesson[]): OutputItem[] {
+  return lessons.flatMap((lesson) => {
+    const objectiveCount = lesson.objectives.length
+    const resourceCount = lesson.resources.length
+    if (objectiveCount === 0 && resourceCount === 0) return []
+    const newestResource = lesson.resources.reduce(
+      (latest, resource) => (resource.updated_at > latest ? resource.updated_at : latest),
+      lesson.updated_at,
+    )
+    return [{
+      kind: 'elo',
+      id: lesson.id,
+      title: objectiveCount > 0
+        ? countLabel(objectiveCount, 'ELO')
+        : countLabel(resourceCount, 'material'),
+      sourceId: null,
+      lessonId: lesson.id,
+      sourceName: lesson.title,
+      footer: lesson.title,
+      badge: '',
+      createdAt: newestResource,
+      runnerPage: 'objectives',
+      isAudio: false,
+      isEbook: false,
+      isNarration: false,
+      isAudiobook: false,
+      narrationDownload: null,
+      projectId: null,
+      searchText: [
+        ...lesson.objectives.map((objective) => `${objective.text} ${objective.code ?? ''}`),
+        ...lesson.resources.map((resource) => resource.label),
+      ].join(' '),
+    } satisfies OutputItem]
+  })
+}
+
+export function outputShelfKey(item: Pick<OutputItem, 'lessonId' | 'sourceId' | 'sourceName'>): string {
+  if (item.lessonId) return `lesson:${item.lessonId}`
+  if (item.sourceId) return `source:${item.sourceId}`
+  return `group:${item.sourceName}`
+}
+
+export type LibraryShelfSort = 'name' | 'updated'
+export type BookShelfKind = 'all' | 'book' | 'audio' | 'wiki' | 'elo'
+export type ClassShelfKind = 'all' | 'elo' | 'quiz'
+
+export interface LibraryShelf {
+  key: string
+  name: string
+  items: OutputItem[]
+  updatedAt: string
+}
+
+const SHELF_KIND_RANK: Record<OutputKind, number> = {
+  book: 0,
+  audio: 1,
+  wiki: 2,
+  elo: 3,
+  material: 4,
+  flashcard: 5,
+  question: 6,
+  scenario: 7,
+  artifact: 8,
+}
+
+function shelfSearchText(item: OutputItem): string {
+  return `${item.title} ${item.footer} ${item.sourceName} ${outputChipLabel(item)} ${item.searchText ?? ''}`.toLowerCase()
+}
+
+function matchesShelfKind(item: OutputItem, kind: BookShelfKind | ClassShelfKind): boolean {
+  if (kind === 'all') return true
+  const itemKind: string = item.kind
+  return itemKind === kind
+}
+
+function shelfUpdatedAt(items: OutputItem[]): string {
+  return items.reduce((latest, item) => (item.createdAt > latest ? item.createdAt : latest), '')
+}
+
+function compareShelves(sort: LibraryShelfSort, left: LibraryShelf, right: LibraryShelf): number {
+  if (sort === 'name') return left.name.localeCompare(right.name)
+  const leftDay = left.updatedAt.slice(0, 10)
+  const rightDay = right.updatedAt.slice(0, 10)
+  if (!leftDay && rightDay) return 1
+  if (leftDay && !rightDay) return -1
+  if (leftDay !== rightDay) return rightDay.localeCompare(leftDay)
+  return left.name.localeCompare(right.name)
+}
+
+function groupShelves(items: OutputItem[], sort: LibraryShelfSort): LibraryShelf[] {
+  const map = new Map<string, OutputItem[]>()
+  const names = new Map<string, string>()
+  for (const item of items) {
+    const key = outputShelfKey(item)
+    const list = map.get(key) ?? []
+    list.push(item)
+    map.set(key, list)
+    names.set(key, item.sourceName)
+  }
+  return [...map.entries()]
+    .map(([key, shelfItems]) => ({
+      key,
+      name: names.get(key) ?? '',
+      items: shelfItems.toSorted((a, b) => SHELF_KIND_RANK[a.kind] - SHELF_KIND_RANK[b.kind]),
+      updatedAt: shelfUpdatedAt(shelfItems),
+    }))
+    .sort((left, right) => compareShelves(sort, left, right))
+}
+
+/** Books above classes. A class shelf is any item with a lesson id. */
+export function libraryShelves(
+  items: OutputItem[],
+  {
+    search = '',
+    bookKind = 'all',
+    classKind = 'all',
+    sort = 'name',
+  }: {
+    search?: string
+    bookKind?: BookShelfKind
+    classKind?: ClassShelfKind
+    sort?: LibraryShelfSort
+  } = {},
+): { books: LibraryShelf[]; classes: LibraryShelf[] } {
+  const needle = search.trim().toLowerCase()
+  const visible = needle
+    ? items.filter((item) => shelfSearchText(item).includes(needle))
+    : items
+  const books = visible.filter((item) => !item.lessonId && matchesShelfKind(item, bookKind))
+  const classes = visible.filter((item) => item.lessonId && matchesShelfKind(item, classKind))
+  return {
+    books: groupShelves(books, sort),
+    classes: groupShelves(classes, sort),
+  }
 }
 
 interface KnowledgeRecord {
@@ -349,6 +535,7 @@ export function knowledgeLibraryItems<T extends KnowledgeRecord>(
       projectId: null,
       title: countLabel(batch.length, unit, plural),
       sourceId,
+      lessonId: null,
       sourceName,
       footer: sourceName,
       badge: '',
@@ -366,6 +553,9 @@ export function knowledgeLibraryItems<T extends KnowledgeRecord>(
 
 export function useOutputs(): { items: OutputItem[]; sources: { id: string; name: string }[] } {
   const { quizzes, scenarios, artifacts, wikiEntries, sources } = useWorkspaceData()
+  const { activeWorkspace } = useWorkspace()
+  const { lessons, isLoading: lessonsLoading } = useLessons(activeWorkspace?.id ?? null)
+  const readyLessons = lessonsLoading ? NO_LESSONS : lessons
 
   return useMemo(() => {
     const byId = new Map(sources.map((s) => [s.id, s]))
@@ -393,6 +583,8 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
         nameOf,
       }),
       ...wikiEntriesToOutputItems(wikiEntries, nameOf),
+      ...wikiElosToOutputItems(wikiEntries, nameOf),
+      ...lessonLibraryItems(readyLessons),
       ...collapseDuplicateNarrationArtifacts(artifacts)
         .filter((a) => !isIncompleteNarrationArtifact(a))
         .map<OutputItem>((a) => {
@@ -411,6 +603,7 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
           id: a.id,
           title: card.title,
           sourceId: a.source_id ?? null,
+          lessonId: null,
           sourceName,
           footer: outputFooter(kind, sourceName, card.isStudyMaterial ? materialTitle : null),
           badge: (a.format || 'file').toUpperCase(),
@@ -429,14 +622,15 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
     // Distinct sources that actually have outputs, sorted by name.
     const seen = new Map<string, string>()
     for (const item of items) {
-      if (item.sourceId && !seen.has(item.sourceId)) seen.set(item.sourceId, item.sourceName)
+      const id = item.lessonId ?? item.sourceId
+      if (id && !seen.has(id)) seen.set(id, item.sourceName)
     }
     const sourceList = [...seen.entries()]
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name))
 
     return { items, sources: sourceList }
-  }, [quizzes, scenarios, artifacts, wikiEntries, sources])
+  }, [quizzes, scenarios, artifacts, wikiEntries, sources, readyLessons])
 }
 
 export function filterOutputs(
@@ -446,7 +640,7 @@ export function filterOutputs(
   const q = search.trim().toLowerCase()
   return items.filter((item) => {
     if (type !== 'all' && item.kind !== type) return false
-    if (sourceId && item.sourceId !== sourceId) return false
+    if (sourceId && item.sourceId !== sourceId && item.lessonId !== sourceId) return false
     if (q) {
       const haystack = `${item.title} ${item.footer} ${item.sourceName} ${outputChipLabel(item)} ${item.searchText ?? ''}`.toLowerCase()
       if (!haystack.includes(q)) return false

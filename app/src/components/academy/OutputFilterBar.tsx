@@ -1,95 +1,72 @@
-import {
-  ArrowDownUp,
-  BookMarked,
-  BookOpen,
-  FileText,
-  Headphones,
-  HelpCircle,
-  Layers,
-  LayoutGrid,
-  Lightbulb,
-  Search,
-  SlidersHorizontal,
-  X,
-} from 'lucide-react'
-import { useState } from 'react'
-import type { OutputSort, OutputType } from '../../lib/academyOutputs'
+import { ArrowDownUp, Search, SlidersHorizontal, X, type LucideIcon } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import type { BookShelfKind, ClassShelfKind, LibraryShelfSort } from '../../lib/academyOutputs'
 import { useAcademyChrome } from './academyChromeContext'
 
-const TYPE_CHIPS: { value: OutputType; label: string; icon: typeof LayoutGrid }[] = [
-  { value: 'all', label: 'All', icon: LayoutGrid },
-  { value: 'book', label: 'Book', icon: BookOpen },
-  { value: 'audio', label: 'Audio', icon: Headphones },
-  { value: 'material', label: 'Study Material', icon: FileText },
-  { value: 'wiki', label: 'Wiki', icon: BookMarked },
-  { value: 'flashcard', label: 'Flashcards', icon: Layers },
-  { value: 'question', label: 'Questions', icon: HelpCircle },
-  { value: 'scenario', label: 'Scenarios', icon: Lightbulb },
+type KindChip<T extends string> = { value: T; label: string; icon: LucideIcon }
+
+const SORT_OPTIONS: { value: LibraryShelfSort; label: string }[] = [
+  { value: 'name', label: 'Name' },
+  { value: 'updated', label: 'Updated' },
 ]
 
-const SORT_OPTIONS: { value: OutputSort; label: string }[] = [
-  { value: 'source', label: 'Source' },
-  { value: 'newest', label: 'Newest' },
-  { value: 'difficulty', label: 'Difficulty' },
-  { value: 'type', label: 'Type' },
-]
-
-type Props = {
-  search?: string
-  onSearch?: (value: string) => void
-  type?: OutputType
-  onType?: (value: OutputType) => void
-  sourceId: string | null
-  onSource: (value: string | null) => void
-  sort: OutputSort
-  onSort: (value: OutputSort) => void
-  sources: { id: string; name: string }[]
-  showTypes?: boolean
-  showSearch?: boolean
-  searchPlaceholder?: string
-  hiddenTypes?: readonly OutputType[]
+export function LibraryKindChips<T extends string>({
+  label,
+  value,
+  onChange,
+  chips,
+}: {
+  label: string
+  value: T
+  onChange: (value: T) => void
+  chips: KindChip<T>[]
+}) {
+  return (
+    <div className="lib__chips" role="group" aria-label={label}>
+      {chips.map((chip) => {
+        const Icon = chip.icon
+        return (
+          <button
+            key={chip.value}
+            type="button"
+            className={`lib__chip${value === chip.value ? ' is-active' : ''}`}
+            onClick={() => onChange(chip.value)}
+            aria-pressed={value === chip.value}
+          >
+            <Icon size={14} aria-hidden="true" />
+            {chip.label}
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 export function OutputFilterBar({
   search = '',
   onSearch,
-  type = 'all',
-  onType,
-  sourceId,
-  onSource,
   sort,
   onSort,
-  sources,
-  showTypes = true,
+  bookKind,
+  classKind,
   showSearch = true,
   searchPlaceholder = 'Search…',
-  hiddenTypes,
-}: Props) {
+  filters = null,
+}: {
+  search?: string
+  onSearch?: (value: string) => void
+  sort: LibraryShelfSort
+  onSort: (value: LibraryShelfSort) => void
+  bookKind: BookShelfKind
+  classKind: ClassShelfKind
+  showSearch?: boolean
+  searchPlaceholder?: string
+  filters?: ReactNode
+}) {
   const { compact } = useAcademyChrome()
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const typeChips = hiddenTypes
-    ? TYPE_CHIPS.filter((chip) => !hiddenTypes.includes(chip.value))
-    : TYPE_CHIPS
   const activeFilters =
-    (sourceId ? 1 : 0) + (type !== 'all' ? 1 : 0) + (sort !== 'source' ? 1 : 0)
-
-  const sourceSelect = (
-    <label className="lib__select">
-      <span className="lib__select-label">Source</span>
-      <select
-        value={sourceId ?? ''}
-        onChange={(e) => onSource(e.target.value || null)}
-        aria-label="Filter by source"
-      >
-        <option value="">All</option>
-        {sources.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
+    (bookKind !== 'all' ? 1 : 0) + (classKind !== 'all' ? 1 : 0) + (sort !== 'name' ? 1 : 0)
 
   const sortSelect = (
     <label className="lib__select">
@@ -97,54 +74,38 @@ export function OutputFilterBar({
       <ArrowDownUp size={14} aria-hidden="true" />
       <select
         value={sort}
-        onChange={(e) => onSort(e.target.value as OutputSort)}
-        aria-label="Sort outputs"
+        onChange={(event) => {
+          const next = event.target.value
+          if (next === 'name' || next === 'updated') onSort(next)
+        }}
+        aria-label="Sort shelves"
       >
-        {SORT_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
+        {SORT_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>
     </label>
   )
 
-  const typeChipsEl =
-    showTypes && onType ? (
-      <div className="lib__chips" role="group" aria-label="Filter by type">
-        {typeChips.map((chip) => {
-          const Icon = chip.icon
-          return (
-            <button
-              key={chip.value}
-              type="button"
-              className={`lib__chip${type === chip.value ? ' is-active' : ''}`}
-              onClick={() => onType(chip.value)}
-              aria-pressed={type === chip.value}
-            >
-              <Icon size={14} aria-hidden="true" />
-              {chip.label}
-            </button>
-          )
-        })}
-      </div>
-    ) : null
+  const searchField = showSearch && onSearch ? (
+    <div className="lib__search">
+      <Search size={16} aria-hidden="true" />
+      <input
+        value={search}
+        onChange={(event) => onSearch(event.target.value)}
+        placeholder={searchPlaceholder}
+        aria-label="Search outputs"
+      />
+    </div>
+  ) : null
 
   if (compact) {
     return (
       <div className="lib__filter lib__filter--compact">
         <div className="lib__bar">
-          {showSearch && onSearch && (
-            <div className="lib__search">
-              <Search size={16} aria-hidden="true" />
-              <input
-                value={search}
-                onChange={(e) => onSearch(e.target.value)}
-                placeholder={searchPlaceholder}
-                aria-label="Search outputs"
-              />
-            </div>
-          )}
+          {searchField}
           <button
             type="button"
             className={`lib__filter-toggle${activeFilters > 0 ? ' is-active' : ''}`}
@@ -183,9 +144,8 @@ export function OutputFilterBar({
                 </button>
               </div>
               <div className="lib__filter-sheet-body">
-                {sourceSelect}
                 {sortSelect}
-                {typeChipsEl}
+                {filters}
               </div>
               <button
                 type="button"
@@ -204,21 +164,10 @@ export function OutputFilterBar({
   return (
     <div className="lib__filter">
       <div className="lib__bar">
-        {showSearch && onSearch && (
-          <div className="lib__search">
-            <Search size={16} aria-hidden="true" />
-            <input
-              value={search}
-              onChange={(e) => onSearch(e.target.value)}
-              placeholder={searchPlaceholder}
-              aria-label="Search outputs"
-            />
-          </div>
-        )}
-        {sourceSelect}
+        {searchField}
         {sortSelect}
       </div>
-      {typeChipsEl}
     </div>
   )
 }
+

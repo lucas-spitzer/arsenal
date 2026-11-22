@@ -463,7 +463,12 @@ function CardEntrySearch({
   const [busy, setBusy] = useState(false)
   const needle = query.trim().toLowerCase()
   const matches = wikiEntries
-    .filter((entry) => entry.entry_kind === 'term' || entry.entry_kind === 'list')
+    .filter(
+      (entry) =>
+        entry.entry_kind === 'term' ||
+        entry.entry_kind === 'list' ||
+        entry.entry_kind === 'compare',
+    )
     .filter((entry) => entry.status !== 'deprecated')
     .filter((entry) => !needle || entry.preferred_label.toLowerCase().includes(needle))
     .sort((left, right) => left.preferred_label.localeCompare(right.preferred_label))

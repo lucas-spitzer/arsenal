@@ -55,7 +55,13 @@ export function AcademyContent({
         <div className="academy__main">
           {page === 'library' && <LibraryView onOpen={onOpen} />}
           {page === 'reader' && <ReaderView sourceId={readerSourceId} seg={seg} onOpen={onOpen} />}
-          {page === 'wiki' && <AcademyWiki sourceId={scope.sourceId} targetId={scope.targetId} />}
+          {page === 'wiki' && (
+            <AcademyWiki
+              sourceId={scope.sourceId}
+              targetId={scope.targetId}
+              wikiKind={scope.wikiKind ?? null}
+            />
+          )}
           {page === 'flashcards' && (
             <FlashcardsView
               sourceId={scope.sourceId}

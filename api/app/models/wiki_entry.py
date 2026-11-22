@@ -5,8 +5,12 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class WikiListItem(BaseModel):
+    """List member ``{name, details}`` or compare diff ``{name, a, b}``."""
+
     name: str = Field(min_length=1)
     details: str = ""
+    a: str = ""
+    b: str = ""
 
 
 class WikiEntryCreate(BaseModel):
@@ -14,7 +18,7 @@ class WikiEntryCreate(BaseModel):
 
     preferred_label: str = Field(min_length=1)
     definition: str = ""
-    entry_kind: Literal["term", "list", "elo", "abbreviation"] = "term"
+    entry_kind: Literal["term", "list", "elo", "abbreviation", "compare"] = "term"
     importance: Literal["essential", "supporting", "contextual"] = "supporting"
     aliases: list[str] = Field(default_factory=list)
     pronunciation: str | None = None
@@ -28,6 +32,9 @@ class WikiEntryCreate(BaseModel):
         if self.entry_kind == "list":
             if not self.definition.strip() and not self.items:
                 raise ValueError("A list needs an overview or at least one item.")
+        elif self.entry_kind == "compare":
+            if not self.items:
+                raise ValueError("A compare needs at least one diff.")
         elif not self.definition.strip():
             raise ValueError("This entry needs a definition.")
         return self
@@ -46,7 +53,7 @@ class WikiReviseProposal(BaseModel):
 class WikiEntryUpdate(BaseModel):
     preferred_label: str | None = None
     definition: str | None = None
-    entry_kind: Literal["term", "list", "elo", "abbreviation"] | None = None
+    entry_kind: Literal["term", "list", "elo", "abbreviation", "compare"] | None = None
     importance: Literal["essential", "supporting", "contextual"] | None = None
     aliases: list[str] | None = None
     pronunciation: str | None = None

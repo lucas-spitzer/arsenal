@@ -275,7 +275,7 @@ create table public.wiki_entries (
   constraint wiki_entries_status_check
     check (status in ('candidate', 'canonical', 'disputed', 'deprecated', 'rejected')),
   constraint wiki_entries_entry_kind_check
-    check (entry_kind in ('term', 'list', 'elo', 'abbreviation')),
+    check (entry_kind in ('term', 'list', 'elo', 'abbreviation', 'compare')),
   constraint wiki_entries_items_check
     check (jsonb_typeof(items) = 'array'),
   constraint wiki_entries_workspace_slug_key

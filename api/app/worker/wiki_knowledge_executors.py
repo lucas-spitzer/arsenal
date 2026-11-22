@@ -380,6 +380,9 @@ def _parse_entries(raw_entries: list[Any]) -> list[WikiIngestEntry]:
         if kind == "list":
             if not definition and not items:
                 continue
+        elif kind == "compare":
+            if not items:
+                continue
         elif not definition:
             continue
         importance = str(raw.get("importance") or "").strip().lower()

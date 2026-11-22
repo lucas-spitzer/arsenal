@@ -1,13 +1,11 @@
-import { ChevronRight, Download, ExternalLink, MessagesSquare, Paperclip, Search, X } from 'lucide-react'
+import { Download, ExternalLink, MessagesSquare, Paperclip, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { createThread } from '../../lib/assistantApi'
 import {
   fileTypeLabel,
-  filterLessons,
   formatFileSize,
   lessonSeedPrompt,
-  lessonStats,
 } from '../../lib/lessonObjectives'
 import { lessonResourceUrl, type Lesson, type LessonResource } from '../../lib/lessonsApi'
 import { useLessons } from '../../lib/useLessons'
@@ -105,17 +103,26 @@ export function ObjectivesView({ focusLessonId = null, focusResourceId = null, o
   const { lessons, error, hasLoaded, isLoading } = useLessons(workspaceId)
 
   const [query, setQuery] = useState('')
-  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set(focusLessonId ? [focusLessonId] : []))
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [discussingId, setDiscussingId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const scrolledRef = useRef(false)
 
-  const stats = useMemo(() => lessonStats(lessons), [lessons])
-  const matches = useMemo(() => filterLessons(lessons, query), [lessons, query])
+  const lesson = useMemo(
+    () => (focusLessonId ? lessons.find((item) => item.id === focusLessonId) ?? null : null),
+    [focusLessonId, lessons],
+  )
   const searching = query.trim().length > 0
-  const shownElos = matches.reduce((total, match) => total + match.objectives.length, 0)
-  const allOpen = lessons.length > 0 && lessons.every((lesson) => openIds.has(lesson.id))
+  const objectives = useMemo(() => {
+    if (!lesson) return []
+    const needle = query.trim().toLowerCase()
+    if (!needle) return lesson.objectives
+    return lesson.objectives.filter(
+      (objective) =>
+        objective.text.toLowerCase().includes(needle) ||
+        (objective.code ?? '').toLowerCase().includes(needle),
+    )
+  }, [lesson, query])
 
   useEffect(() => {
     if (!focusLessonId || scrolledRef.current || lessons.length === 0) return
@@ -123,21 +130,8 @@ export function ObjectivesView({ focusLessonId = null, focusResourceId = null, o
     document.getElementById(`elo-class-${focusLessonId}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
   }, [focusLessonId, lessons])
 
-  const toggle = (lessonId: string) => {
-    setOpenIds((current) => {
-      const next = new Set(current)
-      if (next.has(lessonId)) next.delete(lessonId)
-      else next.add(lessonId)
-      return next
-    })
-  }
-
-  const toggleAll = () => {
-    setOpenIds(allOpen ? new Set() : new Set(lessons.map((lesson) => lesson.id)))
-  }
-
-  const download = async (lesson: Lesson, resource: LessonResource) => {
-    if (!workspaceId) return
+  const download = async (resource: LessonResource) => {
+    if (!workspaceId || !lesson) return
     setActionError(null)
     setDownloadingId(resource.id)
     try {
@@ -150,8 +144,8 @@ export function ObjectivesView({ focusLessonId = null, focusResourceId = null, o
     }
   }
 
-  const discuss = async (lesson: Lesson) => {
-    if (!workspaceId || discussingId) return
+  const discuss = async () => {
+    if (!workspaceId || !lesson || discussingId) return
     setActionError(null)
     setDiscussingId(lesson.id)
     try {
@@ -168,6 +162,8 @@ export function ObjectivesView({ focusLessonId = null, focusResourceId = null, o
     }
   }
 
+  const asyncCount = lesson?.objectives.filter((objective) => objective.is_async).length ?? 0
+  const summary = lesson ? materialsSummary(lesson.resources) : null
   let body: ReactNode
   if (!hasLoaded && isLoading) {
     body = (
@@ -182,115 +178,90 @@ export function ObjectivesView({ focusLessonId = null, focusResourceId = null, o
         <p className="lib__empty-copy">{error}</p>
       </div>
     )
-  } else if (lessons.length === 0) {
+  } else if (!lesson) {
     body = (
       <div className="lib__empty">
-        <p className="lib__empty-title">No classes yet</p>
-        <p className="lib__empty-copy">The Academics officer posts each class's ELOs and lecture materials here.</p>
-      </div>
-    )
-  } else if (matches.length === 0) {
-    body = (
-      <div className="lib__empty">
-        <p className="lib__empty-title">No matching ELOs</p>
-        <p className="lib__empty-copy">Try a class name, an ELO code such as MCS-VALU, or a key term.</p>
+        <p className="lib__empty-title">{focusLessonId ? 'Class unavailable' : 'Open a class from the Library'}</p>
+        <p className="lib__empty-copy">
+          {focusLessonId
+            ? 'That class is not in this workspace.'
+            : 'Each class has an ELO item on its shelf.'}
+        </p>
       </div>
     )
   } else {
     body = (
       <div className="elo__classes">
-        {matches.map(({ lesson, objectives }) => {
-          const isOpen = searching || openIds.has(lesson.id)
-          const bodyId = `elo-class-body-${lesson.id}`
-          const summary = materialsSummary(lesson.resources)
-          const asyncCount = lesson.objectives.filter((objective) => objective.is_async).length
-          return (
-            <article
-              key={lesson.id}
-              id={`elo-class-${lesson.id}`}
-              className={`elo__class${isOpen ? ' is-open' : ''}${lesson.id === focusLessonId ? ' is-focused' : ''}`}
-            >
-              <header className="elo__class-head">
-                <button
-                  type="button"
-                  className="elo__class-toggle"
-                  onClick={() => toggle(lesson.id)}
-                  aria-expanded={isOpen}
-                  aria-controls={bodyId}
-                  disabled={searching}
-                >
-                  <ChevronRight className="elo__chev" size={16} aria-hidden />
-                  <h3 className="elo__class-title">
-                    <Highlight text={lesson.title} query={query} />
-                  </h3>
-                </button>
-                <div className="elo__class-meta">
-                  <span>
-                    {lesson.objectives.length} {lesson.objectives.length === 1 ? 'ELO' : 'ELOs'}
-                  </span>
-                  {asyncCount > 0 && <span className="elo__async">{asyncCount} async</span>}
-                  {summary && (
-                    <span className="elo__class-files">
-                      <Paperclip size={12} aria-hidden />
-                      {summary}
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="elo__discuss"
-                  onClick={() => void discuss(lesson)}
-                  disabled={discussingId !== null}
-                >
-                  <MessagesSquare size={14} aria-hidden />
-                  {discussingId === lesson.id ? 'Starting…' : 'Discuss this class'}
-                </button>
-              </header>
-
-              {isOpen && (
-                <div className="elo__class-body" id={bodyId}>
-                  <section className="elo__materials" aria-label={`${lesson.title} materials`}>
-                    <span className="elo__section-label">Materials</span>
-                    <MaterialsRow
-                      lesson={lesson}
-                      highlightedId={lesson.id === focusLessonId ? focusResourceId : null}
-                      downloadingId={downloadingId}
-                      onDownload={(resource) => void download(lesson, resource)}
-                    />
-                  </section>
-
-                  {searching && objectives.length < lesson.objectives.length && (
-                    <p className="elo__filtered">
-                      Showing {objectives.length} of {lesson.objectives.length} ELOs
-                    </p>
-                  )}
-                  {objectives.length > 0 ? (
-                    <ol className="elo__list">
-                      {objectives.map((objective) => (
-                        <li key={objective.id} className="elo__item">
-                          <span className="elo__num">{objective.position}</span>
-                          <p className="elo__text">
-                            <Highlight text={objective.text} query={query} />
-                          </p>
-                          <div className="elo__tags">
-                            {objective.code && (
-                              <code className="elo__code">
-                                <Highlight text={objective.code} query={query} />
-                              </code>
-                            )}
-                            {objective.is_async && <span className="elo__async">Async</span>}
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                  ) : (
-                    <p className="elo__materials-empty">No ELOs posted for this class.</p>
-                  )}
-                </div>
+        <article id={`elo-class-${lesson.id}`} className="elo__class is-open is-focused">
+          <header className="elo__class-head">
+            <div className="elo__class-name">
+              <h3 className="elo__class-title">
+                <Highlight text={lesson.title} query={query} />
+              </h3>
+            </div>
+            <div className="elo__class-meta">
+              <span>
+                {lesson.objectives.length} {lesson.objectives.length === 1 ? 'ELO' : 'ELOs'}
+              </span>
+              {asyncCount > 0 && <span className="elo__async">{asyncCount} async</span>}
+              {summary && (
+                <span className="elo__class-files">
+                  <Paperclip size={12} aria-hidden />
+                  {summary}
+                </span>
               )}
-            </article>
-          )
-        })}
+            </div>
+            <button
+              type="button"
+              className="elo__discuss"
+              onClick={() => void discuss()}
+              disabled={discussingId !== null}
+            >
+              <MessagesSquare size={14} aria-hidden />
+              {discussingId === lesson.id ? 'Starting…' : 'Discuss this class'}
+            </button>
+          </header>
+          <div className="elo__class-body" id={`elo-class-body-${lesson.id}`}>
+            <section className="elo__materials" aria-label={`${lesson.title} materials`}>
+              <span className="elo__section-label">Materials</span>
+              <MaterialsRow
+                lesson={lesson}
+                highlightedId={focusResourceId}
+                downloadingId={downloadingId}
+                onDownload={(resource) => void download(resource)}
+              />
+            </section>
+            {searching && objectives.length < lesson.objectives.length && (
+              <p className="elo__filtered">
+                Showing {objectives.length} of {lesson.objectives.length} ELOs
+              </p>
+            )}
+            {objectives.length > 0 ? (
+              <ol className="elo__list">
+                {objectives.map((objective) => (
+                  <li key={objective.id} className="elo__item">
+                    <span className="elo__num">{objective.position}</span>
+                    <p className="elo__text">
+                      <Highlight text={objective.text} query={query} />
+                    </p>
+                    <div className="elo__tags">
+                      {objective.code && (
+                        <code className="elo__code">
+                          <Highlight text={objective.code} query={query} />
+                        </code>
+                      )}
+                      {objective.is_async && <span className="elo__async">Async</span>}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="elo__materials-empty">
+                {searching ? 'No matching ELOs' : 'No ELOs posted for this class.'}
+              </p>
+            )}
+          </div>
+        </article>
       </div>
     )
   }
@@ -299,41 +270,42 @@ export function ObjectivesView({ focusLessonId = null, focusResourceId = null, o
     <section className="elo study-session" aria-busy={isLoading}>
       <StudyHead
         eyebrow="Enabling learning objectives"
-        title="ELOs"
-        description="Every class's ELOs, with the lecture slides and MCeLE material to study them."
-        stats={[
-          { value: stats.classes, label: 'classes' },
-          { value: stats.elos, label: 'ELOs' },
-          { value: stats.async, label: 'async' },
-        ]}
+        title={lesson?.title ?? 'ELOs'}
+        description="ELOs, lecture slides, and MCeLE material for this class."
+        stats={
+          lesson
+            ? [
+                { value: lesson.objectives.length, label: 'ELOs' },
+                { value: asyncCount, label: 'async' },
+                { value: lesson.resources.length, label: 'materials' },
+              ]
+            : []
+        }
       />
 
-      <div className="elo__toolbar">
-        <label className="lib__search elo__search">
-          <Search size={15} aria-hidden />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search ELOs, codes, or classes"
-            aria-label="Search ELOs"
-          />
-          {searching && (
-            <button type="button" className="elo__search-clear" onClick={() => setQuery('')} aria-label="Clear search">
-              <X size={14} />
-            </button>
-          )}
-        </label>
-        {searching ? (
-          <span className="elo__result-count" aria-live="polite">
-            {shownElos} {shownElos === 1 ? 'ELO' : 'ELOs'} in {matches.length}{' '}
-            {matches.length === 1 ? 'class' : 'classes'}
-          </span>
-        ) : (
-          <button type="button" className="elo__expand" onClick={toggleAll} disabled={lessons.length === 0}>
-            {allOpen ? 'Collapse all' : 'Expand all'}
-          </button>
-        )}
-      </div>
+      {lesson ? (
+        <div className="elo__toolbar">
+          <label className="lib__search elo__search">
+            <Search size={15} aria-hidden />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search ELOs or codes"
+              aria-label="Search ELOs"
+            />
+            {searching && (
+              <button type="button" className="elo__search-clear" onClick={() => setQuery('')} aria-label="Clear search">
+                <X size={14} />
+              </button>
+            )}
+          </label>
+          {searching ? (
+            <span className="elo__result-count" aria-live="polite">
+              {objectives.length} {objectives.length === 1 ? 'ELO' : 'ELOs'}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {actionError && <p className="chat__error">{actionError}</p>}
       {body}

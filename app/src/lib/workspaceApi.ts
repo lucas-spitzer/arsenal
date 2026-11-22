@@ -38,7 +38,9 @@ export interface Source {
 
 export interface WikiListItem {
   name: string
-  details: string
+  details?: string
+  a?: string
+  b?: string
 }
 
 export interface WikiEntry {

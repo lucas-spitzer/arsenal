@@ -278,7 +278,8 @@ class KnowledgeProjectService:
                     ),
                 )
             composable = any(
-                str(entry.get("entry_kind") or "") in {"term", "list", "abbreviation"} for entry in notes.entries
+                str(entry.get("entry_kind") or "") in {"term", "list", "abbreviation", "compare"}
+                for entry in notes.entries
             )
             updated = await self.projects.update(
                 project_id,

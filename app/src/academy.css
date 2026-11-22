@@ -2248,6 +2248,31 @@
   flex-wrap: wrap;
 }
 
+.lib__section .lib__chips {
+  margin: 0 0 var(--space-3);
+}
+
+.lib__section-empty {
+  margin: 0 0 var(--space-4);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.lib__sheet-kinds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lib__sheet-kinds-label {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
 .lib__chip {
   display: inline-flex;
   align-items: center;
@@ -2528,6 +2553,7 @@
 .lib__tchip--audio { background: #f6eadc; color: #8a4b1f; }
 .lib__tchip--mat { background: #e4ece4; color: #1f4a28; }
 .lib__tchip--wiki { background: #e6eef2; color: #1a3d4d; }
+.lib__tchip--elo { background: #ece7f2; color: #3d315c; }
 
 .lib__open {
   color: var(--color-scarlet);
@@ -4187,6 +4213,11 @@
   color: var(--color-gold);
 }
 
+.academy-wiki__pill--compare {
+  border-color: var(--color-navy);
+  color: var(--color-gold);
+}
+
 .academy-wiki__pill--insight,
 .academy-wiki__pill--elo {
   border-color: var(--color-scarlet);
@@ -4442,6 +4473,12 @@
   gap: var(--space-3);
   flex-wrap: wrap;
   padding: var(--space-2) var(--space-3) var(--space-2) 0;
+}
+
+.elo__class-name {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
 }
 
 .elo__class-toggle {
