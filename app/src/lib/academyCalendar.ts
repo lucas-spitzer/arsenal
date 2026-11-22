@@ -46,13 +46,13 @@ export function weekDays(weekStart: Date): Date[] {
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
 }
 
-const COURSE_CODE = /^((?:BS|B)\d+)\s+(.+)$/
+const COURSE_CODE = /^(B(?=[A-Z0-9]*\d)[A-Z0-9]+)\s+(.+)$/
 const ODT_DEADLINES = new Set(['Read Range Week SPINS', 'Read MCDP-1 Warfighting'])
 const HIKE_BACK = 'Hike to McGlothlin Hall'
 /** Sort-only clock for the untimed Friday hike, after the range and before de-issue. */
 const HIKE_BACK_SORT_TIME = '11:59:59'
 
-/** A leading course code such as `B023029` or `BS230009` becomes the dialog ID. */
+/** A leading course code such as `B023029`, `BS230009`, or `B2A0380DM` becomes the dialog ID. */
 export function eventIdentity(title: string): { id: string | null; title: string } {
   const match = title.match(COURSE_CODE)
   if (!match?.[1] || !match[2]) return { id: null, title }

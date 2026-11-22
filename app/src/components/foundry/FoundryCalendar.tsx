@@ -5,6 +5,7 @@ import {
   addDays,
   calendarKinds,
   compareEvents,
+  eventIdentity,
   formatTimeRange,
   formatWeekRange,
   kindMeta,
@@ -27,6 +28,7 @@ import { FoundryLoader } from './FoundryLoader'
 
 type EventDraft = {
   title: string
+  courseId: string
   kind: CalendarEventKind
   event_date: string
   start_time: string
@@ -41,12 +43,23 @@ type EditorState =
   | { mode: 'edit'; event: CalendarEvent }
 
 function emptyDraft(date: string, kind: CalendarEventKind = 'class'): EventDraft {
-  return { title: '', kind, event_date: date, start_time: '', end_time: '', location: '', notes: '' }
+  return {
+    title: '',
+    courseId: '',
+    kind,
+    event_date: date,
+    start_time: '',
+    end_time: '',
+    location: '',
+    notes: '',
+  }
 }
 
 function draftFromEvent(event: CalendarEvent): EventDraft {
+  const identity = eventIdentity(event.title)
   return {
-    title: event.title,
+    title: identity.title,
+    courseId: identity.id ?? '',
     kind: event.kind,
     event_date: event.event_date,
     start_time: event.start_time?.slice(0, 5) ?? '',
@@ -57,8 +70,10 @@ function draftFromEvent(event: CalendarEvent): EventDraft {
 }
 
 function draftToInput(draft: EventDraft): CalendarEventInput {
+  const name = draft.title.trim()
+  const code = draft.courseId.trim()
   return {
-    title: draft.title.trim(),
+    title: code ? `${code} ${name}` : name,
     kind: draft.kind,
     event_date: draft.event_date,
     start_time: draft.start_time || null,
@@ -309,7 +324,7 @@ export function FoundryCalendar() {
                         </span>
                       </td>
                       <td>
-                        <div className="as-console__cal-title">{event.title}</div>
+                        <div className="as-console__cal-title">{eventIdentity(event.title).title}</div>
                         {event.notes ? <div className="as-console__cal-notes">{event.notes}</div> : null}
                       </td>
                       <td className="num">{formatTimeRange(event.start_time, event.end_time) ?? '—'}</td>
@@ -331,7 +346,7 @@ export function FoundryCalendar() {
                             click.stopPropagation()
                             openEdit(event)
                           }}
-                          aria-label={`Edit ${event.title}`}
+                          aria-label={`Edit ${eventIdentity(event.title).title}`}
                           title="Edit"
                         >
                           <Pencil size={14} aria-hidden />
@@ -343,7 +358,7 @@ export function FoundryCalendar() {
                             click.stopPropagation()
                             requestDelete(event)
                           }}
-                          aria-label={`Delete ${event.title}`}
+                          aria-label={`Delete ${eventIdentity(event.title).title}`}
                           title="Delete"
                         >
                           <Trash2 size={14} aria-hidden />
@@ -372,6 +387,11 @@ export function FoundryCalendar() {
         >
           {formError ? <ErrorBanner message={formError} /> : null}
 
+          {draft.courseId ? (
+            <p className="as-console__field-label">
+              ID <span className="as-console__cal-title">{draft.courseId}</span>
+            </p>
+          ) : null}
           <label className="as-console__field-label" htmlFor="cal-title">
             Title
           </label>
@@ -519,7 +539,7 @@ export function FoundryCalendar() {
       >
         {deleteError ? <ErrorBanner message={deleteError} /> : null}
         <p className="as-console__confirm-copy">
-          Delete {pendingDelete ? `"${pendingDelete.title}"` : 'this event'}? It is removed from the
+          Delete {pendingDelete ? `"${eventIdentity(pendingDelete.title).title}"` : 'this event'}? It is removed from the
           Academy calendar for everyone.
         </p>
         <div className="as-console__dialog-actions">

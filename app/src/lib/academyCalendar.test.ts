@@ -108,7 +108,20 @@ describe('eventIdentity', () => {
       id: 'B140310',
       title: 'Rifle range: ARQ day three, holds',
     })
+    expect(eventIdentity('BSZ0009 Morning routine')).toEqual({
+      id: 'BSZ0009',
+      title: 'Morning routine',
+    })
+    expect(eventIdentity('B2A0380DM Tactical planning process guided application I')).toEqual({
+      id: 'B2A0380DM',
+      title: 'Tactical planning process guided application I',
+    })
+    expect(eventIdentity('B0Z9029 End of day routine')).toEqual({
+      id: 'B0Z9029',
+      title: 'End of day routine',
+    })
     expect(eventIdentity('Hike to WTBN')).toEqual({ id: null, title: 'Hike to WTBN' })
+    expect(eventIdentity('Flight Physicals')).toEqual({ id: null, title: 'Flight Physicals' })
   })
 })
 
