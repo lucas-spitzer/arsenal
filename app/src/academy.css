@@ -5303,11 +5303,11 @@ article.anl__row {
 }
 
 .id-plate__btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
-  min-width: 280px;
-  padding: 8px 12px;
+  gap: 12px;
+  max-width: 100%;
+  padding: 8px 14px 8px 10px;
   border: 1px solid var(--border-subtle);
   background: var(--bg-panel, #f7f7f5);
   cursor: pointer;
@@ -5379,27 +5379,20 @@ article.anl__row {
 
 .id-plate__who {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
   min-width: 0;
 }
 
 .id-plate__who strong {
   font-family: var(--font-display);
-  font-size: 16px;
-  letter-spacing: 0.06em;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--color-black);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.id-plate__who span {
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-gold);
 }
 
 .id-plate__ap {

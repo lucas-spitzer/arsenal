@@ -43,7 +43,6 @@ export function StudentIdentity() {
         <RankMark rank={rank} />
         <span className="id-plate__who">
           <strong>{name}</strong>
-          <span>{rank || 'Student'}</span>
         </span>
         <span className="id-plate__ap" aria-label={`${ap} Atlas Points`}>
           <em>{ap}</em>
