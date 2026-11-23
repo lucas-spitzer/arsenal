@@ -3709,6 +3709,32 @@
 .cal__kind.cal__kind--eval { background: var(--color-dark-scarlet); color: #fff; }
 .cal__kind.cal__kind--due { background: transparent; border-color: var(--color-scarlet); color: var(--color-scarlet); }
 
+.cal__kind-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: nowrap;
+}
+
+.cal__air {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--color-gold);
+  border-radius: var(--radius-sm);
+  color: var(--color-gold);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* --- Week grid ------------------------------------------------------------ */
 
 .cal__week {
@@ -3852,8 +3878,9 @@
 .cal__event-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--space-2);
+  min-height: 20px;
 }
 
 .cal__check {

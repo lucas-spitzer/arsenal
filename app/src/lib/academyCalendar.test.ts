@@ -6,6 +6,7 @@ import {
   eventIdentity,
   eventTimeLabel,
   formatTime,
+  isAirContractEvent,
   formatTimeRange,
   formatWeekRange,
   groupEventsByDay,
@@ -122,6 +123,16 @@ describe('eventIdentity', () => {
     })
     expect(eventIdentity('Hike to WTBN')).toEqual({ id: null, title: 'Hike to WTBN' })
     expect(eventIdentity('Flight Physicals')).toEqual({ id: null, title: 'Flight Physicals' })
+  })
+})
+
+describe('isAirContractEvent', () => {
+  it('marks Flight Physicals and the DCA engagement', () => {
+    expect(isAirContractEvent(event({ title: 'Flight Physicals' }))).toBe(true)
+    expect(
+      isAirContractEvent(event({ title: 'Deputy Commandant of Aviation (DCA) engagement' })),
+    ).toBe(true)
+    expect(isAirContractEvent(event({ title: 'MCCS uniform measurements' }))).toBe(false)
   })
 })
 

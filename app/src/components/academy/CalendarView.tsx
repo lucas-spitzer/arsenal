@@ -8,6 +8,7 @@ import {
   countByKind,
   eventIdentity,
   eventTimeLabel,
+  isAirContractEvent,
   formatDateRange,
   formatDayHeading,
   formatTimeRange,
@@ -45,6 +46,23 @@ function KindChip({ event }: { event: CalendarEvent }) {
     <span className={`cal__kind ${meta.cls}`} title={meta.label}>
       <Icon size={12} aria-hidden />
       {chipLabel(event)}
+    </span>
+  )
+}
+
+function AirChip() {
+  return (
+    <span className="cal__air" title="Air contracts only">
+      Air only
+    </span>
+  )
+}
+
+function KindRow({ event }: { event: CalendarEvent }) {
+  return (
+    <span className="cal__kind-row">
+      <KindChip event={event} />
+      {isAirContractEvent(event) ? <AirChip /> : null}
     </span>
   )
 }
@@ -137,7 +155,7 @@ function EventDialog({
         onClick={(click) => click.stopPropagation()}
       >
         <div className="cal__dialog-head">
-          <KindChip event={event} />
+          <KindRow event={event} />
           <button type="button" className="cal__dialog-close" onClick={onClose}>
             Close
           </button>
@@ -194,7 +212,7 @@ function EventCard({
     >
       <button type="button" className="cal__open" onClick={() => onOpen(event)}>
         <span className="cal__event-top">
-          <KindChip event={event} />
+          <KindRow event={event} />
         </span>
         <span className="cal__event-title">{identity.title}</span>
         <EventMeta event={event} />

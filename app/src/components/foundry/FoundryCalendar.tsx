@@ -8,6 +8,7 @@ import {
   eventIdentity,
   formatTimeRange,
   formatWeekRange,
+  isAirContractEvent,
   kindMeta,
   parseLocalDate,
   startOfWeek,
@@ -318,9 +319,16 @@ export function FoundryCalendar() {
                         ) : null}
                       </td>
                       <td>
-                        <span className={`as-console__cal-kind ${meta.cls}`}>
-                          <Icon size={12} aria-hidden />
-                          {meta.chip}
+                        <span className="as-console__cal-kind-row">
+                          <span className={`as-console__cal-kind ${meta.cls}`}>
+                            <Icon size={12} aria-hidden />
+                            {meta.chip}
+                          </span>
+                          {isAirContractEvent(event) ? (
+                            <span className="as-console__cal-air" title="Air contracts only">
+                              Air only
+                            </span>
+                          ) : null}
                         </span>
                       </td>
                       <td>

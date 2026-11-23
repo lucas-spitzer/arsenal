@@ -834,6 +834,9 @@ body:has(.as-console--academy),
 .as-console__cal-loc { display: inline-flex; align-items: center; gap: 5px; }
 .as-console__cal-loc svg { color: var(--color-gold); }
 
+.as-console__cal-kind-row {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
 .as-console__cal-kind {
   display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
   padding: 3px 8px; border-radius: 4px; border: 1px solid transparent;
@@ -844,6 +847,13 @@ body:has(.as-console--academy),
 .as-console__cal-kind.cal__kind--prac { background: rgba(132, 117, 78, 0.24); color: #e2cf96; }
 .as-console__cal-kind.cal__kind--eval { background: var(--color-dark-scarlet); color: #fff; }
 .as-console__cal-kind.cal__kind--due { border-color: #ff8b8b; color: #ff9a9a; }
+.as-console__cal-air {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 6px;
+  border: 1px solid var(--color-gold); border-radius: 4px;
+  color: var(--color-gold); font-family: var(--as-mono); font-size: 0.62rem;
+  font-weight: 700; letter-spacing: 0.08em; line-height: 1; text-transform: uppercase;
+  white-space: nowrap;
+}
 
 .as-console__cal-actions { width: 1%; white-space: nowrap; text-align: right; }
 .as-console__cal-icon {

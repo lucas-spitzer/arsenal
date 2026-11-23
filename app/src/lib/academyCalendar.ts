@@ -48,6 +48,10 @@ export function weekDays(weekStart: Date): Date[] {
 
 const COURSE_CODE = /^(B(?=[A-Z0-9]*\d)[A-Z0-9]+)\s+(.+)$/
 const ODT_DEADLINES = new Set(['Read Range Week SPINS', 'Read MCDP-1 Warfighting'])
+const AIR_CONTRACT_TITLES = new Set([
+  'Flight Physicals',
+  'Deputy Commandant of Aviation (DCA) engagement',
+])
 const HIKE_BACK = 'Hike to McGlothlin Hall'
 /** Sort-only clock for the untimed Friday hike, after the range and before de-issue. */
 const HIKE_BACK_SORT_TIME = '11:59:59'
@@ -57,6 +61,11 @@ export function eventIdentity(title: string): { id: string | null; title: string
   const match = title.match(COURSE_CODE)
   if (!match?.[1] || !match[2]) return { id: null, title }
   return { id: match[1], title: match[2] }
+}
+
+/** Flight Physicals and the DCA engagement are for air contracts only. */
+export function isAirContractEvent(event: Pick<CalendarEvent, 'title'>): boolean {
+  return AIR_CONTRACT_TITLES.has(eventIdentity(event.title).title)
 }
 
 function isOdtDeadline(event: Pick<CalendarEvent, 'kind' | 'title'>): boolean {
