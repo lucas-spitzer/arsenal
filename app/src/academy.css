@@ -5396,7 +5396,8 @@ article.anl__row {
 }
 
 .id-plate__ap {
-  margin-left: auto;
+  flex: none;
+  margin-left: 12px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
