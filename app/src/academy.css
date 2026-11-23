@@ -5399,8 +5399,9 @@ article.anl__row {
   flex: none;
   margin-left: 12px;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cardFace, showsSituationImage, showsStemImage } from './assessmentVisual'
+import { cardFace, showsSituationImage, showsStemImage, stemPicture } from './assessmentVisual'
 
 describe('card faces', () => {
   it('replaces the back with a diagram and leaves the front as text', () => {
@@ -31,5 +31,23 @@ describe('card faces', () => {
     expect(showsStemImage('back')).toBe(false)
     expect(showsSituationImage('situation')).toBe(true)
     expect(showsSituationImage('stem')).toBe(false)
+  })
+})
+
+describe('stem pictures', () => {
+  it('keeps a stem image that has a url', () => {
+    expect(
+      stemPicture({
+        url: 'https://example.com/stem.png',
+        placement: 'stem',
+        alt: 'A formation',
+      }),
+    ).toEqual({ url: 'https://example.com/stem.png', alt: 'A formation' })
+  })
+
+  it('drops pictures that are not on the question stem', () => {
+    expect(stemPicture({ url: 'https://example.com/back.png', placement: 'back', alt: 'Back' })).toBeNull()
+    expect(stemPicture({ placement: 'stem' })).toBeNull()
+    expect(stemPicture(null)).toBeNull()
   })
 })

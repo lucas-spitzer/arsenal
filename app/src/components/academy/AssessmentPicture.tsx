@@ -1,7 +1,13 @@
 import type { AssessmentVisual } from '../../lib/workspaceApi'
 import { cardFace, type CardSide } from '../../lib/assessmentVisual'
 
-export function AssessmentPicture({ visual, text }: { visual: AssessmentVisual; text: string }) {
+export function AssessmentPicture({
+  visual,
+  text,
+}: {
+  visual: Pick<AssessmentVisual, 'url' | 'alt'>
+  text: string
+}) {
   if (!visual.url) return null
   return <img className="study-visual__img" src={visual.url} alt={visual.alt || text} />
 }

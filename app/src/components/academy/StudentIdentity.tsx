@@ -55,7 +55,7 @@ export function StudentIdentity() {
             <RankMark rank={rank} size={40} />
             <div>
               <strong>{name}</strong>
-              <p>{rank ? `${rank} · Atlas Points` : 'Atlas Points'}</p>
+              <p>Atlas Points</p>
             </div>
           </div>
           <dl className="id-plate__stats">

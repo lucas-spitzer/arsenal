@@ -12,7 +12,7 @@ import {
   type ExamQuestion,
   type SubjectKind,
 } from '../../lib/atlasApi'
-import { showsStemImage } from '../../lib/assessmentVisual'
+import { stemPicture } from '../../lib/assessmentVisual'
 import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { useLessons } from '../../lib/useLessons'
 import { AssessmentPicture } from './AssessmentPicture'
@@ -68,6 +68,7 @@ export function QuizView(_legacyLibraryScope?: {
 
   const questions = attempt?.questions ?? []
   const current: ExamQuestion | null = questions[index] ?? null
+  const picture = current ? stemPicture(current.visual) : null
   const revealed = selected !== null && feedback !== null
   const isLast = index >= questions.length - 1
 
@@ -283,14 +284,7 @@ export function QuizView(_legacyLibraryScope?: {
                 {feedback?.newly_mastered ? (
                   <p className="ap-mastery-banner">Concept mastered · +3 bonus</p>
                 ) : null}
-                {current.visual &&
-                typeof current.visual.url === 'string' &&
-                showsStemImage(String(current.visual.placement ?? '')) ? (
-                  <AssessmentPicture
-                    visual={current.visual as { url: string; placement?: string | null }}
-                    text={current.question}
-                  />
-                ) : null}
+                {picture ? <AssessmentPicture visual={picture} text={current.question} /> : null}
                 <p className="quiz__question">{current.question}</p>
                 <div className="quiz__options">
                   {current.options.map((opt, optionIndex) => {

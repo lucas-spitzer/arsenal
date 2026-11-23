@@ -5,6 +5,7 @@ import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { Loader } from '../shared/Loader'
 import {
+  accuracyPercent,
   resultBatchKey,
   summarizeQuizResults,
   type BatchAccuracy,
@@ -249,10 +250,14 @@ export function AnalyticsView({
 }
 
 function BatchMeta({ batch }: { batch: BatchAccuracy }) {
+  const accuracy = accuracyPercent(batch.correct, batch.questionsAnswered)
+  const quizLabel = batch.quizzesTaken === 1 ? 'quiz' : 'quizzes'
   return (
     <span className="anl__row-meta">
-      <span>{batch.quizzes} quizzes</span>
-      <span>{batch.accuracy == null ? '—' : `${batch.accuracy}%`}</span>
+      <span>
+        {batch.quizzesTaken} {quizLabel}
+      </span>
+      <span>{accuracy == null ? '—' : `${accuracy}%`}</span>
     </span>
   )
 }
