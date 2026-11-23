@@ -1,8 +1,11 @@
 import { Check, Info, Shuffle, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useAtlas } from '../../features/atlas/atlasContext'
+import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { filterAndSortRecords } from '../../lib/academyOutputs'
 import { combineSeed, drawOptions, hasPool, seededRng } from '../../lib/answerPool'
+import { submitPracticeAnswer } from '../../lib/atlasApi'
 import { showsStemImage } from '../../lib/assessmentVisual'
 import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { isWikiTermQuiz } from '../../lib/assessmentOrigin'
@@ -45,7 +48,9 @@ export function FlashcardsView({
   targetId?: string | null
   projectId?: string | null
 }) {
+  const { activeWorkspace } = useWorkspace()
   const { flashcards, quizzes, sources: workspaceSources } = useWorkspaceData()
+  const { setLifetimeAp } = useAtlas()
   const { fullscreen, toggle } = useStudyFullscreen()
 
   const [mode, setMode] = useState<PracticeMode>('flashcards')
@@ -56,6 +61,9 @@ export function FlashcardsView({
   const [flipped, setFlipped] = useState(false)
   const [selected, setSelected] = useState<number | null>(null)
   const [questionSeed, setQuestionSeed] = useState(() => Date.now())
+  const [floatLabel, setFloatLabel] = useState<string | null>(null)
+  const [newlyMastered, setNewlyMastered] = useState(false)
+  const [serverRight, setServerRight] = useState<string | null>(null)
   const targetAppliedRef = useRef<string | null>(null)
 
   // Follow Library deep-link source changes without an effect.
@@ -194,6 +202,9 @@ export function FlashcardsView({
     if (deck.length === 0) return
     setFlipped(false)
     setSelected(null)
+    setNewlyMastered(false)
+    setServerRight(null)
+    setFloatLabel(null)
     setIndex((i) => (Math.min(i, deck.length - 1) + delta + deck.length) % deck.length)
   }
 
@@ -236,8 +247,30 @@ export function FlashcardsView({
   const revealed = selected !== null
 
   const choose = (optionIndex: number) => {
-    if (selected !== null) return
+    if (selected !== null || !quiz || !drawn || !activeWorkspace) return
     setSelected(optionIndex)
+    setNewlyMastered(false)
+    setServerRight(null)
+    void submitPracticeAnswer(activeWorkspace.id, {
+      quiz_id: quiz.id,
+      question: drawn.question,
+      options: drawn.options,
+      selected_index: optionIndex,
+    })
+      .then((result) => {
+        setLifetimeAp(result.lifetime_ap)
+        setServerRight(result.right_answer)
+        setNewlyMastered(result.newly_mastered)
+        if (result.points_total > 0) {
+          setFloatLabel(
+            result.newly_mastered ? `Mastered · +${result.points_total} AP` : `+${result.points_total} AP`,
+          )
+          window.setTimeout(() => setFloatLabel(null), 900)
+        }
+      })
+      .catch(() => {
+        // Keep local reveal even if scoring fails; Academics can retry.
+      })
   }
 
   const nextQuestion = () => {
@@ -250,7 +283,7 @@ export function FlashcardsView({
   }
 
   const toolbar = (
-    <div className="quiz__picks">
+    <div className="study-stage__toolbar">
       <div className="lib__chips" role="group" aria-label="Practice mode">
         <button
           type="button"
@@ -267,166 +300,163 @@ export function FlashcardsView({
           Questions
         </button>
       </div>
-      <label className="lib__select">
-        <span className="lib__select-label">Source</span>
-        <select
-          value={sourceId ?? ''}
-          onChange={(event) => changeSource(event.target.value || null)}
-          aria-label="Filter by source"
-        >
-          <option value="">All</option>
-          {sources.map((source) => (
-            <option key={source.id} value={source.id}>
-              {source.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      {mode === 'flashcards' ? (
-        <button type="button" className="study__btn" onClick={shuffleDeck} disabled={cards.length < 2}>
-          <Shuffle size={16} /> Shuffle
-        </button>
-      ) : null}
+      <div className="study-stage__toolbar-actions">
+        <label className="lib__select">
+          <span className="lib__select-label">Source</span>
+          <select
+            value={sourceId ?? ''}
+            onChange={(event) => changeSource(event.target.value || null)}
+            aria-label="Filter by source"
+          >
+            <option value="">All</option>
+            {sources.map((source) => (
+              <option key={source.id} value={source.id}>
+                {source.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {mode === 'flashcards' ? (
+          <button type="button" className="study__btn" onClick={shuffleDeck} disabled={cards.length < 2}>
+            <Shuffle size={16} /> Shuffle
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 
   return (
-    <section className="study-session">
+    <section className="study-session study-session--practice">
       <StudyHead
         eyebrow="Recall practice"
         title="Flashcard review"
         description={
           mode === 'flashcards'
             ? 'Flip through key terms and check the definition on the back.'
-            : 'Answer randomized questions on key terms from this library.'
+            : 'Answer randomized questions on key terms. Correct answers earn Atlas Points.'
         }
-        stats={[
-          {
-            value: mode === 'flashcards' ? cards.length : orderedQuestions.length,
-            label: mode === 'flashcards' ? 'cards' : 'questions',
-          },
-          {
-            value: new Set(
-              (mode === 'flashcards' ? cards : orderedQuestions).map((item) => item.source_id ?? ''),
-            ).size,
-            label: 'sources',
-          },
-        ]}
       />
 
-      {toolbar}
+      <div className="study-stage">
+        {toolbar}
 
-      {mode === 'flashcards' && card ? (
-        <>
-          <StudyPanel
-            fullscreen={fullscreen}
-            onToggleFullscreen={toggle}
-            meta={<span className={`pill pill--${card.difficulty}`}>{card.difficulty}</span>}
-            progress={{ current: safeIndex + 1, total: cards.length }}
-            pager={{
-              onPrev: () => go(-1),
-              onNext: () => go(1),
-              prevDisabled: safeIndex <= 0,
-              nextDisabled: safeIndex >= cards.length - 1,
-              label: sourceName,
-            }}
-          >
-            <button
-              type="button"
-              className={`flashcard${flipped ? ' is-flipped' : ''}`}
-              onClick={() => setFlipped((value) => !value)}
+        {mode === 'flashcards' && card ? (
+          <>
+            <StudyPanel
+              fullscreen={fullscreen}
+              onToggleFullscreen={toggle}
+              meta={<span className={`pill pill--${card.difficulty}`}>{card.difficulty}</span>}
+              progress={{ current: safeIndex + 1, total: cards.length }}
+              pager={{
+                onPrev: () => go(-1),
+                onNext: () => go(1),
+                prevDisabled: safeIndex <= 0,
+                nextDisabled: safeIndex >= cards.length - 1,
+                label: sourceName,
+              }}
             >
-              <span className="flashcard__side">
-                {flipped ? 'Back · tap to flip' : 'Front · tap to flip'}
-              </span>
-              <FlashcardFace
-                side={flipped ? 'back' : 'front'}
-                text={flipped ? card.back : card.front}
-                visual={card.visual}
-              />
-            </button>
-          </StudyPanel>
+              <button
+                type="button"
+                className={`flashcard${flipped ? ' is-flipped' : ''}`}
+                onClick={() => setFlipped((value) => !value)}
+              >
+                <span className="flashcard__side">
+                  {flipped ? 'Back · tap to flip' : 'Front · tap to flip'}
+                </span>
+                <FlashcardFace
+                  side={flipped ? 'back' : 'front'}
+                  text={flipped ? card.back : card.front}
+                  visual={card.visual}
+                />
+              </button>
+            </StudyPanel>
 
-          <StudySourceReference sourceId={card.source_id ?? null} sourceName={sourceName} />
-        </>
-      ) : null}
+            <StudySourceReference sourceId={card.source_id ?? null} sourceName={sourceName} />
+          </>
+        ) : null}
 
-      {mode === 'questions' && quiz && drawn ? (
-        <>
-          <StudyPanel
-            fullscreen={fullscreen}
-            onToggleFullscreen={toggle}
-            meta={<span className={`pill pill--${quiz.difficulty}`}>{quiz.difficulty}</span>}
-            progress={{ current: safeIndex + 1, total: orderedQuestions.length }}
-            pager={{
-              onPrev: () => go(-1),
-              onNext: nextQuestion,
-              prevDisabled: safeIndex <= 0,
-              nextDisabled: !revealed,
-              label: revealed && safeIndex >= orderedQuestions.length - 1 ? 'Shuffle again' : sourceName,
-            }}
-          >
-            <div className="quiz">
-              {quiz.visual?.url && showsStemImage(quiz.visual.placement) ? (
-                <AssessmentPicture visual={quiz.visual} text={drawn.question} />
-              ) : null}
-              <p className="quiz__question">{drawn.question}</p>
-              <div className="quiz__options">
-                {drawn.options.map((option, optionIndex) => {
-                  let cls = 'quiz__option'
-                  const correct = optionCorrect(option, optionIndex)
-                  const showCorrect = revealed && correct
-                  const showWrong = revealed && optionIndex === selected && !correct
-                  if (showCorrect) cls += ' is-correct'
-                  else if (showWrong) cls += ' is-wrong'
-                  return (
-                    <button
-                      key={optionIndex}
-                      type="button"
-                      className={cls}
-                      disabled={revealed}
-                      onClick={() => choose(optionIndex)}
-                    >
-                      <span className="quiz__option-text">{option}</span>
-                      {showCorrect ? (
-                        <span className="quiz__option-status">
-                          <Check size={16} /> Correct
-                        </span>
-                      ) : null}
-                      {showWrong ? (
-                        <span className="quiz__option-status">
-                          <X size={16} /> Incorrect
-                        </span>
-                      ) : null}
-                    </button>
-                  )
-                })}
+        {mode === 'questions' && quiz && drawn ? (
+          <>
+            <StudyPanel
+              fullscreen={fullscreen}
+              onToggleFullscreen={toggle}
+              meta={<span className={`pill pill--${quiz.difficulty}`}>{quiz.difficulty}</span>}
+              progress={{ current: safeIndex + 1, total: orderedQuestions.length }}
+              pager={{
+                onPrev: () => go(-1),
+                onNext: nextQuestion,
+                prevDisabled: safeIndex <= 0,
+                nextDisabled: !revealed,
+                label: revealed && safeIndex >= orderedQuestions.length - 1 ? 'Shuffle again' : sourceName,
+              }}
+            >
+              <div className="quiz quiz--prompt" style={{ position: 'relative' }}>
+                {floatLabel ? (
+                  <span className={`ap-float${newlyMastered ? ' ap-float--mastery' : ''}`}>{floatLabel}</span>
+                ) : null}
+                {newlyMastered ? <p className="ap-mastery-banner">Concept mastered · +3 bonus</p> : null}
+                {quiz.visual?.url && showsStemImage(quiz.visual.placement) ? (
+                  <AssessmentPicture visual={quiz.visual} text={drawn.question} />
+                ) : null}
+                <p className="quiz__question">{drawn.question}</p>
+                <div className="quiz__options">
+                  {drawn.options.map((option, optionIndex) => {
+                    let cls = 'quiz__option'
+                    const correct =
+                      serverRight != null ? option === serverRight : optionCorrect(option, optionIndex)
+                    const showCorrect = revealed && correct
+                    const showWrong = revealed && optionIndex === selected && !correct
+                    if (showCorrect) cls += ' is-correct'
+                    else if (showWrong) cls += ' is-wrong'
+                    return (
+                      <button
+                        key={optionIndex}
+                        type="button"
+                        className={cls}
+                        disabled={revealed}
+                        onClick={() => choose(optionIndex)}
+                      >
+                        <span className="quiz__option-text">{option}</span>
+                        {showCorrect ? (
+                          <span className="quiz__option-status">
+                            <Check size={16} /> Correct
+                          </span>
+                        ) : null}
+                        {showWrong ? (
+                          <span className="quiz__option-status">
+                            <X size={16} /> Incorrect
+                          </span>
+                        ) : null}
+                      </button>
+                    )
+                  })}
+                </div>
+                {revealed && quiz.explanation ? (
+                  <p className="quiz__explain">
+                    <Info size={15} /> {quiz.explanation}
+                  </p>
+                ) : null}
               </div>
-              {revealed && quiz.explanation ? (
-                <p className="quiz__explain">
-                  <Info size={15} /> {quiz.explanation}
-                </p>
-              ) : null}
-            </div>
-          </StudyPanel>
+            </StudyPanel>
 
-          <StudySourceReference sourceId={quiz.source_id ?? null} sourceName={sourceName} />
-        </>
-      ) : null}
+            <StudySourceReference sourceId={quiz.source_id ?? null} sourceName={sourceName} />
+          </>
+        ) : null}
 
-      {mode === 'flashcards' && !card ? (
-        <div className="quiz quiz--result">
-          <p className="quiz__score">No flashcards</p>
-          <p className="quiz__score-note">No flashcards are available for this scope.</p>
-        </div>
-      ) : null}
+        {mode === 'flashcards' && !card ? (
+          <div className="study-stage__empty">
+            <p className="quiz__score">No flashcards</p>
+            <p className="quiz__score-note">No flashcards are available for this scope.</p>
+          </div>
+        ) : null}
 
-      {mode === 'questions' && !quiz ? (
-        <div className="quiz quiz--result">
-          <p className="quiz__score">No questions</p>
-          <p className="quiz__score-note">No term questions are available for this scope.</p>
-        </div>
-      ) : null}
+        {mode === 'questions' && !quiz ? (
+          <div className="study-stage__empty">
+            <p className="quiz__score">No questions</p>
+            <p className="quiz__score-note">No term questions are available for this scope.</p>
+          </div>
+        ) : null}
+      </div>
     </section>
   )
 }

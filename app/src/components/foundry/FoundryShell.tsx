@@ -11,13 +11,13 @@ import {
   type AcademyPage,
   type AcademyScope,
 } from '../academy/types'
+import { useAtlas } from '../../features/atlas/atlasContext'
 import { isAdminAccess } from '../../features/auth/access'
 import { signOut } from '../../features/auth/authService'
 import { useAuth } from '../../features/auth/authContext'
 import { useAcademyMobile } from '../../hooks/useAcademyMobile'
-import { FoundryCalendar } from './FoundryCalendar'
 import { FoundryDesign } from './design/FoundryDesign'
-import { FoundryObjectives } from './FoundryObjectives'
+import { FoundryChallenge } from './FoundryChallenge'
 import { FoundryOps } from './FoundryOps'
 import { FoundryStages } from './FoundryStages'
 import { FoundrySources } from './FoundrySources'
@@ -43,7 +43,7 @@ type ShellState = {
 const defaultShellState: ShellState = {
   mode: 'foundry',
   foundryPage: 'ops',
-  academyPage: 'calendar',
+  academyPage: 'leaderboard',
   academyScope: emptyAcademyScope,
 }
 
@@ -60,7 +60,7 @@ function readShellState(): ShellState {
     const academyPage =
       typeof parsed.academyPage === 'string' && academyPageIds.has(parsed.academyPage as AcademyPage)
         ? (parsed.academyPage as AcademyPage)
-        : 'calendar'
+        : 'leaderboard'
     const scope = parsed.academyScope
     const academyScope: AcademyScope =
       scope && typeof scope === 'object'
@@ -82,6 +82,7 @@ export function FoundryShell() {
   const [shell, setShell] = useState<ShellState>(readShellState)
   const { mode, foundryPage, academyPage, academyScope } = shell
   const { approvedUser, user } = useAuth()
+  const { studentAccess } = useAtlas()
   const isAdmin = isAdminAccess(approvedUser?.role)
   const displayEmail =
     approvedUser?.name ?? approvedUser?.email ?? user?.email ?? 'Signed in'
@@ -129,8 +130,8 @@ export function FoundryShell() {
     ? 'reader'
     : routedLessonId
       ? 'objectives'
-      : academyPageForRole(academyPage, isAdmin)
-  const academyNavItems = academyRailForRole(isAdmin)
+      : academyPageForRole(academyPage, isAdmin, studentAccess)
+  const academyNavItems = academyRailForRole(isAdmin, studentAccess)
   const navItems = isAcademy ? academyNavItems : railItems
   const activePage = isAcademy ? activeAcademyPage : foundryPage
 
@@ -150,7 +151,7 @@ export function FoundryShell() {
     }
     if (isAcademy) {
       setAcademyScope(emptyAcademyScope) // rail navigation clears any open-from-Library scope
-      setAcademyPage(academyPageForRole(id as AcademyPage, isAdmin))
+      setAcademyPage(academyPageForRole(id as AcademyPage, isAdmin, studentAccess))
     } else {
       setFoundryPage(id as FoundryPage)
     }
@@ -245,8 +246,7 @@ export function FoundryShell() {
             {foundryPage === 'sources' ? <FoundrySources /> : null}
             {foundryPage === 'stages' ? <FoundryStages /> : null}
             {foundryPage === 'design' ? <FoundryDesign /> : null}
-            {foundryPage === 'calendar' ? <FoundryCalendar /> : null}
-            {foundryPage === 'objectives' ? <FoundryObjectives /> : null}
+            {foundryPage === 'challenge' ? <FoundryChallenge /> : null}
             {foundryPage === 'workspace' ? <FoundryWorkspaces /> : null}
             {foundryPage === 'settings' ? <FoundryStageSettings /> : null}
           </>

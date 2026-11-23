@@ -1,5 +1,6 @@
 import { FoundryShell } from '../components/foundry/FoundryShell'
 import { WorkspaceGate } from '../components/WorkspaceGate'
+import { AtlasProvider } from '../features/atlas/AtlasProvider'
 import { WorkspaceDataProvider } from '../features/workspace/WorkspaceDataProvider'
 import '../foundry.css'
 import '../academy.css'
@@ -11,7 +12,9 @@ export function FoundryPage() {
     <div className="as-gallery as-gallery--full">
       <WorkspaceGate>
         <WorkspaceDataProvider>
-          <FoundryShell />
+          <AtlasProvider>
+            <FoundryShell />
+          </AtlasProvider>
         </WorkspaceDataProvider>
       </WorkspaceGate>
     </div>

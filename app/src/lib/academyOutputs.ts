@@ -425,8 +425,8 @@ function shelfSearchText(item: OutputItem): string {
 
 function matchesShelfKind(item: OutputItem, kind: BookShelfKind | ClassShelfKind): boolean {
   if (kind === 'all') return true
-  const itemKind: string = item.kind
-  return itemKind === kind
+  if (kind === 'quiz') return item.kind === 'question'
+  return item.kind === kind
 }
 
 function shelfUpdatedAt(items: OutputItem[]): string {
@@ -493,6 +493,7 @@ export function libraryShelves(
 interface KnowledgeRecord {
   id: string
   source_id?: string | null
+  lesson_id?: string | null
   difficulty: string
   created_at: string
 }
@@ -517,25 +518,27 @@ export function knowledgeLibraryItems<T extends KnowledgeRecord>(
 ): OutputItem[] {
   const grouped = new Map<string, T[]>()
   for (const record of records) {
-    const key = record.source_id ?? ''
-    const list = grouped.get(key) ?? []
+    const home = recordHome(record)
+    const list = grouped.get(home.key) ?? []
     list.push(record)
-    grouped.set(key, list)
+    grouped.set(home.key, list)
   }
 
-  return [...grouped.entries()].map(([key, batch]) => {
-    const sourceId = key || null
-    const sourceName = nameOf(sourceId)
+  return [...grouped.entries()].flatMap(([, batch]) => {
+    const first = batch[0]
+    if (!first) return []
+    const home = recordHome(first)
+    const sourceName = nameOf(home.lessonId ?? home.sourceId)
     const newest = batch.reduce((latest, record) =>
       record.created_at > latest.created_at ? record : latest,
     )
-    return {
+    return [{
       kind,
-      id: sourceId ?? 'unassigned',
+      id: home.lessonId ?? home.sourceId ?? 'unassigned',
       projectId: null,
       title: countLabel(batch.length, unit, plural),
-      sourceId,
-      lessonId: null,
+      sourceId: home.sourceId,
+      lessonId: home.lessonId,
       sourceName,
       footer: sourceName,
       badge: '',
@@ -547,8 +550,15 @@ export function knowledgeLibraryItems<T extends KnowledgeRecord>(
       isAudiobook: false,
       narrationDownload: null,
       searchText: batch.map(searchOf).join(' '),
-    } satisfies OutputItem
+    } satisfies OutputItem]
   })
+}
+
+function recordHome(record: KnowledgeRecord): { key: string; sourceId: string | null; lessonId: string | null } {
+  const lessonId = record.lesson_id ?? null
+  if (lessonId) return { key: `lesson:${lessonId}`, sourceId: null, lessonId }
+  const sourceId = record.source_id ?? null
+  return { key: sourceId ?? '', sourceId, lessonId: null }
 }
 
 export function useOutputs(): { items: OutputItem[]; sources: { id: string; name: string }[] } {
@@ -559,8 +569,11 @@ export function useOutputs(): { items: OutputItem[]; sources: { id: string; name
 
   return useMemo(() => {
     const byId = new Map(sources.map((s) => [s.id, s]))
-    const nameOf = (id: string | null | undefined) =>
-      id ? sourceLabel(byId.get(id)) : UNASSIGNED
+    const lessonTitles = new Map(readyLessons.map((lesson) => [lesson.id, lesson.title]))
+    const nameOf = (id: string | null | undefined) => {
+      if (!id) return UNASSIGNED
+      return lessonTitles.get(id) ?? sourceLabel(byId.get(id))
+    }
 
     // Flashcards and wiki-term questions live only on the Flashcards tab.
     const libraryQuizzes = quizzes.filter((quiz) => !isWikiTermQuiz(quiz))

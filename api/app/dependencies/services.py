@@ -5,6 +5,7 @@ from fastapi import Depends
 from app.config import Settings, get_settings
 from app.repositories.artifacts import ArtifactRepository
 from app.repositories.assessments import AssessmentRepository
+from app.repositories.atlas import AtlasRepository
 from app.repositories.calendar_events import CalendarEventRepository, CalendarTaskCompletionRepository
 from app.repositories.discussions import DiscussionRepository
 from app.repositories.document_chapters import DocumentChapterRepository
@@ -24,6 +25,7 @@ from app.repositories.wiki_entries import WikiEntryRepository
 from app.repositories.wiki_ingest_batches import WikiIngestBatchRepository
 from app.repositories.workspaces import WorkspaceRepository
 from app.services.assistant import AssistantService
+from app.services.atlas import AtlasService
 from app.services.knowledge_projects import KnowledgeProjectService
 from app.services.lesson_index_queue import LessonIndexQueue
 from app.services.retrieval import RetrievalService
@@ -228,4 +230,28 @@ def get_assistant_service(
         retrieval=retrieval,
         assessments=assessments,
         chat_model=settings.assistant.chat_model,
+    )
+
+
+def get_atlas_repository(
+    db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
+) -> AtlasRepository:
+    return AtlasRepository(db)
+
+
+def get_atlas_service(
+    atlas: Annotated[AtlasRepository, Depends(get_atlas_repository)],
+    assessments: Annotated[AssessmentRepository, Depends(get_assessment_repository)],
+    sources: Annotated[SourceRepository, Depends(get_source_repository)],
+    lessons: Annotated[LessonRepository, Depends(get_lesson_repository)],
+    db: Annotated[SupabaseRestClient, Depends(get_supabase_rest_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AtlasService:
+    return AtlasService(
+        atlas=atlas,
+        assessments=assessments,
+        sources=sources,
+        lessons=lessons,
+        db=db,
+        settings=settings,
     )

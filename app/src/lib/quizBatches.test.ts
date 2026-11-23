@@ -65,4 +65,21 @@ describe('defaultQuizBatch', () => {
     expect(defaultQuizBatch(batches, { projectId: 'proj-old' })?.title).toBe('Chapter 1')
     expect(defaultQuizBatch(batches, { batchKey: quizBatchKey('src-a', null) })?.title).toBe('Unassigned')
   })
+
+  it('opens class practice questions from the class shelf', () => {
+    const classBatches = listQuizBatches(
+      [{ lesson_id: 'lesson-1', source_id: null, knowledge_project_id: 'proj-new', created_at: '2026-10-20T00:00:00Z' }],
+      titles,
+      (id) => (id === 'lesson-1' ? 'Warfighting' : 'Unassigned'),
+    )
+
+    expect(classBatches[0]).toMatchObject({
+      lessonId: 'lesson-1',
+      sourceId: null,
+      sourceKey: 'lesson-1',
+      sourceName: 'Warfighting',
+      title: 'Chapter 2',
+    })
+    expect(defaultQuizBatch(classBatches, { sourceId: 'lesson-1' })?.title).toBe('Chapter 2')
+  })
 })

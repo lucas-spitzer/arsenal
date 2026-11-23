@@ -96,7 +96,8 @@ class KnowledgeProjectService:
         owner_id: str,
         workspace_slug: str,
         title: str,
-        source: dict[str, Any],
+        source: dict[str, Any] | None = None,
+        lesson: dict[str, Any] | None = None,
         raw_notes: str,
         filename: str | None,
         content_type: str | None,
@@ -104,6 +105,24 @@ class KnowledgeProjectService:
         storage: SupabaseStorageClient,
         images: dict[str, bytes] | None = None,
     ) -> dict[str, Any]:
+        if lesson is not None and source is not None:
+            raise KnowledgeProjectError("Choose a book or a class.")
+        if lesson is not None:
+            return await self._create_lesson_questions(
+                workspace_id=workspace_id,
+                owner_id=owner_id,
+                workspace_slug=workspace_slug,
+                title=title,
+                lesson=lesson,
+                raw_notes=raw_notes,
+                filename=filename,
+                content_type=content_type,
+                content=content,
+                images=images or {},
+                storage=storage,
+            )
+        if source is None:
+            raise KnowledgeProjectError("Choose a book or a class.")
         cleaned_title = " ".join(title.split())
         if not cleaned_title:
             raise KnowledgeProjectError("Give the project a title.")
@@ -238,6 +257,121 @@ class KnowledgeProjectService:
             )
             raise KnowledgeProjectError("Structuring could not be queued. Is Redis running?") from exc
         return updated or project
+
+    async def _create_lesson_questions(
+        self,
+        *,
+        workspace_id: str,
+        owner_id: str,
+        workspace_slug: str,
+        title: str,
+        lesson: dict[str, Any],
+        raw_notes: str,
+        filename: str | None,
+        content_type: str | None,
+        content: bytes | None,
+        images: dict[str, bytes],
+        storage: SupabaseStorageClient,
+    ) -> dict[str, Any]:
+        """Save a question pack on a class. Wiki notes still belong on a book."""
+        cleaned_title = " ".join(title.split())
+        if not cleaned_title:
+            raise KnowledgeProjectError("Give the project a title.")
+        notes_text = raw_notes.strip()
+        has_file = bool(content)
+        if has_file and notes_text:
+            raise KnowledgeProjectError("Upload a question pack or paste one, not both.")
+        if not has_file and not notes_text:
+            raise KnowledgeProjectError("Upload a question pack or paste one.")
+        if notes_text and len(notes_text) > self.settings.wiki_authoring.max_notes_chars:
+            raise KnowledgeProjectError("Notes are too long.")
+
+        if has_file:
+            structured = _structured_upload(filename, content_type, content)
+            if structured is None:
+                raise KnowledgeProjectError("A class takes a JSON question pack. Other files belong on a book.")
+            text, stored_name = structured
+            payload = content or b""
+        else:
+            stored_name = "questions.json"
+            text = notes_text
+            payload = notes_text.encode()
+
+        try:
+            parsed = require_structured_notes(text, filename=stored_name)
+        except StructuredNotesError as exc:
+            raise KnowledgeProjectError(str(exc)) from exc
+        if parsed.entries:
+            raise KnowledgeProjectError(
+                "This file has wiki entries. Put terms, lists, ELOs, and abbreviations on a book. "
+                "A class upload is practice questions.",
+            )
+        if not parsed.questions:
+            raise KnowledgeProjectError("The question pack has no questions.")
+        try:
+            require_question_images(
+                parsed.questions,
+                images,
+                max_bytes=self.settings.study_material.max_file_bytes,
+            )
+        except KnowledgeUploadError as exc:
+            raise KnowledgeProjectError(str(exc)) from exc
+
+        project = await self.projects.create(
+            {
+                "workspace_id": workspace_id,
+                "owner_id": owner_id,
+                "source_id": None,
+                "lesson_id": lesson["id"],
+                "title": cleaned_title,
+                "status": "ready",
+                "raw_notes": text,
+                "notes_filename": stored_name,
+                "notes_mime_type": "application/json",
+                "notes_byte_size": len(payload),
+            },
+        )
+        project_id = str(project["id"])
+        path = knowledge_notes_path(workspace_slug, project_id, stored_name)
+        try:
+            await storage.upload(
+                bucket=self.settings.sources_bucket,
+                path=path,
+                content=payload,
+                content_type="application/json",
+                upsert=True,
+            )
+            catalog = await self._citation_catalog(workspace_id, [])
+            rows = _imported_question_rows(project, parsed.questions, catalog)
+            saved_rows = await self.projects.insert_rows("quizzes", rows)
+            saved_plans = await self.projects.insert_plans(
+                item_plan_rows(
+                    project_id=project_id,
+                    workspace_id=workspace_id,
+                    rows=saved_rows,
+                    item_type="question",
+                ),
+            )
+            await self._attach_imported_images(
+                project=project,
+                workspace_slug=workspace_slug,
+                questions=parsed.questions,
+                quizzes=saved_rows,
+                plans=saved_plans,
+                images=images,
+                storage=storage,
+            )
+            updated = await self.projects.update(
+                project_id,
+                {"notes_storage_path": path, "status": "ready", "error": None},
+            )
+            return updated or project
+        except KnowledgeProjectError:
+            raise
+        except Exception as exc:
+            logger.exception("Failed to import class questions for %s", project_id)
+            await self.projects.update(project_id, {"status": "failed", "error": str(exc)[:2000]})
+            raise KnowledgeProjectError("Could not import the question pack.") from exc
 
     async def _commit_structured_project(
         self,
@@ -1070,12 +1204,15 @@ class KnowledgeProjectService:
         failure: str,
     ) -> dict[str, Any]:
         project_id = str(project["id"])
+        source_id = project.get("source_id")
+        if not source_id and job != "attach":
+            raise KnowledgeProjectError("Drafting still needs a book.")
         run = await self.production_runs.create(
             {
                 "workspace_id": project["workspace_id"],
                 "owner_id": project["owner_id"],
                 "label": project["title"],
-                "source_ids": [project["source_id"]],
+                "source_ids": [source_id] if source_id else [],
                 "target_artifacts": [target],
                 "pipeline": pipeline,
                 "status": "queued",
@@ -1255,13 +1392,19 @@ def _imported_question_rows(
             )
             if wiki_id:
                 citations = [{"uri": f"wiki://{wiki_id}", "type": "wiki"}]
+        lesson_id = project.get("lesson_id")
         row = {
             "workspace_id": project["workspace_id"],
-            "source_id": project["source_id"],
+            "source_id": project.get("source_id"),
+            "lesson_id": lesson_id,
             "difficulty": item.get("difficulty") or "medium",
             "bloom_level": item.get("bloom_level"),
             "citations": citations,
-            "origin": {"source": "wiki_term", "format": subtype, "from": "structured_notes"},
+            "origin": {
+                "source": "lesson_practice" if lesson_id else "wiki_term",
+                "format": subtype,
+                "from": "structured_notes",
+            },
             "question": rendered.question or item["question"],
             "question_type": subtype,
             "options": rendered.options,

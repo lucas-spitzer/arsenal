@@ -11,9 +11,11 @@ import {
   listKnowledgeProjects,
   uploadPlanVisual,
   type KnowledgeDraftItem,
+  type KnowledgeHome,
   type KnowledgeProjectDetail,
   type KnowledgeProjectSummary,
 } from '../../../lib/knowledgeApi'
+import { useLessons } from '../../../lib/useLessons'
 import { ErrorBanner } from '../ErrorBanner'
 import { FoundryDialog } from '../FoundryDialog'
 import { Loader } from '../../shared/Loader'
@@ -118,7 +120,7 @@ function KnowledgeList({
           <Loader label="Loading knowledge projects" size="sm" />
         ) : projects.length === 0 ? (
           <div className="as-console__empty">
-            <p>No knowledge projects yet. Upload notes against an ingested book to draft study items.</p>
+            <p>No knowledge projects yet. Upload notes against an ingested book, or practice questions for a class.</p>
             <button type="button" className="as-console__cta" onClick={onCreate}>
               New knowledge
             </button>
@@ -143,30 +145,38 @@ function KnowledgeList({
 function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreated: (id: string) => void }) {
   const { activeWorkspace } = useWorkspace()
   const { sources } = useWorkspaceData()
+  const { lessons, isLoading: lessonsLoading } = useLessons(activeWorkspace?.id ?? null)
   const readySources = sources.filter((source) => source.status === 'ready')
   const [title, setTitle] = useState('')
-  const [sourceId, setSourceId] = useState(readySources[0]?.id ?? '')
+  const [home, setHome] = useState<KnowledgeHome>({ kind: 'book', sourceId: readySources[0]?.id ?? '' })
   const [notes, setNotes] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const ready = title.trim().length > 0 && sourceId.length > 0 && (files.length > 0 || notes.trim().length > 0)
+  const selectedLessonId = home.kind === 'lesson'
+    ? lessons.find((lesson) => lesson.id === home.lessonId)?.id ?? lessons[0]?.id ?? ''
+    : ''
+  const homeReady = home.kind === 'book' ? home.sourceId.length > 0 : selectedLessonId.length > 0
+  const ready = title.trim().length > 0 && homeReady && (files.length > 0 || notes.trim().length > 0)
 
   const submit = async () => {
     if (!ready || !activeWorkspace) return
+    const nextHome: KnowledgeHome = home.kind === 'book'
+      ? home
+      : { kind: 'lesson', lessonId: selectedLessonId }
     setIsSubmitting(true)
     setError(null)
     try {
       const project = await createKnowledgeProject(activeWorkspace.id, {
         title: title.trim(),
-        sourceId,
+        home: nextHome,
         notes: notes.trim(),
         files,
       })
       onCreated(project.id)
     } catch (caught) {
-      setError(errorMessage(caught, 'Could not start structuring.'))
+      setError(errorMessage(caught, home.kind === 'lesson' ? 'Could not save the questions.' : 'Could not start structuring.'))
       setIsSubmitting(false)
     }
   }
@@ -183,7 +193,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
             Cancel
           </button>
           <button type="button" className="as-console__cta" disabled={!ready || isSubmitting} onClick={() => void submit()}>
-            {isSubmitting ? 'Starting…' : 'Start structure'}
+            {isSubmitting ? 'Starting…' : home.kind === 'lesson' ? 'Save questions' : 'Start structure'}
           </button>
         </div>
       </header>
@@ -196,22 +206,91 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
           <input id="kproj-title" className="as-wiki__input" value={title} onChange={(event) => setTitle(event.target.value)} />
         </div>
         <div className="kproj-field">
-          <label className="kproj-label" htmlFor="kproj-source">
-            Book
-          </label>
-          <select id="kproj-source" className="as-wiki__input kproj-select" value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
-            {readySources.length === 0 ? <option value="">No ingested sources</option> : null}
-            {readySources.map((source) => (
-              <option key={source.id} value={source.id}>
-                {sourceTitle(source)}
-              </option>
-            ))}
-          </select>
-          <p className="dsn-hint">The book these notes belong to. A JSON file is stored with that book and written straight into the wiki.</p>
+          <span className="kproj-label" id="kproj-home-label">
+            Belongs to
+          </span>
+          <div className="kproj-switch" role="tablist" aria-labelledby="kproj-home-label">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={home.kind === 'book'}
+              className={home.kind === 'book' ? 'is-active' : undefined}
+              onClick={() => {
+                if (home.kind === 'book') return
+                setHome({ kind: 'book', sourceId: readySources[0]?.id ?? '' })
+                setFiles([])
+                setNotes('')
+                if (fileInputRef.current) fileInputRef.current.value = ''
+              }}
+            >
+              Book
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={home.kind === 'lesson'}
+              className={home.kind === 'lesson' ? 'is-active' : undefined}
+              onClick={() => {
+                if (home.kind === 'lesson') return
+                setHome({ kind: 'lesson', lessonId: lessons[0]?.id ?? '' })
+                setFiles([])
+                setNotes('')
+                if (fileInputRef.current) fileInputRef.current.value = ''
+              }}
+            >
+              Class
+            </button>
+          </div>
+          {home.kind === 'book' ? (
+            <>
+              <label className="kproj-label" htmlFor="kproj-source">
+                Book
+              </label>
+              <select
+                id="kproj-source"
+                className="as-wiki__input kproj-select"
+                value={home.sourceId}
+                onChange={(event) => setHome({ kind: 'book', sourceId: event.target.value })}
+              >
+                {readySources.length === 0 ? <option value="">No ingested books</option> : null}
+                {readySources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {sourceTitle(source)}
+                  </option>
+                ))}
+              </select>
+              <p className="dsn-hint">The book these notes belong to. A JSON file is stored with that book and written straight into the wiki.</p>
+            </>
+          ) : (
+            <>
+              <label className="kproj-label" htmlFor="kproj-source">
+                Class
+              </label>
+              <select
+                id="kproj-source"
+                className="as-wiki__input kproj-select"
+                value={selectedLessonId}
+                onChange={(event) => setHome({ kind: 'lesson', lessonId: event.target.value })}
+              >
+                {lessons.length === 0 ? (
+                  <option value="">{lessonsLoading ? 'Loading classes' : 'No classes yet'}</option>
+                ) : null}
+                {lessons.map((lesson) => (
+                  <option key={lesson.id} value={lesson.id}>
+                    {lesson.title}
+                  </option>
+                ))}
+              </select>
+              <p className="dsn-hint">
+                Practice questions for this class. A question pack is JSON, or a zip of the JSON and the images. Terms,
+                lists, ELOs, and abbreviations still go on a book. Study guides are not uploaded here yet.
+              </p>
+            </>
+          )}
         </div>
         <div className="kproj-field">
           <label className="kproj-label" htmlFor="kproj-file">
-            Notes file
+            {home.kind === 'lesson' ? 'Practice questions' : 'Notes file'}
           </label>
           <div className="kproj-file">
             <input
@@ -220,7 +299,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
               type="file"
               hidden
               multiple
-              accept=".json,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp,.zip"
+              accept={home.kind === 'lesson' ? '.json,.png,.jpg,.jpeg,.webp,.zip' : '.json,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp,.zip'}
               onChange={(event) => {
                 const next = event.target.files ? Array.from(event.target.files) : []
                 setFiles(next)
@@ -228,7 +307,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
               }}
             />
             <button type="button" className="as-console__cta as-console__cta--ghost" onClick={() => fileInputRef.current?.click()}>
-              ⇪ Upload notes
+              {home.kind === 'lesson' ? '⇪ Upload questions' : '⇪ Upload notes'}
             </button>
             {files.length > 0 ? <span className="kproj-file__name">{files.map((item) => item.name).join(', ')}</span> : null}
             {files.length > 0 ? (
@@ -245,14 +324,14 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
             ) : null}
           </div>
           <p className="dsn-hint">
-            JSON with terms, key lists, and ELOs is imported as wiki entries. Other files are transcribed first. A
-            question pack with pictures is a zip of the JSON and the images, or the JSON and the image files selected
-            together. The image file name has to match the filename on the question.
+            {home.kind === 'lesson'
+              ? 'The image file name has to match the filename on the question.'
+              : 'JSON with terms, key lists, and ELOs is imported as wiki entries. Other files are transcribed first. A question pack with pictures is a zip of the JSON and the images, or the JSON and the image files selected together. The image file name has to match the filename on the question.'}
           </p>
         </div>
         <div className="kproj-field">
           <label className="kproj-label" htmlFor="kproj-notes">
-            Or paste notes
+            {home.kind === 'lesson' ? 'Or paste a question pack' : 'Or paste notes'}
           </label>
           <textarea
             id="kproj-notes"

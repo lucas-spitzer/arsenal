@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Lesson } from '../../lib/lessonsApi'
 import { useAcademyChrome } from './academyChromeContext'
+import { StudentIdentity } from './StudentIdentity'
 
 /* Shared chrome for the live study views (Flashcards, Quiz, Scenarios,
    Discussions): roster-style page header, a focusable session panel with
@@ -12,12 +13,12 @@ export function StudyHead({
   eyebrow,
   title,
   description,
-  stats,
   children,
 }: {
   eyebrow: string
   title: string
   description: string
+  /** @deprecated Header stats were replaced by StudentIdentity. Ignored. */
   stats?: { value: string | number; label: string }[]
   children?: ReactNode
 }) {
@@ -47,15 +48,7 @@ export function StudyHead({
       </div>
       <div className="study-session__head-side">
         {children}
-        {stats && stats.length > 0 && (!compact || detailsOpen) && (
-          <div className="study-session__summary" aria-label="Study set summary">
-            {stats.map((stat) => (
-              <span key={stat.label}>
-                <strong>{stat.value}</strong> {stat.label}
-              </span>
-            ))}
-          </div>
-        )}
+        <StudentIdentity />
       </div>
     </header>
   )

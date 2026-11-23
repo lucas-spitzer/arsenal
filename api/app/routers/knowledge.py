@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import (
     get_knowledge_project_service,
+    get_lesson_repository,
     get_source_repository,
     get_supabase_storage_client,
     get_workspace_repository,
@@ -25,6 +26,7 @@ from app.models.knowledge import (
     KnowledgeVariantsRequest,
 )
 from app.models.workspace import WorkspaceResponse
+from app.repositories.lessons import LessonRepository
 from app.repositories.sources import SourceRepository
 from app.repositories.workspaces import WorkspaceRepository
 from app.services.knowledge_projects import KnowledgeProjectError, KnowledgeProjectService
@@ -81,15 +83,24 @@ async def create_knowledge_project(
     service: Service,
     storage: Storage,
     sources: Annotated[SourceRepository, Depends(get_source_repository)],
+    lessons: Annotated[LessonRepository, Depends(get_lesson_repository)],
     workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
     title: Annotated[str, Form()],
-    source_id: Annotated[str, Form()],
+    source_id: Annotated[str, Form()] = "",
+    lesson_id: Annotated[str, Form()] = "",
     raw_notes: Annotated[str, Form()] = "",
     file: Annotated[list[UploadFile] | None, File()] = None,
 ) -> KnowledgeProjectDetail:
-    source = await sources.get_for_workspace(source_id, workspace.id, user.id)
-    if not source:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found.")
+    source = None
+    lesson = None
+    if source_id.strip():
+        source = await sources.get_for_workspace(source_id.strip(), workspace.id, user.id)
+        if not source:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found.")
+    if lesson_id.strip():
+        lesson = await lessons.get(lesson_id.strip(), workspace.id)
+        if not lesson:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found.")
     owner_workspace = await workspaces.get_for_owner(workspace.id, user.id)
     if not owner_workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
@@ -115,6 +126,7 @@ async def create_knowledge_project(
             workspace_slug=str(owner_workspace["slug"]),
             title=title,
             source=source,
+            lesson=lesson,
             raw_notes=raw_notes,
             filename=resolved.filename,
             content_type=resolved.content_type,

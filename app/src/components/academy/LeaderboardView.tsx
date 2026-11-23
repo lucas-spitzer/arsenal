@@ -1,0 +1,99 @@
+import { useEffect, useState } from 'react'
+import { useAuth } from '../../features/auth/authContext'
+import { useWorkspace } from '../../features/workspace/workspaceContext'
+import { getLeaderboard, type Leaderboard } from '../../lib/atlasApi'
+import { Loader } from '../shared/Loader'
+import { StudyHead } from './StudySessionChrome'
+
+export function LeaderboardView() {
+  const { activeWorkspace } = useWorkspace()
+  const { approvedUser, user } = useAuth()
+  const [board, setBoard] = useState<Leaderboard | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!activeWorkspace) return
+    let cancelled = false
+    void getLeaderboard(activeWorkspace.id)
+      .then((next) => {
+        if (!cancelled) {
+          setBoard(next)
+          setError(null)
+        }
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : 'Could not load the leaderboard.')
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeWorkspace])
+
+  const selfName = approvedUser?.name ?? approvedUser?.email ?? user?.email ?? ''
+  const ends = board ? new Date(board.ends_at) : null
+
+  return (
+    <section className="ldr study-session">
+      <StudyHead
+        eyebrow="Atlas Points"
+        title="Leaderboard"
+        description="Platoon standings for the Academic Challenge. Lifetime Atlas Points decide the order."
+      />
+
+      {error ? <p className="lib__empty">{error}</p> : null}
+      {!board && !error ? (
+        <div className="lib__empty">
+          <Loader label="Loading leaderboard" size="sm" />
+        </div>
+      ) : null}
+
+      {board ? (
+        <>
+          {board.finalized ? (
+            <p className="ldr__frozen">Final standings frozen</p>
+          ) : ends ? (
+            <p className="ldr__frozen">
+              Challenge ends {ends.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+            </p>
+          ) : null}
+
+          <div className="ldr__platoon">
+            <div>
+              <span>Platoon total</span>
+              <strong>{board.platoon_total_ap} AP</strong>
+            </div>
+            <div>
+              <span>Goal</span>
+              <strong className="ldr__goal">BEST PLT AVG</strong>
+            </div>
+          </div>
+
+          <table className="ldr__table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Name</th>
+                <th>AP</th>
+                <th>Mastered</th>
+                <th>Accuracy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {board.entries.map((entry) => (
+                <tr key={entry.user_id} className={entry.name === selfName ? 'is-you' : undefined}>
+                  <td>{entry.rank}</td>
+                  <td>{entry.name}</td>
+                  <td>{entry.lifetime_ap}</td>
+                  <td>{entry.concepts_mastered}</td>
+                  <td>{entry.accuracy == null ? '—' : `${entry.accuracy}%`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
+    </section>
+  )
+}

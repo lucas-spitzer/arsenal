@@ -1,468 +1,342 @@
 import { Check, Info, RotateCcw, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
+import { useMemo, useState } from 'react'
+import { useAtlas } from '../../features/atlas/atlasContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
-import { filterAndSortRecords, useOutputs } from '../../lib/academyOutputs'
-import { combineSeed, drawOptions, hasPool, pickVariants, seededRng } from '../../lib/answerPool'
+import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import {
-  batchesForSource,
-  defaultQuizBatch,
-  listQuizBatches,
-  quizBatchSources,
-  type QuizBatch,
-} from '../../lib/quizBatches'
-import {
-  createQuizResult,
-  type QuizResult,
-  type QuizResultDraft,
-  type QuizResultDraftAnswer,
-} from '../../lib/quizResultsApi'
-import { isWikiTermQuiz } from '../../lib/assessmentOrigin'
-import type { Quiz } from '../../lib/workspaceApi'
-import {
-  StudyHead,
-  StudyPanel,
-  StudySourceReference,
-} from './StudySessionChrome'
-import { AssessmentPicture } from './AssessmentPicture'
+  completeExam,
+  startExam,
+  submitExamAnswer,
+  type AnswerSubmitResult,
+  type ExamAttempt,
+  type ExamQuestion,
+  type SubjectKind,
+} from '../../lib/atlasApi'
 import { showsStemImage } from '../../lib/assessmentVisual'
+import { sourceDisplayName } from '../../lib/sourceDisplay'
+import { useLessons } from '../../lib/useLessons'
+import { AssessmentPicture } from './AssessmentPicture'
+import { StudyHead, StudyPanel, StudySourceReference } from './StudySessionChrome'
 import { useStudyFullscreen } from './useStudyFullscreen'
 
-// Quiz options are plain strings; correct_answer may be the option text, a
-// letter (A/B/C), or a numeric index — handle each.
-function optionIsCorrect(quiz: Quiz, option: string, index: number): boolean {
-  const answer = (quiz.correct_answer ?? '').trim()
-  if (!answer) return false
-  if (answer === option) return true
-  if (/^[A-Za-z]$/.test(answer) && answer.toUpperCase().charCodeAt(0) - 65 === index) return true
-  if (/^\d+$/.test(answer) && Number(answer) === index) return true
-  return false
-}
+type Mode = 'full_practice' | 'subject'
+type Miss = { quizId: string; question: string; selected: string; answer: string }
 
-interface DrawnQuiz {
-  quiz: Quiz
-  question: string
-  options: string[]
-  correct: string[] | null
-}
-
-interface QuizMiss {
-  quizId: string
-  question: string
-  selected: string
-  answer: string
-}
-
-interface QuizOutcome {
-  correct: number
-  total: number
-  misses: QuizMiss[]
-  pending: boolean
-  saveError: string | null
-  canRetry: boolean
-}
-
-function optionIsRight(item: DrawnQuiz, option: string, index: number): boolean {
-  if (item.correct) return item.correct.includes(option)
-  return optionIsCorrect(item.quiz, option, index)
-}
-
-function gradeRun(run: DrawnQuiz[], answers: Record<string, number>) {
-  let correct = 0
-  const misses: QuizMiss[] = []
-  const submissions: QuizResultDraftAnswer[] = []
-  let complete = true
-  for (const item of run) {
-    const selectedIndex = answers[item.quiz.id]
-    if (selectedIndex == null || selectedIndex < 0 || selectedIndex >= item.options.length) {
-      complete = false
-      continue
-    }
-    const selected = item.options[selectedIndex] ?? ''
-    const right = item.options.find((option, index) => optionIsRight(item, option, index)) ?? ''
-    const isCorrect = optionIsRight(item, selected, selectedIndex)
-    if (isCorrect) correct += 1
-    else misses.push({ quizId: item.quiz.id, question: item.question, selected, answer: right })
-    submissions.push({
-      quiz_id: item.quiz.id,
-      question: item.question,
-      options: item.options,
-      selected_index: selectedIndex,
-    })
-  }
-  return { correct, total: run.length, misses, submissions, complete: complete && submissions.length === run.length }
-}
-
-function missesFromResult(result: QuizResult): QuizMiss[] {
-  return result.answers
-    .filter((answer) => !answer.correct)
-    .map((answer) => ({
-      quizId: answer.quiz_id,
-      question: answer.question,
-      selected: answer.selected,
-      answer: answer.answer,
-    }))
-}
-
-export function QuizView({
-  sourceId: initialSource = null,
-  targetId = null,
-  projectId = null,
-  batchKey = null,
-}: {
+export function QuizView(_legacyLibraryScope?: {
   sourceId?: string | null
   targetId?: string | null
   projectId?: string | null
   batchKey?: string | null
 }) {
+  void _legacyLibraryScope
   const { activeWorkspace } = useWorkspace()
-  const { quizzes, knowledgeRunTitles } = useWorkspaceData()
-  const { sources } = useOutputs()
+  const { quizzes, sources } = useWorkspaceData()
+  const { lessons } = useLessons(activeWorkspace?.id ?? null)
+  const { setLifetimeAp } = useAtlas()
   const { fullscreen, toggle } = useStudyFullscreen()
-  const batches = listQuizBatches(
-    quizzes,
-    knowledgeRunTitles,
-    (sourceId) => sources.find((source) => source.id === sourceId)?.name ?? 'Unassigned',
-  )
-  const [pickedKey, setPickedKey] = useState<string | null>(null)
-  const batch =
-    batches.find((item) => item.key === pickedKey) ??
-    defaultQuizBatch(batches, { sourceId: initialSource, projectId, batchKey })
-  const sourceChoices = quizBatchSources(batches)
-  const batchChoices = batch ? batchesForSource(batches, batch.sourceKey) : []
 
-  const items = batch
-    ? filterAndSortRecords(
-        quizzes.filter(
-          (quiz) =>
-            !isWikiTermQuiz(quiz) &&
-            (quiz.source_id ?? null) === batch.sourceId &&
-            (quiz.knowledge_project_id ?? null) === batch.projectId,
-        ),
-        (quiz) => quiz.question,
-        { search: '', sourceId: null, sort: 'source' },
-      )
-    : []
-
-  const [qIndex, setQIndex] = useState(0)
+  const [mode, setMode] = useState<Mode>('full_practice')
+  const [subjectKind, setSubjectKind] = useState<SubjectKind>('source')
+  const [subjectId, setSubjectId] = useState('')
+  const [attempt, setAttempt] = useState<ExamAttempt | null>(null)
+  const [index, setIndex] = useState(0)
   const [selected, setSelected] = useState<number | null>(null)
-  const [answers, setAnswers] = useState<Record<string, number>>({})
+  const [feedback, setFeedback] = useState<AnswerSubmitResult | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [finished, setFinished] = useState(false)
-  const [outcome, setOutcome] = useState<QuizOutcome | null>(null)
-  const [sessionSeed, setSessionSeed] = useState(() => Date.now())
-  const [allVariants, setAllVariants] = useState(false)
-  const targetAppliedRef = useRef<string | null>(null)
-  const finishStarted = useRef(false)
-  const pendingSave = useRef<QuizResultDraft | null>(null)
-  const saveGeneration = useRef(0)
+  const [misses, setMisses] = useState<Miss[]>([])
+  const [apGained, setApGained] = useState(0)
+  const [masteredCount, setMasteredCount] = useState(0)
+  const [floatLabel, setFloatLabel] = useState<string | null>(null)
 
-  const draws = new Map<string, ReturnType<typeof drawOptions>>()
-  for (const quiz of items) {
-    if (!hasPool(quiz.answer_pool)) continue
-    draws.set(
-      quiz.id,
-      drawOptions(quiz.answer_pool, quiz.subtype ?? quiz.question_type, seededRng(combineSeed(sessionSeed, quiz.id))),
-    )
-  }
+  const subjectOptions = useMemo(() => {
+    const sourceOpts = sources.map((source) => ({
+      kind: 'source' as const,
+      id: source.id,
+      name: sourceDisplayName(source),
+      count: quizzes.filter((quiz) => quiz.source_id === source.id && !quiz.lesson_id).length,
+    }))
+    const lessonOpts = lessons.map((lesson) => ({
+      kind: 'lesson' as const,
+      id: lesson.id,
+      name: lesson.title,
+      count: quizzes.filter((quiz) => quiz.lesson_id === lesson.id).length,
+    }))
+    return [...sourceOpts, ...lessonOpts].filter((row) => row.count >= 10)
+  }, [sources, lessons, quizzes])
 
-  const chosen = allVariants
-    ? items
-    : pickVariants(items, seededRng(sessionSeed), targetId ? new Set([targetId]) : new Set())
-  const run = chosen.map((quiz) => {
-    const drawn = draws.get(quiz.id)
-    return {
-      quiz,
-      question: drawn?.question ?? quiz.question,
-      options: drawn?.options ?? quiz.options,
-      correct: drawn ? drawn.correct : null,
-    }
-  })
+  const questions = attempt?.questions ?? []
+  const current: ExamQuestion | null = questions[index] ?? null
+  const revealed = selected !== null && feedback !== null
+  const isLast = index >= questions.length - 1
 
-  const resetRun = () => {
-    saveGeneration.current += 1
-    finishStarted.current = false
-    pendingSave.current = null
-    setSessionSeed((seed) => seed + 1)
-    setQIndex(0)
-    setSelected(null)
-    setAnswers({})
+  const begin = async () => {
+    if (!activeWorkspace) return
+    setError(null)
     setFinished(false)
-    setOutcome(null)
-  }
-  const chooseBatch = (next: QuizBatch | undefined) => {
-    if (!next || next.key === batch?.key) return
-    setPickedKey(next.key)
-    resetRun()
-  }
-  const toggleScope = () => {
-    setAllVariants((value) => !value)
-    resetRun()
-  }
-
-  // Apply a deep link once the matching question is in this batch.
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    if (!targetId || run.length === 0) return
-    if (targetAppliedRef.current === targetId) return
-    const idx = run.findIndex((item) => item.quiz.id === targetId)
-    if (idx < 0) return
-    setQIndex(idx)
+    setMisses([])
+    setApGained(0)
+    setMasteredCount(0)
+    setFeedback(null)
     setSelected(null)
-    targetAppliedRef.current = targetId
-  }, [targetId, run])
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  const safeIndex = Math.min(qIndex, Math.max(run.length - 1, 0))
-  const current = run[safeIndex]
-  const quiz = current?.quiz
-  const revealed = selected !== null
-  const isLast = safeIndex === run.length - 1
-  const optionCorrect = (option: string, index: number) => {
-    if (!current) return false
-    return optionIsRight(current, option, index)
-  }
-
-  const choose = (index: number) => {
-    if (selected !== null || !current) return
-    setSelected(index)
-    setAnswers((prev) => ({ ...prev, [current.quiz.id]: index }))
-  }
-
-  const persist = async (draft: QuizResultDraft) => {
-    const generation = saveGeneration.current
-    if (!activeWorkspace) {
-      setOutcome((prev) =>
-        prev ? { ...prev, pending: false, saveError: 'This score was not saved.', canRetry: false } : prev,
-      )
-      return
-    }
-    setOutcome((prev) => (prev ? { ...prev, pending: true, saveError: null, canRetry: false } : prev))
+    setIndex(0)
     try {
-      const saved = await createQuizResult(activeWorkspace.id, draft)
-      if (saveGeneration.current !== generation) return
-      pendingSave.current = null
-      setOutcome({
-        correct: saved.correct_count,
-        total: saved.question_count,
-        misses: missesFromResult(saved),
-        pending: false,
-        saveError: null,
-        canRetry: false,
+      const next = await startExam(activeWorkspace.id, {
+        exam_type: mode,
+        subject_kind: mode === 'subject' ? subjectKind : null,
+        subject_id: mode === 'subject' ? subjectId || null : null,
       })
-    } catch {
-      if (saveGeneration.current !== generation) return
-      setOutcome((prev) =>
-        prev ? { ...prev, pending: false, saveError: 'This score was not saved.', canRetry: true } : prev,
-      )
+      setAttempt(next)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not start the exam.')
     }
   }
 
-  const finish = () => {
-    if (finishStarted.current || !batch) return
-    const graded = gradeRun(run, { ...answers, ...(current && selected != null ? { [current.quiz.id]: selected } : {}) })
-    finishStarted.current = true
-    setFinished(true)
-    setOutcome({
-      correct: graded.correct,
-      total: graded.total,
-      misses: graded.misses,
-      pending: graded.complete,
-      saveError: graded.complete ? null : 'This score was not saved.',
-      canRetry: false,
-    })
-    if (!graded.complete || graded.submissions.length === 0) return
-    const draft: QuizResultDraft = {
-      knowledge_project_id: batch.projectId,
-      source_id: batch.sourceId,
-      scope: allVariants ? 'every_variant' : 'one_per_term',
-      answers: graded.submissions,
+  const choose = async (optionIndex: number) => {
+    if (!activeWorkspace || !attempt || !current || selected !== null || submitting) return
+    setSubmitting(true)
+    setSelected(optionIndex)
+    try {
+      const result = await submitExamAnswer(activeWorkspace.id, attempt.id, {
+        quiz_id: current.quiz_id,
+        question: current.question,
+        options: current.options,
+        selected_index: optionIndex,
+      })
+      setFeedback(result)
+      setLifetimeAp(result.lifetime_ap)
+      setApGained((value) => value + result.points_total)
+      if (result.newly_mastered) setMasteredCount((value) => value + 1)
+      if (result.points_total > 0) {
+        setFloatLabel(result.newly_mastered ? `Mastered · +${result.points_total} AP` : `+${result.points_total} AP`)
+        window.setTimeout(() => setFloatLabel(null), 900)
+      }
+      if (!result.correct) {
+        setMisses((rows) => [
+          ...rows,
+          {
+            quizId: current.quiz_id,
+            question: current.question,
+            selected: current.options[optionIndex] ?? '',
+            answer: result.right_answer,
+          },
+        ])
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not submit that answer.')
+      setSelected(null)
+    } finally {
+      setSubmitting(false)
     }
-    pendingSave.current = draft
-    void persist(draft)
   }
 
-  const next = () => {
+  const next = async () => {
+    if (!revealed || !activeWorkspace || !attempt) return
     if (isLast) {
-      finish()
+      try {
+        const done = await completeExam(activeWorkspace.id, attempt.id)
+        setAttempt(done)
+        setFinished(true)
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Could not finish the exam.')
+      }
       return
     }
-    setQIndex((index) => index + 1)
+    setIndex((value) => value + 1)
     setSelected(null)
+    setFeedback(null)
   }
 
-  const prev = () => {
-    if (safeIndex === 0) return
-    setQIndex((index) => index - 1)
+  const reset = () => {
+    setAttempt(null)
+    setFinished(false)
+    setIndex(0)
     setSelected(null)
+    setFeedback(null)
+    setMisses([])
+    setApGained(0)
+    setMasteredCount(0)
+    setError(null)
   }
-
-  const sourceName = quiz
-    ? (sources.find((source) => source.id === quiz.source_id)?.name ?? 'Unassigned')
-    : (batch?.sourceName ?? 'Unassigned')
-
-  const picks = sourceChoices.length > 0 && batch ? (
-    <div className="quiz__picks">
-      <label className="lib__select">
-        <span className="lib__select-label">Source</span>
-        <select
-          value={batch.sourceKey}
-          onChange={(event) => {
-            const inSource = batches.filter((item) => item.sourceKey === event.target.value)
-            chooseBatch(defaultQuizBatch(inSource, {}) ?? undefined)
-          }}
-          aria-label="Quiz source"
-        >
-          {sourceChoices.map((source) => (
-            <option key={source.sourceKey || 'unassigned'} value={source.sourceKey}>
-              {source.sourceName}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="lib__select">
-        <span className="lib__select-label">Batch</span>
-        <select
-          value={batch.key}
-          onChange={(event) => chooseBatch(batchChoices.find((item) => item.key === event.target.value))}
-          aria-label="Quiz batch"
-        >
-          {batchChoices.map((item) => (
-            <option key={item.key} value={item.key}>
-              {item.title} ({item.questionCount})
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
-  ) : null
-
-  const head = (
-    <StudyHead
-      eyebrow="Knowledge check"
-      title="Quiz"
-      description="Answer, review the rationale, and trace each item to its source."
-      stats={[
-        { value: run.length, label: 'questions' },
-        { value: batch?.title ?? 'No batch', label: 'batch' },
-      ]}
-    />
-  )
 
   return (
-    <section className="study-session">
-      {head}
-      {picks}
+    <section className="study-session study-session--practice">
+      <StudyHead
+        eyebrow="Knowledge check"
+        title="Quiz"
+        description="A full exam draws thirty questions. Subject exams draw ten from one source or class."
+      />
 
-      {finished && outcome ? (
-        <div className="quiz quiz--result">
-          <p className="quiz__score">
-            {outcome.correct} of {outcome.total} correct
-          </p>
-          <p className="quiz__score-note">{batch?.title ?? 'Quiz'}</p>
-          {outcome.misses.length > 0 ? (
-            <ul className="quiz__misses">
-              {outcome.misses.map((miss) => (
-                <li key={miss.quizId}>
-                  <p className="quiz__miss-question">{miss.question}</p>
-                  <p>
-                    You picked {miss.selected}. The answer is {miss.answer}.
-                  </p>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="quiz__score-note">Every question was correct.</p>
-          )}
-          {outcome.pending ? <p className="quiz__score-note">Saving this result.</p> : null}
-          {outcome.saveError ? <p className="quiz__score-note">{outcome.saveError}</p> : null}
-          {outcome.canRetry ? (
-            <button
-              type="button"
-              className="study__btn"
-              onClick={() => {
-                const draft = pendingSave.current
-                if (draft) void persist(draft)
-              }}
-            >
-              Save this result
-            </button>
-          ) : null}
-          <button type="button" className="study__btn" onClick={resetRun}>
-            <RotateCcw size={16} /> Restart quiz
-          </button>
-        </div>
-      ) : quiz && current ? (
-        <>
-          <div className="quiz__scope">
-            <button type="button" className="study__btn" onClick={toggleScope}>
-              {allVariants ? 'One question per term' : 'Show every variant'}
+      <div className="study-stage">
+        {!attempt ? (
+          <div className="quiz__launch">
+            <div className="quiz__launch-copy">
+              <h2>Choose a graded practice exam</h2>
+            </div>
+            <div className="quiz__picks quiz__picks--launch">
+              <div className="disc__seg quiz__launch-seg" role="group" aria-label="Exam mode">
+                <button
+                  type="button"
+                  className={`disc__seg-btn${mode === 'full_practice' ? ' is-active' : ''}`}
+                  onClick={() => setMode('full_practice')}
+                >
+                  Full Exam (30)
+                </button>
+                <button
+                  type="button"
+                  className={`disc__seg-btn${mode === 'subject' ? ' is-active' : ''}`}
+                  onClick={() => setMode('subject')}
+                >
+                  Subject Exam (10)
+                </button>
+              </div>
+              {mode === 'subject' ? (
+                <label className="lib__select lib__select--wide">
+                  <span className="lib__select-label">Subject</span>
+                  <select
+                    value={subjectId ? `${subjectKind}:${subjectId}` : ''}
+                    onChange={(event) => {
+                      const [kind, id] = event.target.value.split(':')
+                      if (kind === 'source' || kind === 'lesson') {
+                        setSubjectKind(kind)
+                        setSubjectId(id ?? '')
+                      }
+                    }}
+                  >
+                    <option value="">Select a source or class</option>
+                    {subjectOptions.map((row) => (
+                      <option key={`${row.kind}:${row.id}`} value={`${row.kind}:${row.id}`}>
+                        {row.name} ({row.count})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <button
+                type="button"
+                className="study__btn study__btn--primary quiz__launch-cta"
+                onClick={() => void begin()}
+                disabled={mode === 'subject' && !subjectId}
+              >
+                Start exam
+              </button>
+              {error ? <p className="quiz__score-note">{error}</p> : null}
+            </div>
+          </div>
+        ) : null}
+
+        {attempt && finished ? (
+          <div className="quiz quiz--result quiz--result-center">
+            <p className="quiz__score">
+              {attempt.correct_count} of {attempt.question_count} correct
+            </p>
+            <p className="quiz__score-note">
+              +{apGained} AP
+              {masteredCount > 0 ? ` · ${masteredCount} newly mastered` : ''}
+            </p>
+            {misses.length > 0 ? (
+              <ul className="quiz__misses">
+                {misses.map((miss) => (
+                  <li key={miss.quizId}>
+                    <p className="quiz__miss-question">{miss.question}</p>
+                    <p>
+                      You picked {miss.selected}. The answer is {miss.answer}.
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="quiz__score-note">Every question was correct.</p>
+            )}
+            <button type="button" className="study__btn" onClick={reset}>
+              <RotateCcw size={16} /> New exam
             </button>
           </div>
-          <StudyPanel
-            fullscreen={fullscreen}
-            onToggleFullscreen={toggle}
-            meta={<span className={`pill pill--${quiz.difficulty}`}>{quiz.difficulty}</span>}
-            progress={{ current: safeIndex + 1, total: run.length }}
-            pager={{
-              onPrev: prev,
-              onNext: next,
-              prevDisabled: safeIndex <= 0,
-              nextDisabled: !revealed,
-              label: isLast && revealed ? 'Next: results' : (batch?.title ?? sourceName),
-            }}
-          >
-            <div className="quiz">
-              {quiz.visual?.url && showsStemImage(quiz.visual.placement) ? (
-                <AssessmentPicture visual={quiz.visual} text={current.question} />
-              ) : null}
-              <p className="quiz__question">{current.question}</p>
-              <div className="quiz__options">
-                {current.options.map((opt, i) => {
-                  let cls = 'quiz__option'
-                  const correct = optionCorrect(opt, i)
-                  const showCorrect = revealed && correct
-                  const showWrong = revealed && i === selected && !correct
-                  if (showCorrect) cls += ' is-correct'
-                  else if (showWrong) cls += ' is-wrong'
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      className={cls}
-                      disabled={revealed}
-                      onClick={() => choose(i)}
-                    >
-                      <span className="quiz__option-text">{opt}</span>
-                      {showCorrect && (
-                        <span className="quiz__option-status">
-                          <Check size={16} /> Correct
-                        </span>
-                      )}
-                      {showWrong && (
-                        <span className="quiz__option-status">
-                          <X size={16} /> Incorrect
-                        </span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-              {revealed && quiz.explanation && (
-                <p className="quiz__explain">
-                  <Info size={15} /> {quiz.explanation}
-                </p>
-              )}
-            </div>
-          </StudyPanel>
+        ) : null}
 
-          <StudySourceReference sourceId={quiz.source_id ?? null} sourceName={sourceName} />
-        </>
-      ) : (
-        <div className="quiz quiz--result">
-          <p className="quiz__score">No questions</p>
-          <p className="quiz__score-note">No questions are available for this batch.</p>
-        </div>
-      )}
+        {attempt && !finished && current ? (
+          <>
+            <StudyPanel
+              fullscreen={fullscreen}
+              onToggleFullscreen={toggle}
+              meta={
+                <span className="pill">
+                  {attempt.exam_type === 'full_practice' ? 'Full Exam' : attempt.subject_name || 'Subject'}
+                </span>
+              }
+              progress={{ current: index + 1, total: questions.length }}
+              pager={{
+                onPrev: () => undefined,
+                onNext: () => void next(),
+                prevDisabled: true,
+                nextDisabled: !revealed,
+                label: isLast && revealed ? 'Finish' : current.subject_name || 'Next',
+              }}
+            >
+              <div className="quiz quiz--prompt" style={{ position: 'relative' }}>
+                {floatLabel ? (
+                  <span className={`ap-float${feedback?.newly_mastered ? ' ap-float--mastery' : ''}`}>
+                    {floatLabel}
+                  </span>
+                ) : null}
+                {feedback?.newly_mastered ? (
+                  <p className="ap-mastery-banner">Concept mastered · +3 bonus</p>
+                ) : null}
+                {current.visual &&
+                typeof current.visual.url === 'string' &&
+                showsStemImage(String(current.visual.placement ?? '')) ? (
+                  <AssessmentPicture
+                    visual={current.visual as { url: string; placement?: string | null }}
+                    text={current.question}
+                  />
+                ) : null}
+                <p className="quiz__question">{current.question}</p>
+                <div className="quiz__options">
+                  {current.options.map((opt, optionIndex) => {
+                    let cls = 'quiz__option'
+                    const isCorrect = revealed && feedback?.right_answer === opt
+                    const isWrong = revealed && optionIndex === selected && !feedback?.correct
+                    if (isCorrect) cls += ' is-correct'
+                    else if (isWrong) cls += ' is-wrong'
+                    return (
+                      <button
+                        key={`${current.quiz_id}-${optionIndex}`}
+                        type="button"
+                        className={cls}
+                        disabled={revealed || submitting}
+                        onClick={() => void choose(optionIndex)}
+                      >
+                        <span className="quiz__option-text">{opt}</span>
+                        {isCorrect ? (
+                          <span className="quiz__option-status">
+                            <Check size={16} /> Correct
+                          </span>
+                        ) : null}
+                        {isWrong ? (
+                          <span className="quiz__option-status">
+                            <X size={16} /> Incorrect
+                          </span>
+                        ) : null}
+                      </button>
+                    )
+                  })}
+                </div>
+                {revealed && feedback?.explanation ? (
+                  <p className="quiz__explain">
+                    <Info size={15} /> {feedback.explanation}
+                  </p>
+                ) : null}
+                {error ? <p className="quiz__score-note">{error}</p> : null}
+              </div>
+            </StudyPanel>
+            <StudySourceReference
+              sourceId={current.subject_kind === 'source' ? (current.subject_id ?? null) : null}
+              sourceName={current.subject_name ?? 'Subject'}
+            />
+          </>
+        ) : null}
+      </div>
     </section>
   )
 }

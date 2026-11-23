@@ -78,10 +78,12 @@ Run these only on databases that already have a Foundry schema and need a target
 | `alter-calendar-events.sql` | DB was created before the Academics calendar. Adds `calendar_events` with RLS + role revokes. Idempotent. |
 | `alter-calendar-schedule.sql` | DB was created before the Schedule tab and per-student task checks. Allows `calendar_events.kind` of `schedule` and adds `calendar_task_completions` with RLS + role revokes. Idempotent. |
 | `alter-lessons.sql` | DB was created before the Academy ELO tab. Adds `lessons`, `lesson_objectives`, `lesson_resources`, `lesson_chunks`, `match_lesson_chunks`, `discussion_threads.lesson_id`, and the private `lesson-files` bucket, with RLS + role revokes. Idempotent. |
+| `../maintenance/alter-lesson-questions.sql` | DB was created before practice questions on a class. Makes `knowledge_projects.source_id` nullable, adds `knowledge_projects.lesson_id` and `quizzes.lesson_id`, and requires each knowledge project to name a book or a class. Idempotent. |
 | `restore-stages.sql` | Short pointer: re-run `03-seed-stages.sql` to repair a wiped or stale `stages` table. The file stays on the machine that has it. |
 | `../maintenance/add-audiobook-artifact.sql` | DB was created before direct audiobook uploads. Adds `audiobook` to `artifacts_type_check`. Idempotent aside from the constraint swap. |
 | `../maintenance/add-quiz-results.sql` | DB was created before personal quiz results. Adds `quiz_results` with RLS and role revokes. Idempotent. |
 | `alter-approved-users-name-rank.sql` | DB was created before roster display name and rank. Adds nullable `approved_users.name` and `approved_users.rank`. Idempotent. Then run `seed-approved-users-roster.sql` to upsert the platoon roster (match on email; updates name/rank only). |
+| `alter-atlas-challenge.sql` | DB was created before Atlas Points. Adds `question_progress`, `exam_attempts`, `exam_answers`, `score_events`, and `competition_settings` with RLS + role revokes. Idempotent. Then run `../maintenance/wipe-quiz-results-for-atlas.sql` to clear legacy batch scores before launch. |
 
 Delete scripts and seed SQL stay on the machine that has them so they do not leak confidential information about the platform and its plans. See [`supabase/maintenance/README.md`](../maintenance/README.md).
 
@@ -90,6 +92,13 @@ Delete scripts and seed SQL stay on the machine that has them so they do not lea
 ```bash
 supabase db execute --file supabase/setup/alter-approved-users-name-rank.sql
 supabase db execute --file supabase/setup/seed-approved-users-roster.sql
+```
+
+### Atlas Points challenge
+
+```bash
+supabase db execute --file supabase/setup/alter-atlas-challenge.sql
+supabase db execute --file supabase/maintenance/wipe-quiz-results-for-atlas.sql
 ```
 
 ### Academics calendar

@@ -8,9 +8,11 @@ import {
   Library,
   Lightbulb,
   MessageSquare,
+  Trophy,
 } from 'lucide-react'
 
 export type AcademyPage =
+  | 'leaderboard'
   | 'library'
   | 'reader'
   | 'wiki'
@@ -39,6 +41,7 @@ export type AcademyScope = {
 export const emptyAcademyScope: AcademyScope = { sourceId: null, targetId: null, projectId: null, threadId: null }
 
 export const academyRailItems: { id: AcademyPage; label: string; icon: LucideIcon; name?: string }[] = [
+  { id: 'leaderboard', label: 'LDR', name: 'Leaderboard', icon: Trophy },
   { id: 'calendar', label: 'CAL', icon: CalendarDays },
   { id: 'library', label: 'LIB', icon: Library },
   { id: 'reader', label: 'RDR', icon: BookOpen },
@@ -49,15 +52,28 @@ export const academyRailItems: { id: AcademyPage; label: string; icon: LucideIco
   { id: 'analytics', label: 'ANL', name: 'Analytics', icon: ChartColumn },
 ]
 
-// Flashcards, scenarios, and analytics stay on the admin Academy rail. Students practice quizzes.
-const studentHiddenAcademyPages = new Set<AcademyPage>(['flashcards', 'scenarios', 'analytics'])
+// Challenge surfaces stay hidden from students until Academics opens student_access.
+// Scenarios stay admin-only regardless.
+const challengeAcademyPages = new Set<AcademyPage>(['leaderboard', 'flashcards', 'quiz', 'analytics'])
+const alwaysAdminAcademyPages = new Set<AcademyPage>(['scenarios'])
 
-export function academyRailForRole(isAdmin: boolean) {
-  if (isAdmin) return academyRailItems
-  return academyRailItems.filter((item) => !studentHiddenAcademyPages.has(item.id))
+export function defaultAcademyPage(isAdmin: boolean, studentAccess = false): AcademyPage {
+  if (isAdmin || studentAccess) return 'leaderboard'
+  return 'calendar'
 }
 
-export function academyPageForRole(page: AcademyPage, isAdmin: boolean): AcademyPage {
-  if (isAdmin || !studentHiddenAcademyPages.has(page)) return page
-  return 'library'
+export function academyRailForRole(isAdmin: boolean, studentAccess = false) {
+  if (isAdmin) return academyRailItems
+  return academyRailItems.filter((item) => {
+    if (alwaysAdminAcademyPages.has(item.id)) return false
+    if (challengeAcademyPages.has(item.id)) return studentAccess
+    return true
+  })
+}
+
+export function academyPageForRole(page: AcademyPage, isAdmin: boolean, studentAccess = false): AcademyPage {
+  if (isAdmin) return page
+  if (alwaysAdminAcademyPages.has(page)) return defaultAcademyPage(false, studentAccess)
+  if (challengeAcademyPages.has(page) && !studentAccess) return defaultAcademyPage(false, false)
+  return page
 }

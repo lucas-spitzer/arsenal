@@ -235,7 +235,7 @@ export function LibraryView({
     if (item.kind === 'flashcard' || item.kind === 'question' || item.kind === 'scenario') {
       if (item.runnerPage) {
         onOpen(item.runnerPage, {
-          sourceId: item.sourceId,
+          sourceId: item.lessonId ?? item.sourceId,
           targetId: null,
           projectId: null,
         })

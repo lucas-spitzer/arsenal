@@ -1,10 +1,10 @@
 import { ChevronRight } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useAtlas } from '../../features/atlas/atlasContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { Loader } from '../shared/Loader'
 import {
-  accuracyPercent,
   resultBatchKey,
   summarizeQuizResults,
   type BatchAccuracy,
@@ -23,11 +23,6 @@ function scopeLabel(scope: QuizResult['scope']): string {
   return scope === 'every_variant' ? 'Every variant' : 'One question per term'
 }
 
-function figureValue(value: number | null, suffix = ''): string {
-  if (value == null) return '—'
-  return `${value}${suffix}`
-}
-
 export function AnalyticsView({
   onOpen,
 }: {
@@ -35,6 +30,7 @@ export function AnalyticsView({
 }) {
   const { activeWorkspace } = useWorkspace()
   const { wikiEntries } = useWorkspaceData()
+  const { me } = useAtlas()
   const [loaded, setLoaded] = useState<{ workspaceId: string; results: QuizResult[] } | null>(null)
   const [failure, setFailure] = useState<{ workspaceId: string; message: string } | null>(null)
   const [batchKey, setBatchKey] = useState('all')
@@ -106,24 +102,96 @@ export function AnalyticsView({
         <Loader label="Loading analytics" size="sm" />
       </div>
     )
-  } else if (results.length === 0) {
-    body = (
-      <div className="lib__empty">
-        <p className="lib__empty-title">No finished quizzes yet</p>
-        <p className="lib__empty-copy">Finish a quiz and the score will show up here.</p>
-      </div>
-    )
-  } else if (summary && summary.quizzesTaken === 0) {
-    body = (
-      <div className="lib__empty">
-        <p className="lib__empty-title">No quizzes for this batch</p>
-        <p className="lib__empty-copy">Choose All batches, or finish this batch once.</p>
-      </div>
-    )
-  } else if (summary) {
+  } else {
     body = (
       <div className="anl__stack">
-        <div className="anl__grid">
+        <div className="ldr__platoon">
+          <div>
+            <span>Lifetime AP</span>
+            <strong>{me?.lifetime_ap ?? 0}</strong>
+          </div>
+          <div>
+            <span>Mastered</span>
+            <strong>{me?.concepts_mastered ?? 0}</strong>
+          </div>
+          <div>
+            <span>Accuracy</span>
+            <strong>{me?.accuracy == null ? '—' : `${me.accuracy}%`}</strong>
+          </div>
+        </div>
+
+        {summary && summary.needsWork.length > 0 ? (
+          <section>
+            <h2 className="anl__label">Areas for Improvement</h2>
+            <div className="anl__rows">
+              {summary.needsWork.map((term) => (
+                <article key={term.key} className="anl__row">
+                  <div className="anl__term">
+                    <p className="anl__row-title">{term.label}</p>
+                    <p className="anl__note">
+                      {term.correct} of {term.answered} correct
+                    </p>
+                  </div>
+                  <button type="button" className="anl__practice" onClick={() => practice(term)}>
+                    Practice
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : (
+          <p className="anl__note">No areas for improvement in the legacy quiz log yet.</p>
+        )}
+
+        {summary && summary.recent.length > 0 ? (
+          <section>
+            <h2 className="anl__label">Recent quizzes</h2>
+            <div className="anl__rows">
+              {summary.recent.map((result) => {
+                const misses = result.answers.filter((answer) => !answer.correct)
+                const open = openId === result.id
+                return (
+                  <article key={result.id} className={`anl__row anl__row--run${open ? ' is-open' : ''}`}>
+                    <button
+                      type="button"
+                      className="anl__run-toggle"
+                      aria-expanded={open}
+                      onClick={() => setOpenId(open ? null : result.id)}
+                    >
+                      <ChevronRight className="anl__chev" size={16} aria-hidden />
+                      <span className="anl__row-title">{result.title}</span>
+                      <span className="anl__row-meta">
+                        <span>{formatResultDate(result.completed_at)}</span>
+                        <span>
+                          {result.correct_count} of {result.question_count}
+                        </span>
+                        <span>{scopeLabel(result.scope)}</span>
+                      </span>
+                    </button>
+                    {open ? (
+                      misses.length > 0 ? (
+                        <ul className="anl__misses">
+                          {misses.map((miss) => (
+                            <li key={miss.quiz_id}>
+                              <p>{miss.question}</p>
+                              <p>
+                                You picked {miss.selected}. The answer is {miss.answer}.
+                              </p>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="anl__note anl__run-clear">Every question was correct.</p>
+                      )
+                    ) : null}
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {summary && summary.batches.length > 0 ? (
           <section>
             <h2 className="anl__label">By batch</h2>
             <div className="anl__rows">
@@ -140,76 +208,7 @@ export function AnalyticsView({
               ))}
             </div>
           </section>
-
-          <section>
-            <h2 className="anl__label">Needs work</h2>
-            {summary.needsWork.length === 0 ? (
-              <p className="anl__note">Nothing missed in this view.</p>
-            ) : (
-              <div className="anl__rows">
-                {summary.needsWork.map((term) => (
-                  <article key={term.key} className="anl__row">
-                    <div className="anl__term">
-                      <p className="anl__row-title">{term.label}</p>
-                      <p className="anl__note">
-                        {term.correct} of {term.answered} correct
-                      </p>
-                    </div>
-                    <button type="button" className="anl__practice" onClick={() => practice(term)}>
-                      Practice
-                    </button>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-
-        <section>
-          <h2 className="anl__label">Recent quizzes</h2>
-          <div className="anl__rows">
-            {summary.recent.map((result) => {
-              const misses = result.answers.filter((answer) => !answer.correct)
-              const open = openId === result.id
-              return (
-                <article key={result.id} className={`anl__row anl__row--run${open ? ' is-open' : ''}`}>
-                  <button
-                    type="button"
-                    className="anl__run-toggle"
-                    aria-expanded={open}
-                    onClick={() => setOpenId(open ? null : result.id)}
-                  >
-                    <ChevronRight className="anl__chev" size={16} aria-hidden />
-                    <span className="anl__row-title">{result.title}</span>
-                    <span className="anl__row-meta">
-                      <span>{formatResultDate(result.completed_at)}</span>
-                      <span>
-                        {result.correct_count} of {result.question_count}
-                      </span>
-                      <span>{scopeLabel(result.scope)}</span>
-                    </span>
-                  </button>
-                  {open ? (
-                    misses.length > 0 ? (
-                      <ul className="anl__misses">
-                        {misses.map((miss) => (
-                          <li key={miss.quiz_id}>
-                            <p>{miss.question}</p>
-                            <p>
-                              You picked {miss.selected}. The answer is {miss.answer}.
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="anl__note anl__run-clear">Every question was correct.</p>
-                    )
-                  ) : null}
-                </article>
-              )
-            })}
-          </div>
-        </section>
+        ) : null}
       </div>
     )
   }
@@ -219,12 +218,7 @@ export function AnalyticsView({
       <StudyHead
         eyebrow="Quiz results"
         title="Analytics"
-        description="Your quizzes and the questions you have answered."
-        stats={[
-          { value: summary ? figureValue(summary.accuracy, '%') : '—', label: 'accuracy' },
-          { value: summary?.questionsAnswered ?? '—', label: 'questions' },
-          { value: summary?.quizzesTaken ?? '—', label: 'quizzes' },
-        ]}
+        description="Lifetime Atlas Points, concepts mastered, and areas for improvement."
       />
 
       {results && results.length > 0 ? (
@@ -237,7 +231,6 @@ export function AnalyticsView({
                 setBatchKey(event.target.value)
                 setOpenId(null)
               }}
-              aria-label="Analytics batch"
             >
               <option value="all">All batches</option>
               {batchOptions.map((option) => (
@@ -256,12 +249,10 @@ export function AnalyticsView({
 }
 
 function BatchMeta({ batch }: { batch: BatchAccuracy }) {
-  const accuracy = accuracyPercent(batch.correct, batch.questionsAnswered)
   return (
-    <span className="anl__batch-meta">
-      {batch.quizzesTaken} {batch.quizzesTaken === 1 ? 'quiz' : 'quizzes'}
-      {' · '}
-      {figureValue(accuracy, '%')}
+    <span className="anl__row-meta">
+      <span>{batch.quizzes} quizzes</span>
+      <span>{batch.accuracy == null ? '—' : `${batch.accuracy}%`}</span>
     </span>
   )
 }

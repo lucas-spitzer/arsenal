@@ -113,6 +113,7 @@ export interface Flashcard {
 export interface Quiz {
   id: string
   source_id?: string | null
+  lesson_id?: string | null
   knowledge_project_id?: string | null
   production_run_id?: string | null
   item_id?: string | null
@@ -349,7 +350,7 @@ export async function getArtifactDownloadUrl(
 
 export interface KnowledgeRunTitle {
   id: string
-  source_id: string
+  source_id: string | null
   title: string
 }
 

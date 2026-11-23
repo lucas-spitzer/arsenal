@@ -6,14 +6,15 @@ from pydantic import BaseModel, Field
 
 class KnowledgeRunTitle(BaseModel):
     id: str
-    source_id: str
+    source_id: str | None = None
     title: str
 
 
 class KnowledgeProjectSummary(BaseModel):
     id: str
     workspace_id: str
-    source_id: str
+    source_id: str | None = None
+    lesson_id: str | None = None
     title: str
     status: str
     error: str | None = None

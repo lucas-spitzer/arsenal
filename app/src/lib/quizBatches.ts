@@ -4,6 +4,7 @@ const UNASSIGNED = 'Unassigned'
 
 export interface QuizBatchInput {
   source_id?: string | null
+  lesson_id?: string | null
   knowledge_project_id?: string | null
   created_at: string
   origin?: Record<string, unknown> | null
@@ -18,6 +19,7 @@ export interface QuizBatch {
   key: string
   sourceKey: string
   sourceId: string | null
+  lessonId: string | null
   projectId: string | null
   title: string
   sourceName: string
@@ -32,33 +34,36 @@ export function quizBatchKey(sourceId: string | null, projectId: string | null):
 export function listQuizBatches(
   quizzes: QuizBatchInput[],
   titles: QuizBatchTitle[],
-  sourceName: (sourceId: string | null) => string,
+  sourceName: (homeId: string | null) => string,
 ): QuizBatch[] {
   const titleById = new Map(titles.map((title) => [title.id, title.title]))
   const groups = new Map<string, QuizBatchInput[]>()
   for (const quiz of quizzes) {
     // Wiki-term questions practice on the Flashcards tab only.
     if (isWikiTermQuiz(quiz)) continue
-    const sourceId = quiz.source_id ?? null
+    const home = batchHome(quiz)
     const projectId = quiz.knowledge_project_id ?? null
-    const key = quizBatchKey(sourceId, projectId)
+    const key = quizBatchKey(home.sourceKey, projectId)
     groups.set(key, [...(groups.get(key) ?? []), quiz])
   }
 
-  const batches = [...groups.entries()].map(([key, rows]) => {
-    const sourceId = rows[0]?.source_id ?? null
-    const projectId = rows[0]?.knowledge_project_id ?? null
+  const batches = [...groups.entries()].flatMap(([key, rows]) => {
+    const first = rows[0]
+    if (!first) return []
+    const home = batchHome(first)
+    const projectId = first.knowledge_project_id ?? null
     const newestAt = rows.reduce((latest, row) => (row.created_at > latest ? row.created_at : latest), '')
-    return {
+    return [{
       key,
-      sourceKey: sourceId ?? '',
-      sourceId,
+      sourceKey: home.sourceKey,
+      sourceId: home.sourceId,
+      lessonId: home.lessonId,
       projectId,
       title: projectId ? (titleById.get(projectId) ?? 'Untitled batch') : UNASSIGNED,
-      sourceName: sourceName(sourceId),
+      sourceName: sourceName(home.lessonId ?? home.sourceId),
       questionCount: rows.length,
       newestAt,
-    }
+    }]
   })
 
   return batches.sort((a, b) => {
@@ -94,12 +99,19 @@ export function defaultQuizBatch(
   }
   if (hint.projectId) {
     const project = batches.find(
-      (batch) => batch.projectId === hint.projectId && (hint.sourceId == null || batch.sourceId === hint.sourceId),
+      (batch) => batch.projectId === hint.projectId && (hint.sourceId == null || batch.sourceKey === hint.sourceId),
     )
     if (project) return project
   }
-  const pool = hint.sourceId ? batches.filter((batch) => batch.sourceId === hint.sourceId) : batches
+  const pool = hint.sourceId ? batches.filter((batch) => batch.sourceKey === hint.sourceId) : batches
   return newestNamedBatch(pool)
+}
+
+function batchHome(quiz: QuizBatchInput): { sourceId: string | null; lessonId: string | null; sourceKey: string } {
+  const lessonId = quiz.lesson_id ?? null
+  if (lessonId) return { sourceId: null, lessonId, sourceKey: lessonId }
+  const sourceId = quiz.source_id ?? null
+  return { sourceId, lessonId: null, sourceKey: sourceId ?? '' }
 }
 
 function newestNamedBatch(batches: QuizBatch[]): QuizBatch | null {

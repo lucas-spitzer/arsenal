@@ -9,6 +9,7 @@ import { FlashcardsView } from './FlashcardsView'
 import { LibraryView } from './LibraryView'
 import { ObjectivesView } from './ObjectivesView'
 import { AnalyticsView } from './AnalyticsView'
+import { LeaderboardView } from './LeaderboardView'
 import { QuizView } from './QuizView'
 import { ReaderView } from './ReaderView'
 import { ScenarioView } from './ScenarioView'
@@ -53,6 +54,7 @@ export function AcademyContent({
     <AcademyChromeProvider value={chrome}>
       <div className={`academy academy--integrated${compact ? ' academy--compact' : ''}`}>
         <div className="academy__main">
+          {page === 'leaderboard' && <LeaderboardView />}
           {page === 'library' && <LibraryView onOpen={onOpen} />}
           {page === 'reader' && <ReaderView sourceId={readerSourceId} seg={seg} onOpen={onOpen} />}
           {page === 'wiki' && (

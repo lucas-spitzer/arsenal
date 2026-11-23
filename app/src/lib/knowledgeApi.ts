@@ -9,7 +9,8 @@ export type ItemKind = 'question' | 'scenario'
 export interface KnowledgeProjectSummary {
   id: string
   workspace_id: string
-  source_id: string
+  source_id: string | null
+  lesson_id: string | null
   title: string
   status: KnowledgeStatus
   error: string | null
@@ -174,13 +175,18 @@ export function deleteKnowledgeProject(projectId: string): Promise<void> {
   return apiRequestVoid(`/knowledge-projects/${projectId}`, { method: 'DELETE' })
 }
 
+export type KnowledgeHome =
+  | { kind: 'book'; sourceId: string }
+  | { kind: 'lesson'; lessonId: string }
+
 export function createKnowledgeProject(
   workspaceId: string,
-  input: { title: string; sourceId: string; notes: string; files: File[] },
+  input: { title: string; notes: string; files: File[]; home: KnowledgeHome },
 ): Promise<KnowledgeProjectDetail> {
   const form = new FormData()
   form.set('title', input.title)
-  form.set('source_id', input.sourceId)
+  if (input.home.kind === 'book') form.set('source_id', input.home.sourceId)
+  else form.set('lesson_id', input.home.lessonId)
   form.set('raw_notes', input.files.length > 0 ? '' : input.notes)
   for (const file of input.files) form.append('file', file)
   return postForm(`/workspaces/${workspaceId}/knowledge-projects`, form)

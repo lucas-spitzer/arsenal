@@ -979,6 +979,98 @@ def test_questions_without_wiki_entries_open_ready() -> None:
     assert projects.plans[0]["visual"] is None
 
 
+def _class_questions() -> bytes:
+    return json.dumps(
+        {
+            "questions": [
+                {
+                    "question": "Which force is the largest MAGTF?",
+                    "correct": ["MEF"],
+                    "distractors": [{"text": "MEB"}],
+                },
+            ],
+        },
+    ).encode()
+
+
+def test_class_question_pack_is_saved_without_a_book() -> None:
+    service, projects, wiki = _question_pack_service()
+
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Practice",
+        source=None,
+        lesson={"id": "lesson-1", "title": "Warfighting"},
+        raw_notes="",
+        filename="questions.json",
+        content_type="application/json",
+        content=_class_questions(),
+        storage=_Storage(),
+    ))
+
+    assert projects.created is not None
+    assert projects.created["source_id"] is None
+    assert projects.created["lesson_id"] == "lesson-1"
+    assert projects.created["status"] == "ready"
+    assert wiki.inserted == []
+    quiz = projects.quizzes[0]
+    assert quiz["question"] == "Which force is the largest MAGTF?"
+    assert quiz["source_id"] is None
+    assert quiz["lesson_id"] == "lesson-1"
+    assert quiz["origin"]["source"] == "lesson_practice"
+
+
+def test_class_upload_rejects_wiki_entries() -> None:
+    service, _projects, _wiki = _question_pack_service()
+    content = json.dumps(
+        {
+            "abbreviations": [
+                {
+                    "abbreviation": "MEB",
+                    "title": "Marine Expeditionary Brigade",
+                    "definition": "The mid-sized MAGTF.",
+                },
+            ],
+        },
+    ).encode()
+
+    with pytest.raises(KnowledgeProjectError, match="book"):
+        asyncio.run(service.create(
+            workspace_id="ws-1",
+            owner_id="user-1",
+            workspace_slug="acme",
+            title="Abbreviations",
+            source=None,
+            lesson={"id": "lesson-1", "title": "Warfighting"},
+            raw_notes="",
+            filename="abbreviations.json",
+            content_type="application/json",
+            content=content,
+            storage=_Storage(),
+        ))
+
+
+def test_class_upload_rejects_a_notes_file() -> None:
+    service, _projects, _wiki = _question_pack_service()
+
+    with pytest.raises(KnowledgeProjectError, match="question pack"):
+        asyncio.run(service.create(
+            workspace_id="ws-1",
+            owner_id="user-1",
+            workspace_slug="acme",
+            title="Notes",
+            source=None,
+            lesson={"id": "lesson-1", "title": "Warfighting"},
+            raw_notes="",
+            filename="notes.md",
+            content_type="text/markdown",
+            content=b"Friction slows action.",
+            storage=_Storage(),
+        ))
+
+
 PNG = b"\x89PNG\r\n\x1a\n" + b"pixels"
 
 

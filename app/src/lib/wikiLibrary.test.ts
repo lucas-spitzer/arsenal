@@ -61,6 +61,12 @@ describe('wiki knowledge on New Run and Library', () => {
     expect(academyRailItems.map((item) => item.id)).not.toContain('wiki')
   })
 
+  it('omits calendar and elo from the Foundry rail', () => {
+    const ids = railItems.map((item) => item.id)
+    expect(ids).not.toContain('calendar')
+    expect(ids).not.toContain('objectives')
+  })
+
   it('hides study materials, flashcards, scenarios, and analytics from students and keeps quizzes visible', () => {
     expect(academyRailForRole(false).map((item) => item.id)).toEqual([
       'calendar',
@@ -648,6 +654,49 @@ describe('library shelves', () => {
 
     expect(shelves.books[0]?.items.map((item) => item.kind)).toEqual(['wiki'])
     expect(shelves.classes).toHaveLength(4)
+  })
+
+  it('puts practice questions on the class shelf and keeps them under Quiz', () => {
+    const questions = knowledgeLibraryItems(
+      [{
+        id: 'q1',
+        lesson_id: 'lesson-virtues',
+        source_id: null,
+        difficulty: 'easy',
+        created_at: '2026-10-02T00:00:00Z',
+        question: 'What does MEF stand for?',
+      }],
+      {
+        kind: 'question',
+        runnerPage: 'quiz',
+        unit: 'question',
+        plural: 'questions',
+        searchOf: (record) => record.question,
+        nameOf: () => 'Cardinal Virtues',
+      },
+    )
+
+    expect(questions[0]).toMatchObject({
+      lessonId: 'lesson-virtues',
+      sourceId: null,
+      sourceName: 'Cardinal Virtues',
+      title: '1 question',
+    })
+    const shelves = libraryShelves(
+      [
+        ...questions,
+        shelfItem({
+          kind: 'elo',
+          id: 'virtues',
+          sourceName: 'Cardinal Virtues',
+          sourceId: null,
+          lessonId: 'lesson-virtues',
+        }),
+      ],
+      { classKind: 'quiz' },
+    )
+    expect(shelves.classes[0]?.items.map((item) => item.kind)).toEqual(['question'])
+    expect(shelves.books).toEqual([])
   })
 
   it('drops a shelf whose tiles are filtered out and leaves classes empty for Quiz', () => {
