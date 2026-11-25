@@ -643,6 +643,7 @@ class _Projects:
         self.created: dict[str, Any] | None = None
         self.plans: list[dict[str, Any]] = []
         self.quizzes: list[dict[str, Any]] = []
+        self.flashcards: list[dict[str, Any]] = []
 
     async def create(self, row: dict[str, Any]) -> dict[str, Any]:
         self.created = {**row, "id": "project-1", "created_at": "2026-10-05T00:00:00Z", "updated_at": "2026-10-05T00:00:00Z"}
@@ -675,6 +676,10 @@ class _Projects:
         return None
 
     async def insert_rows(self, table: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if table == "flashcards":
+            cards = [{**row, "id": f"card-{len(self.flashcards) + index}"} for index, row in enumerate(rows, start=1)]
+            self.flashcards.extend(cards)
+            return cards
         saved = [{**row, "id": f"quiz-{len(self.quizzes) + index}"} for index, row in enumerate(rows, start=1)]
         if table == "quizzes":
             self.quizzes.extend(saved)
@@ -936,7 +941,7 @@ def test_question_pack_writes_abbreviations_and_quizzes_without_a_draft() -> Non
     assert quiz["question"] == "What does MEF stand for?"
     assert quiz["correct_answer"] in quiz["options"]
     assert "Marine Expeditionary Force" in quiz["answer_pool"]["correct"]
-    assert quiz["origin"]["source"] == "wiki_term"
+    assert quiz["origin"]["source"] == "book_practice"
     assert quiz["origin"]["from"] == "structured_notes"
     assert quiz["citations"] == [{"uri": f"wiki://{abbreviation['id']}", "type": "wiki"}]
     flashcards = [plan for plan in projects.plans if plan["item_type"] == "flashcard"]

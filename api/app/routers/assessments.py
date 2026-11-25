@@ -4,7 +4,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.config import Settings, get_settings
-from app.access import can_read_library, is_admin
+from app.access import can_read_flashcards, can_read_library, is_admin
 from app.dependencies.auth import require_approved_user
 from app.dependencies.services import (
     get_artifact_repository,
@@ -40,6 +40,9 @@ from app.services.supabase_storage import SupabaseStorageClient
 
 router = APIRouter(tags=["assessments"])
 
+# Supabase returns at most a page. The library has to keep asking.
+_LIBRARY_PAGE = 200
+
 
 async def _readable_row(
     row: dict[str, Any] | None,
@@ -63,7 +66,7 @@ def _visual(row: dict[str, Any]) -> dict[str, Any] | None:
     return visual if isinstance(visual, dict) else None
 
 
-async def _with_signed_visuals(
+async def with_signed_visuals(
     rows: list[dict[str, Any]],
     storage: SupabaseStorageClient,
     settings: Settings,
@@ -98,6 +101,18 @@ async def _with_signed_visuals(
     return prepared
 
 
+async def list_every_quiz(assessments: AssessmentRepository, workspace_id: str) -> list[dict[str, Any]]:
+    """Every quiz in the workspace. One page hides older class packs from Library."""
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        batch = await assessments.list_quizzes(workspace_id, limit=_LIBRARY_PAGE, offset=offset)
+        rows.extend(batch)
+        if len(batch) < _LIBRARY_PAGE:
+            return rows
+        offset += _LIBRARY_PAGE
+
+
 async def load_library_catalog(
     *,
     workspace_id: str,
@@ -124,7 +139,7 @@ async def load_library_catalog(
         artifacts.list_for_workspace(workspace_id),
         wiki_entries.list_for_workspace(workspace_id),
         assessments.list_flashcards(workspace_id),
-        assessments.list_quizzes(workspace_id),
+        list_every_quiz(assessments, workspace_id),
         assessments.list_scenarios(workspace_id),
         projects.list_titles(workspace_id),
     )
@@ -135,9 +150,9 @@ async def load_library_catalog(
             storage=storage,
             bucket=settings.sources_bucket,
         ),
-        _with_signed_visuals(flashcard_rows, storage, settings),
-        _with_signed_visuals(quiz_rows, storage, settings),
-        _with_signed_visuals(scenario_rows, storage, settings),
+        with_signed_visuals(flashcard_rows, storage, settings),
+        with_signed_visuals(quiz_rows, storage, settings),
+        with_signed_visuals(scenario_rows, storage, settings),
     )
     if not reveal_elo_answers:
         wiki_rows = redact_elo_definitions(wiki_rows)
@@ -167,7 +182,7 @@ async def get_library(
     storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> LibraryCatalogResponse:
-    return await load_library_catalog(
+    catalog = await load_library_catalog(
         workspace_id=workspace.id,
         owner_id=workspace.owner_id,
         sources=sources,
@@ -179,6 +194,9 @@ async def get_library(
         settings=settings,
         reveal_elo_answers=is_admin(user),
     )
+    if can_read_flashcards(user):
+        return catalog
+    return catalog.model_copy(update={"flashcards": []})
 
 
 @router.get(
@@ -200,19 +218,21 @@ async def list_knowledge_titles(
 )
 async def list_flashcards(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
-    _: Annotated[CurrentUser, Depends(require_approved_user)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
     assessments: Annotated[AssessmentRepository, Depends(get_assessment_repository)],
     storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
     settings: Annotated[Settings, Depends(get_settings)],
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[FlashcardResponse]:
+    if not can_read_flashcards(user):
+        return []
     rows = await assessments.list_flashcards(
         workspace.id,
         limit=limit,
         offset=offset,
     )
-    signed = await _with_signed_visuals(rows, storage, settings)
+    signed = await with_signed_visuals(rows, storage, settings)
     return [FlashcardResponse.model_validate(row) for row in signed]
 
 
@@ -231,13 +251,13 @@ async def get_flashcard(
         workspaces,
     )
 
-    if not row:
+    if not row or not can_read_flashcards(user):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Flashcard not found.",
         )
 
-    signed = await _with_signed_visuals([row], storage, settings)
+    signed = await with_signed_visuals([row], storage, settings)
     return FlashcardResponse.model_validate(signed[0])
 
 
@@ -259,7 +279,7 @@ async def list_quizzes(
         limit=limit,
         offset=offset,
     )
-    signed = await _with_signed_visuals(rows, storage, settings)
+    signed = await with_signed_visuals(rows, storage, settings)
     return [QuizResponse.model_validate(row) for row in signed]
 
 
@@ -284,7 +304,7 @@ async def get_quiz(
             detail="Quiz question not found.",
         )
 
-    signed = await _with_signed_visuals([row], storage, settings)
+    signed = await with_signed_visuals([row], storage, settings)
     return QuizResponse.model_validate(signed[0])
 
 
@@ -306,7 +326,7 @@ async def list_scenarios(
         limit=limit,
         offset=offset,
     )
-    signed = await _with_signed_visuals(rows, storage, settings)
+    signed = await with_signed_visuals(rows, storage, settings)
     return [ScenarioResponse.model_validate(row) for row in signed]
 
 
@@ -331,5 +351,5 @@ async def get_scenario(
             detail="Scenario not found.",
         )
 
-    signed = await _with_signed_visuals([row], storage, settings)
+    signed = await with_signed_visuals([row], storage, settings)
     return ScenarioResponse.model_validate(signed[0])

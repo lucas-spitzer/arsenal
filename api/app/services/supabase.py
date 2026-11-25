@@ -1,3 +1,5 @@
+import hashlib
+import time
 from typing import Any
 
 import httpx
@@ -5,6 +7,19 @@ import httpx
 from app.access import normalize_access_role
 from app.config import Settings
 from app.models.auth import CurrentUser
+from app.services.http_client import shared_client
+
+USER_CACHE_SECONDS = 60
+USER_CACHE_LIMIT = 512
+_user_cache: dict[str, tuple[float, CurrentUser]] = {}
+
+
+def _token_key(access_token: str) -> str:
+    return hashlib.sha256(access_token.encode()).hexdigest()
+
+
+def clear_user_cache() -> None:
+    _user_cache.clear()
 
 
 class SupabaseAuthError(Exception):
@@ -36,6 +51,22 @@ class SupabaseService:
         self.settings = settings
 
     async def get_current_user(self, access_token: str) -> CurrentUser:
+        """Successful lookups are remembered briefly, so a revoked approval blocks within a minute."""
+        key = _token_key(access_token)
+        now = time.monotonic()
+        cached = _user_cache.get(key)
+        if cached and cached[0] > now:
+            return cached[1]
+        current = await self._lookup_current_user(access_token)
+        if len(_user_cache) >= USER_CACHE_LIMIT:
+            for stale in [k for k, (expires, _) in _user_cache.items() if expires <= now]:
+                del _user_cache[stale]
+            if len(_user_cache) >= USER_CACHE_LIMIT:
+                _user_cache.pop(next(iter(_user_cache)))
+        _user_cache[key] = (now + USER_CACHE_SECONDS, current)
+        return current
+
+    async def _lookup_current_user(self, access_token: str) -> CurrentUser:
         user = await self._get_supabase_user(access_token)
         user_id = user.get("id")
         email = user.get("email")
@@ -72,14 +103,14 @@ class SupabaseService:
 
     async def _get_supabase_user(self, access_token: str) -> dict[str, Any]:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(
-                    f"{self.settings.supabase_url}/auth/v1/user",
-                    headers={
-                        "apikey": self.settings.supabase_publishable_key,
-                        "Authorization": f"Bearer {access_token}",
-                    },
-                )
+            response = await shared_client().get(
+                f"{self.settings.supabase_url}/auth/v1/user",
+                headers={
+                    "apikey": self.settings.supabase_publishable_key,
+                    "Authorization": f"Bearer {access_token}",
+                },
+                timeout=10,
+            )
         except httpx.HTTPError as exc:
             raise SupabaseRequestError("Supabase Auth could not be reached.") from exc
 
@@ -90,21 +121,21 @@ class SupabaseService:
 
     async def _get_approved_user(self, email: str) -> dict[str, Any]:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(
-                    f"{self.settings.supabase_url}/rest/v1/approved_users",
-                    headers={
-                        "apikey": self.settings.supabase_service_role_key,
-                        "Authorization": f"Bearer {self.settings.supabase_service_role_key}",
-                        "Accept": "application/json",
-                    },
-                    params={
-                        "select": "email,role,is_active,name,rank",
-                        "email": f"eq.{email}",
-                        "is_active": "eq.true",
-                        "limit": "1",
-                    },
-                )
+            response = await shared_client().get(
+                f"{self.settings.supabase_url}/rest/v1/approved_users",
+                headers={
+                    "apikey": self.settings.supabase_service_role_key,
+                    "Authorization": f"Bearer {self.settings.supabase_service_role_key}",
+                    "Accept": "application/json",
+                },
+                params={
+                    "select": "email,role,is_active,name,rank",
+                    "email": f"eq.{email}",
+                    "is_active": "eq.true",
+                    "limit": "1",
+                },
+                timeout=10,
+            )
         except httpx.HTTPError as exc:
             raise SupabaseRequestError("Supabase REST could not be reached.") from exc
 
@@ -129,16 +160,16 @@ class SupabaseService:
 
     async def _send_email_otp(self, email: str) -> None:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.post(
-                    f"{self.settings.supabase_url}/auth/v1/otp",
-                    headers={
-                        "apikey": self.settings.supabase_publishable_key,
-                        "Authorization": f"Bearer {self.settings.supabase_publishable_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"email": email, "create_user": True},
-                )
+            response = await shared_client().post(
+                f"{self.settings.supabase_url}/auth/v1/otp",
+                headers={
+                    "apikey": self.settings.supabase_publishable_key,
+                    "Authorization": f"Bearer {self.settings.supabase_publishable_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"email": email, "create_user": True},
+                timeout=10,
+            )
         except httpx.HTTPError as exc:
             raise SupabaseRequestError("Supabase Auth could not be reached.") from exc
 

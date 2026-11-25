@@ -57,7 +57,7 @@ class RecordingClient:
 def _install(monkeypatch: pytest.MonkeyPatch, approved: list[dict[str, object]]) -> None:
     RecordingClient.posts = []
     RecordingClient.approved = approved
-    monkeypatch.setattr("app.services.supabase.httpx.AsyncClient", RecordingClient)
+    monkeypatch.setattr("app.services.supabase.shared_client", RecordingClient)
 
 
 def test_unknown_email_does_not_send_a_code(monkeypatch: pytest.MonkeyPatch) -> None:

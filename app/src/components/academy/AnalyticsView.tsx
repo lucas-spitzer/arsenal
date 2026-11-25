@@ -1,27 +1,34 @@
-import { ChevronRight } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { useAtlas } from '../../features/atlas/atlasContext'
-import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
+import { useEffect, useState } from 'react'
+import { isAdminAccess } from '../../features/auth/access'
+import { useAuth } from '../../features/auth/authContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
-import { Loader } from '../shared/Loader'
 import {
-  accuracyPercent,
-  resultBatchKey,
-  summarizeQuizResults,
-  type BatchAccuracy,
-  type WeakTerm,
-} from '../../lib/quizAnalytics'
-import { quizBatchKey } from '../../lib/quizBatches'
-import { listQuizResults, type QuizResult } from '../../lib/quizResultsApi'
+  getDashboard,
+  getLeaderboard,
+  type Dashboard,
+  type DashboardWeakQuestion,
+  type LeaderboardEntry,
+  type SubjectKind,
+} from '../../lib/atlasApi'
+import { Loader } from '../shared/Loader'
 import { StudyHead } from './StudySessionChrome'
 import type { AcademyPage, AcademyScope } from './types'
 
-function formatResultDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+const ALL_SUBJECTS = 'all'
+const PLATOON = 'platoon'
+
+function parseSubject(value: string): { kind: SubjectKind; id: string } | null {
+  const [kind, id] = value.split(':')
+  if ((kind === 'source' || kind === 'lesson') && id) return { kind, id }
+  return null
 }
 
-function scopeLabel(scope: QuizResult['scope']): string {
-  return scope === 'every_variant' ? 'Every variant' : 'One question per term'
+function localTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch {
+    return 'UTC'
+  }
 }
 
 export function AnalyticsView({
@@ -30,62 +37,68 @@ export function AnalyticsView({
   onOpen: (page: AcademyPage, scope: AcademyScope) => void
 }) {
   const { activeWorkspace } = useWorkspace()
-  const { wikiEntries } = useWorkspaceData()
-  const { me } = useAtlas()
-  const [loaded, setLoaded] = useState<{ workspaceId: string; results: QuizResult[] } | null>(null)
-  const [failure, setFailure] = useState<{ workspaceId: string; message: string } | null>(null)
-  const [batchKey, setBatchKey] = useState('all')
-  const [openId, setOpenId] = useState<string | null>(null)
-
+  const { approvedUser } = useAuth()
+  const isAdmin = isAdminAccess(approvedUser?.role)
   const workspaceId = activeWorkspace?.id ?? null
-  const results = loaded?.workspaceId === workspaceId ? loaded.results : null
-  const error = failure?.workspaceId === workspaceId ? failure.message : null
+
+  const [studentId, setStudentId] = useState('')
+  const [subject, setSubject] = useState(ALL_SUBJECTS)
+  const [roster, setRoster] = useState<LeaderboardEntry[]>([])
+  const [loaded, setLoaded] = useState<{ key: string; dashboard: Dashboard } | null>(null)
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null)
+
+  const requestKey = `${workspaceId ?? ''}|${studentId}|${subject}`
+  const dashboard = loaded?.key === requestKey ? loaded.dashboard : null
+  const error = failure?.key === requestKey ? failure.message : null
+
+  useEffect(() => {
+    if (!workspaceId || !isAdmin) return
+    let cancelled = false
+    getLeaderboard(workspaceId)
+      .then((board) => {
+        if (!cancelled) setRoster(board.entries)
+      })
+      .catch(() => {
+        if (!cancelled) setRoster([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId, isAdmin])
 
   useEffect(() => {
     if (!workspaceId) return
     let cancelled = false
-    listQuizResults(workspaceId)
-      .then((rows) => {
-        if (cancelled) return
-        setLoaded({ workspaceId, results: rows })
-        setFailure(null)
+    const key = `${workspaceId}|${studentId}|${subject}`
+    const picked = parseSubject(subject)
+    getDashboard(workspaceId, {
+      userId: studentId || null,
+      subjectKind: picked?.kind ?? null,
+      subjectId: picked?.id ?? null,
+      tz: localTimeZone(),
+    })
+      .then((next) => {
+        if (!cancelled) {
+          setLoaded({ key, dashboard: next })
+          setFailure(null)
+        }
       })
       .catch((caught: unknown) => {
         if (!cancelled) {
-          setFailure({
-            workspaceId,
-            message: caught instanceof Error ? caught.message : 'Could not load analytics.',
-          })
+          setFailure({ key, message: caught instanceof Error ? caught.message : 'Could not load analytics.' })
         }
       })
     return () => {
       cancelled = true
     }
-  }, [workspaceId])
+  }, [workspaceId, studentId, subject])
 
-  const wikiLabels = useMemo(
-    () => new Map(wikiEntries.map((entry) => [entry.id, entry.preferred_label])),
-    [wikiEntries],
-  )
-  const summary = useMemo(
-    () => (results ? summarizeQuizResults(results, { batchKey, wikiLabels }) : null),
-    [batchKey, results, wikiLabels],
-  )
-  const batchOptions = useMemo(() => {
-    const seen = new Map<string, string>()
-    for (const result of results ?? []) {
-      const key = resultBatchKey(result)
-      if (!seen.has(key)) seen.set(key, result.title)
-    }
-    return [...seen.entries()].map(([key, title]) => ({ key, title }))
-  }, [results])
-
-  const practice = (term: WeakTerm) => {
+  const practice = (row: DashboardWeakQuestion) => {
     onOpen('quiz', {
-      sourceId: term.sourceId,
+      sourceId: row.subject_kind === 'source' ? row.subject_id : null,
+      lessonId: row.subject_kind === 'lesson' ? row.subject_id : null,
       targetId: null,
-      projectId: term.projectId,
-      batchKey: quizBatchKey(term.sourceId, term.projectId),
+      projectId: null,
     })
   }
 
@@ -97,167 +110,112 @@ export function AnalyticsView({
         <p className="lib__empty-copy">{error}</p>
       </div>
     )
-  } else if (results == null) {
+  } else if (!dashboard) {
     body = (
       <div className="lib__empty">
         <Loader label="Loading analytics" size="sm" />
       </div>
     )
   } else {
+    const { summary } = dashboard
     body = (
       <div className="anl__stack">
         <div className="ldr__platoon">
           <div>
-            <span>Lifetime AP</span>
-            <strong>{me?.lifetime_ap ?? 0}</strong>
+            <span>Atlas Points</span>
+            <strong>{summary.lifetime_ap}</strong>
           </div>
           <div>
             <span>Mastered</span>
-            <strong>{me?.concepts_mastered ?? 0}</strong>
+            <strong>
+              {summary.concepts_mastered}
+              <small className="anl__of"> of {summary.total_questions}</small>
+            </strong>
           </div>
           <div>
             <span>Accuracy</span>
-            <strong>{me?.accuracy == null ? '—' : `${me.accuracy}%`}</strong>
+            <strong>{summary.accuracy == null ? '—' : `${summary.accuracy}%`}</strong>
+          </div>
+          <div>
+            <span>Answered</span>
+            <strong>{summary.questions_answered}</strong>
           </div>
         </div>
 
-        {summary && summary.needsWork.length > 0 ? (
-          <section>
-            <h2 className="anl__label">Areas for Improvement</h2>
+        <section>
+          <h2 className="anl__label">Areas for Improvement</h2>
+          {dashboard.weak_questions.length > 0 ? (
             <div className="anl__rows">
-              {summary.needsWork.map((term) => (
-                <article key={term.key} className="anl__row">
+              {dashboard.weak_questions.map((row) => (
+                <article key={row.quiz_id} className="anl__row">
                   <div className="anl__term">
-                    <p className="anl__row-title">{term.label}</p>
+                    <p className="anl__row-title">{row.question}</p>
                     <p className="anl__note">
-                      {term.correct} of {term.answered} correct
+                      {row.subject_name} · {row.correct_count} correct, {row.incorrect_count} missed
+                      {studentId === PLATOON ? ' across the platoon' : ''}
                     </p>
                   </div>
-                  <button type="button" className="anl__practice" onClick={() => practice(term)}>
+                  <button type="button" className="anl__practice" onClick={() => practice(row)}>
                     Practice
                   </button>
                 </article>
               ))}
             </div>
-          </section>
-        ) : (
-          <p className="anl__note">No areas for improvement in the legacy quiz log yet.</p>
-        )}
-
-        {summary && summary.recent.length > 0 ? (
-          <section>
-            <h2 className="anl__label">Recent quizzes</h2>
-            <div className="anl__rows">
-              {summary.recent.map((result) => {
-                const misses = result.answers.filter((answer) => !answer.correct)
-                const open = openId === result.id
-                return (
-                  <article key={result.id} className={`anl__row anl__row--run${open ? ' is-open' : ''}`}>
-                    <button
-                      type="button"
-                      className="anl__run-toggle"
-                      aria-expanded={open}
-                      onClick={() => setOpenId(open ? null : result.id)}
-                    >
-                      <ChevronRight className="anl__chev" size={16} aria-hidden />
-                      <span className="anl__row-title">{result.title}</span>
-                      <span className="anl__row-meta">
-                        <span>{formatResultDate(result.completed_at)}</span>
-                        <span>
-                          {result.correct_count} of {result.question_count}
-                        </span>
-                        <span>{scopeLabel(result.scope)}</span>
-                      </span>
-                    </button>
-                    {open ? (
-                      misses.length > 0 ? (
-                        <ul className="anl__misses">
-                          {misses.map((miss) => (
-                            <li key={miss.quiz_id}>
-                              <p>{miss.question}</p>
-                              <p>
-                                You picked {miss.selected}. The answer is {miss.answer}.
-                              </p>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="anl__note anl__run-clear">Every question was correct.</p>
-                      )
-                    ) : null}
-                  </article>
-                )
-              })}
-            </div>
-          </section>
-        ) : null}
-
-        {summary && summary.batches.length > 0 ? (
-          <section>
-            <h2 className="anl__label">By batch</h2>
-            <div className="anl__rows">
-              {summary.batches.map((batch) => (
-                <button
-                  key={batch.key}
-                  type="button"
-                  className={`anl__row${batch.key === batchKey ? ' is-open' : ''}`}
-                  onClick={() => setBatchKey(batch.key === batchKey ? 'all' : batch.key)}
-                >
-                  <span className="anl__row-title">{batch.title}</span>
-                  <BatchMeta batch={batch} />
-                </button>
-              ))}
-            </div>
-          </section>
-        ) : null}
+          ) : (
+            <p className="anl__note">No missed questions waiting on mastery.</p>
+          )}
+        </section>
       </div>
     )
   }
 
+  const subjects = loaded?.dashboard.subjects ?? []
+
   return (
-    <section className="anl study-session" aria-busy={results == null && !error}>
+    <section className="anl study-session" aria-busy={!dashboard && !error}>
       <StudyHead
-        eyebrow="Quiz results"
+        eyebrow="Atlas Points"
         title="Analytics"
-        description="Lifetime Atlas Points, concepts mastered, and areas for improvement."
+        description="Points, mastery, and accuracy by subject, with the questions that need work."
       />
 
-      {results && results.length > 0 ? (
-        <div className="anl__toolbar">
+      <div className="anl__toolbar">
+        {isAdmin ? (
           <label className="lib__select">
-            <span className="lib__select-label">Batch</span>
+            <span className="lib__select-label">Student</span>
             <select
-              value={batchOptions.some((option) => option.key === batchKey) ? batchKey : 'all'}
+              value={studentId}
               onChange={(event) => {
-                setBatchKey(event.target.value)
-                setOpenId(null)
+                setStudentId(event.target.value)
+                setSubject(ALL_SUBJECTS)
               }}
             >
-              <option value="all">All batches</option>
-              {batchOptions.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.title}
-                </option>
-              ))}
+              <option value="">Me</option>
+              <option value={PLATOON}>Whole platoon</option>
+              {roster
+                .filter((entry) => !entry.user_id.startsWith('email:'))
+                .map((entry) => (
+                  <option key={entry.user_id} value={entry.user_id}>
+                    {entry.name}
+                  </option>
+                ))}
             </select>
           </label>
-        </div>
-      ) : null}
+        ) : null}
+        <label className="lib__select">
+          <span className="lib__select-label">Subject</span>
+          <select value={subject} onChange={(event) => setSubject(event.target.value)}>
+            <option value={ALL_SUBJECTS}>All subjects</option>
+            {subjects.map((row) => (
+              <option key={`${row.subject_kind}:${row.subject_id}`} value={`${row.subject_kind}:${row.subject_id}`}>
+                {row.subject_name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       {body}
     </section>
-  )
-}
-
-function BatchMeta({ batch }: { batch: BatchAccuracy }) {
-  const accuracy = accuracyPercent(batch.correct, batch.questionsAnswered)
-  const quizLabel = batch.quizzesTaken === 1 ? 'quiz' : 'quizzes'
-  return (
-    <span className="anl__row-meta">
-      <span>
-        {batch.quizzesTaken} {quizLabel}
-      </span>
-      <span>{accuracy == null ? '—' : `${accuracy}%`}</span>
-    </span>
   )
 }

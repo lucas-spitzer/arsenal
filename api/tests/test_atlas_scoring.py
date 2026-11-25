@@ -1,3 +1,5 @@
+import random
+
 from app.services.atlas_exams import (
     ExamAssemblyError,
     assemble_full_practice,
@@ -88,32 +90,94 @@ def test_subject_exam_draws_ten() -> None:
     assert len({row["quiz_id"] for row in shown}) == 10
 
 
-def test_full_practice_quotas_and_exclusions() -> None:
-    sources = [
-        {"id": "src-wf", "filename": "MCDP 1 Warfighting.pdf", "source_metadata": {}},
-        {"id": "src-afo", "filename": "Armed Forces Officer.pdf", "source_metadata": {}},
-        {"id": "src-other-a", "filename": "Ops.pdf", "source_metadata": {"display_name": "Operations"}},
-        {"id": "src-other-b", "filename": "Comms.pdf", "source_metadata": {"display_name": "Communications"}},
-    ]
-    lessons = [
-        {"id": "les-nav", "title": "Land Navigation"},
-        {"id": "les-other", "title": "Uniforms"},
-    ]
-    quizzes = [
-        *[_quiz(f"wf-{i}", source_id="src-wf") for i in range(12)],
-        *[_quiz(f"nav-{i}", lesson_id="les-nav") for i in range(12)],
+FULL_SOURCES = [
+    # Newest first, as the repository returns them.
+    {"id": "src-1-4", "filename": "MCDP 1-4.pdf", "source_metadata": {}},
+    {"id": "src-1-1", "filename": "MCDP 1-1.pdf", "source_metadata": {}},
+    {"id": "src-wf", "filename": "MCDP 1 Warfighting.pdf", "source_metadata": {}},
+    {"id": "src-afo", "filename": "Armed Forces Officer.pdf", "source_metadata": {}},
+    {"id": "src-ops", "filename": "Ops.pdf", "source_metadata": {"display_name": "Operations"}},
+]
+FULL_LESSONS = [
+    {"id": "les-nav", "title": "Land Navigation"},
+    {"id": "les-uni", "title": "Uniforms, Customs, and Courtesies"},
+    {"id": "les-tccc", "title": "Tactical Combat Casualty Care"},
+    {"id": "les-comm", "title": "Communications Equipment"},
+    {"id": "les-empty", "title": "Cardinal Virtues"},
+]
+
+
+def _full_quizzes(*, uniforms: int = 12) -> list[dict]:
+    return [
+        *[_quiz(f"wf-{i}", source_id="src-wf") for i in range(35)],
+        *[_quiz(f"m14-{i}", source_id="src-1-4") for i in range(3)],
+        *[_quiz(f"nav-{i}", lesson_id="les-nav") for i in range(20)],
         *[_quiz(f"afo-{i}", source_id="src-afo") for i in range(12)],
-        *[_quiz(f"ops-{i}", source_id="src-other-a") for i in range(8)],
-        *[_quiz(f"com-{i}", source_id="src-other-b") for i in range(8)],
-        *[_quiz(f"uni-{i}", lesson_id="les-other") for i in range(8)],
+        *[_quiz(f"ops-{i}", source_id="src-ops") for i in range(12)],
+        *[_quiz(f"uni-{i}", lesson_id="les-uni") for i in range(uniforms)],
+        *[_quiz(f"tccc-{i}", lesson_id="les-tccc") for i in range(2)],
+        *[_quiz(f"comm-{i}", lesson_id="les-comm") for i in range(1)],
     ]
-    shown, snapshot = assemble_full_practice(quizzes, sources, lessons)
-    assert len(shown) == 30
-    assert snapshot["quotas"]["warfighting"] == 10
-    ids = {row["quiz_id"] for row in shown}
-    assert not any(quiz_id.startswith("afo-") for quiz_id in ids)
-    assert sum(1 for quiz_id in ids if quiz_id.startswith("wf-")) == 10
-    assert sum(1 for quiz_id in ids if quiz_id.startswith("nav-")) == 10
+
+
+def _count(ids: list[str], prefix: str) -> int:
+    return sum(1 for quiz_id in ids if quiz_id.startswith(prefix))
+
+
+def test_full_practice_draws_ten_five_fifteen_from_classes() -> None:
+    shown, snapshot = assemble_full_practice(_full_quizzes(), FULL_SOURCES, FULL_LESSONS, rng=random.Random(7))
+    ids = [row["quiz_id"] for row in shown]
+    assert len(ids) == 30
+    assert len(set(ids)) == 30
+    assert snapshot["quotas"] == {"warfighting": 10, "land_navigation": 5, "other": 15}
+    assert snapshot["warfighting_source_id"] == "src-wf"
+    assert _count(ids, "wf-") == 10
+    assert _count(ids, "nav-") == 5
+    assert _count(ids, "uni-") + _count(ids, "tccc-") + _count(ids, "comm-") == 15
+    assert _count(ids, "tccc-") >= 1
+    assert _count(ids, "comm-") == 1
+    for prefix in ("afo-", "ops-", "m14-"):
+        assert _count(ids, prefix) == 0
+
+
+def test_full_practice_ignores_other_mcdp_1_publications() -> None:
+    sources = [
+        {"id": "src-1-4", "filename": "MCDP 1-4.pdf", "source_metadata": {}},
+        {"id": "src-1-2", "filename": "MCDP 1-2.pdf", "source_metadata": {}},
+        {"id": "src-wf", "filename": "MCDP 1 Warfighting.pdf", "source_metadata": {}},
+    ]
+    quizzes = [q for q in _full_quizzes() if not q["id"].startswith("m14-")]
+    _, snapshot = assemble_full_practice(quizzes, sources, FULL_LESSONS, rng=random.Random(1))
+    assert snapshot["warfighting_source_id"] == "src-wf"
+
+
+def test_full_practice_prefers_warfighting_match_with_most_questions() -> None:
+    sources = [
+        {"id": "src-short", "filename": "Warfighting.pdf", "source_metadata": {}},
+        *FULL_SOURCES,
+    ]
+    quizzes = [*_full_quizzes(), _quiz("short-0", source_id="src-short")]
+    _, snapshot = assemble_full_practice(quizzes, sources, FULL_LESSONS, rng=random.Random(2))
+    assert snapshot["warfighting_source_id"] == "src-wf"
+
+
+def test_full_practice_names_real_class_shortage() -> None:
+    try:
+        assemble_full_practice(_full_quizzes(uniforms=5), FULL_SOURCES, FULL_LESSONS)
+        raise AssertionError("expected shortage")
+    except ExamAssemblyError as exc:
+        assert "15" in exc.detail
+        assert "have 8" in exc.detail
+        assert "Land Navigation" in exc.detail
+
+
+def test_full_practice_shuffles_questions_and_options() -> None:
+    shown, _ = assemble_full_practice(_full_quizzes(), FULL_SOURCES, FULL_LESSONS, rng=random.Random(11))
+    subjects = [row["subject_id"] for row in shown]
+    assert subjects[:10] != ["src-wf"] * 10
+    assert subjects[10:15] != ["les-nav"] * 5
+    assert all(sorted(row["options"]) == ["A", "B", "C", "D"] for row in shown)
+    assert any(row["options"] != ["A", "B", "C", "D"] for row in shown)
 
 
 def test_eligible_quizzes_skip_empty_stems() -> None:

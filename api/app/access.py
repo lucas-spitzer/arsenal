@@ -27,6 +27,11 @@ def is_admin(user: CurrentUser) -> bool:
     return user.role == ADMIN_ROLE
 
 
+def can_read_flashcards(user: CurrentUser) -> bool:
+    """Flip cards stay with Academics. Students and observers never receive them."""
+    return is_admin(user)
+
+
 def is_platoon_reader(user: CurrentUser) -> bool:
     return user.role in _PLATOON_READER_ROLES
 

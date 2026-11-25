@@ -343,6 +343,103 @@ def test_generate_batch_append_keeps_rows_and_replace_removes_them(monkeypatch: 
     assert ("quizzes", ["old"]) in projects.deleted
 
 
+class _ImportProjects(_RecordingProjects):
+    def __init__(self) -> None:
+        super().__init__()
+        self.project_updates: list[dict] = []
+
+    async def insert_plans(self, rows: list[dict]) -> list[dict]:
+        saved = [{**row, "id": f"plan-{len(self.plans) + index}"} for index, row in enumerate(rows)]
+        self.plans.extend(saved)
+        return saved
+
+    async def update(self, project_id: str, payload: dict) -> dict:
+        self.project_updates.append(payload)
+        return {**_project(), "id": project_id, **payload}
+
+
+class _ImportWiki:
+    def __init__(self, existing: list[dict]) -> None:
+        self.existing = existing
+        self.inserted: list[dict] = []
+        self.updated: list[tuple[str, dict]] = []
+
+    async def list_for_workspace(self, workspace_id: str, **kwargs) -> list[dict]:
+        del workspace_id
+        if kwargs.get("status"):
+            return [entry for entry in self.existing if entry["status"] == kwargs["status"]]
+        return self.existing
+
+    async def insert_many(self, rows: list[dict]) -> list[dict]:
+        saved = [{**row, "id": f"wiki-{row['canonical_slug']}"} for row in rows]
+        self.inserted.extend(saved)
+        return saved
+
+    async def update(self, entry_id: str, row: dict) -> dict:
+        self.updated.append((entry_id, row))
+        current = next(entry for entry in self.existing if entry["id"] == entry_id)
+        return {**current, **row}
+
+
+class _Storage:
+    async def upload(self, **kwargs) -> None:
+        del kwargs
+
+
+def test_terms_import_revives_deprecated_entries_and_makes_flashcards() -> None:
+    projects = _ImportProjects()
+    wiki = _ImportWiki(
+        [
+            {
+                "id": "wiki-war",
+                "canonical_slug": "war",
+                "preferred_label": "War",
+                "definition": "An old definition.",
+                "entry_kind": "term",
+                "importance": "supporting",
+                "aliases": [],
+                "evidence": [],
+                "status": "deprecated",
+            },
+        ],
+    )
+    service = KnowledgeProjectService(
+        projects=projects,
+        production_runs=object(),
+        batches=object(),
+        wiki_entries=wiki,
+        settings=get_settings(),
+    )
+    text = (
+        '{"subject": "MCDP 1 Warfighting", "terms": ['
+        '{"term": "War", "importance": "essential", "definition": "A violent clash of interests."},'
+        '{"term": "Friction", "importance": "high", "definition": "The force that makes the easy difficult."}'
+        "]}"
+    )
+
+    updated = asyncio.run(
+        service._commit_structured_project(
+            {**_project(), "status": "structuring"},
+            source={"id": "book-1", "slug": "mcdp-1-warfighting"},
+            workspace_slug="ws",
+            filename="terms.json",
+            text=text,
+            content=text.encode(),
+            images={},
+            storage=_Storage(),
+        ),
+    )
+
+    assert [row["canonical_slug"] for row in wiki.inserted] == ["friction"]
+    assert wiki.inserted[0]["importance"] == "essential"
+    assert wiki.updated[0][0] == "wiki-war"
+    assert wiki.updated[0][1]["status"] == "canonical"
+    assert wiki.updated[0][1]["definition"] == "A violent clash of interests."
+    assert sorted(card["front"] for card in projects.inserted) == ["Friction", "War"]
+    assert all(card["source_id"] == "book-1" for card in projects.inserted)
+    assert updated["status"] == "composing"
+
+
 def test_save_item_writes_the_pool_and_clears_the_draft() -> None:
     projects = _RecordingProjects()
 

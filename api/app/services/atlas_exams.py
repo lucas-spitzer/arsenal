@@ -10,22 +10,14 @@ from app.knowledge.answer_pool import AnswerPoolError, draw, pool_or_none
 FULL_PRACTICE_SIZE = 30
 SUBJECT_EXAM_SIZE = 10
 WARFIGHTING_QUOTA = 10
-LAND_NAV_QUOTA = 10
-OTHER_QUOTA = 10
+LAND_NAV_QUOTA = 5
+OTHER_QUOTA = 15
 
 WARFIGHTING_SOURCE = "MCDP 1 Warfighting"
 LAND_NAV_LESSON = "Land Navigation"
-AFO_SOURCE = "Armed Forces Officer"
 
-EXCLUDED_OTHER_NAMES = frozenset(
-    {
-        WARFIGHTING_SOURCE.casefold(),
-        LAND_NAV_LESSON.casefold(),
-        AFO_SOURCE.casefold(),
-        "warfighting",
-        "warfighting.pdf",
-    }
-)
+# Exact labels only: "MCDP 1-1", "MCDP 1-2", and "MCDP 1-4" are other publications.
+WARFIGHTING_LABELS = frozenset({"mcdp 1 warfighting", "mcdp 1", "warfighting"})
 
 
 class ExamAssemblyError(Exception):
@@ -51,13 +43,7 @@ def source_label(source: dict[str, Any]) -> str:
 
 
 def is_warfighting_source(source: dict[str, Any]) -> bool:
-    label = normalize_label(source_label(source))
-    return label == normalize_label(WARFIGHTING_SOURCE) or label.startswith("mcdp 1") or label == "warfighting"
-
-
-def is_afo_source(source: dict[str, Any]) -> bool:
-    label = normalize_label(source_label(source))
-    return label == normalize_label(AFO_SOURCE) or label in {"afo", "armed forces officer"}
+    return normalize_label(source_label(source)) in WARFIGHTING_LABELS
 
 
 def is_land_nav_lesson(lesson: dict[str, Any]) -> bool:
@@ -178,47 +164,36 @@ def assemble_full_practice(
     all_eligible = eligible_quizzes(quizzes)
     by_id = {str(quiz["id"]): quiz for quiz in all_eligible}
 
-    warfighting = next((source for source in sources if is_warfighting_source(source)), None)
+    warfighting_candidates = [
+        (source, quizzes_for_source(all_eligible, str(source["id"])))
+        for source in sources
+        if is_warfighting_source(source)
+    ]
     land_nav = next((lesson for lesson in lessons if is_land_nav_lesson(lesson)), None)
-    if warfighting is None:
+    if not warfighting_candidates:
         raise ExamAssemblyError(f"Missing source {WARFIGHTING_SOURCE}.")
     if land_nav is None:
         raise ExamAssemblyError(f"Missing lesson {LAND_NAV_LESSON}.")
 
-    warfighting_pool = eligible_quizzes(quizzes_for_source(all_eligible, str(warfighting["id"])))
-    land_nav_pool = eligible_quizzes(quizzes_for_lesson(all_eligible, str(land_nav["id"])))
+    warfighting, warfighting_pool = max(warfighting_candidates, key=lambda candidate: len(candidate[1]))
+    warfighting_name = source_label(warfighting)
+    land_nav_name = str(land_nav.get("title") or LAND_NAV_LESSON)
+    land_nav_pool = quizzes_for_lesson(all_eligible, str(land_nav["id"]))
     if len(warfighting_pool) < WARFIGHTING_QUOTA:
         raise ExamAssemblyError(
-            f"{WARFIGHTING_SOURCE} needs {WARFIGHTING_QUOTA} questions (has {len(warfighting_pool)}).",
+            f"{warfighting_name} needs {WARFIGHTING_QUOTA} questions (has {len(warfighting_pool)}).",
         )
     if len(land_nav_pool) < LAND_NAV_QUOTA:
         raise ExamAssemblyError(
-            f"{LAND_NAV_LESSON} needs {LAND_NAV_QUOTA} questions (has {len(land_nav_pool)}).",
+            f"{land_nav_name} needs {LAND_NAV_QUOTA} questions (has {len(land_nav_pool)}).",
         )
 
     other_subjects: dict[str, dict[str, Any]] = {}
-    for source in sources:
-        if is_warfighting_source(source) or is_afo_source(source):
-            continue
-        label = source_label(source)
-        if normalize_label(label) in EXCLUDED_OTHER_NAMES:
-            continue
-        pool = eligible_quizzes(quizzes_for_source(all_eligible, str(source["id"])))
-        if not pool:
-            continue
-        other_subjects[subject_key("source", str(source["id"]))] = {
-            "kind": "source",
-            "id": str(source["id"]),
-            "name": label,
-            "pool": pool,
-        }
     for lesson in lessons:
         if is_land_nav_lesson(lesson):
             continue
         title = str(lesson.get("title") or "").strip() or "Untitled class"
-        if normalize_label(title) in EXCLUDED_OTHER_NAMES:
-            continue
-        pool = eligible_quizzes(quizzes_for_lesson(all_eligible, str(lesson["id"])))
+        pool = quizzes_for_lesson(all_eligible, str(lesson["id"]))
         if not pool:
             continue
         other_subjects[subject_key("lesson", str(lesson["id"]))] = {
@@ -228,8 +203,12 @@ def assemble_full_practice(
             "pool": pool,
         }
 
-    if not other_subjects:
-        raise ExamAssemblyError("No other sources or lessons have eligible questions for the open quota.")
+    other_total = sum(len(subject["pool"]) for subject in other_subjects.values())
+    if other_total < OTHER_QUOTA:
+        raise ExamAssemblyError(
+            f"Other classes need {OTHER_QUOTA} questions outside {land_nav_name} (have {other_total} "
+            f"across {len(other_subjects)} classes).",
+        )
 
     used: set[str] = set()
     picked: list[dict[str, Any]] = []
@@ -237,13 +216,13 @@ def assemble_full_practice(
 
     for quiz in _sample_unique(warfighting_pool, WARFIGHTING_QUOTA, rng, used):
         picked.append(quiz)
-        meta.append({"kind": "source", "id": str(warfighting["id"]), "name": source_label(warfighting)})
+        meta.append({"kind": "source", "id": str(warfighting["id"]), "name": warfighting_name})
     for quiz in _sample_unique(land_nav_pool, LAND_NAV_QUOTA, rng, used):
         picked.append(quiz)
-        meta.append({"kind": "lesson", "id": str(land_nav["id"]), "name": str(land_nav.get("title") or LAND_NAV_LESSON)})
+        meta.append({"kind": "lesson", "id": str(land_nav["id"]), "name": land_nav_name})
 
-    # Guarantee each other subject contributes at least one candidate when possible,
-    # then fill the remaining open slots from the combined remainder.
+    # One question from each other class in random class order, then fill the
+    # rest at random from those classes.
     guaranteed: list[dict[str, Any]] = []
     guaranteed_meta: list[dict[str, Any]] = []
     subject_items = list(other_subjects.values())
@@ -267,11 +246,6 @@ def assemble_full_practice(
         if str(quiz["id"]) not in used
     ]
     if remaining_needed > 0:
-        if len(remainder_pool) < remaining_needed:
-            raise ExamAssemblyError(
-                f"Open quota needs {OTHER_QUOTA} questions; only {len(guaranteed) + len(remainder_pool)} available "
-                f"outside {WARFIGHTING_SOURCE}, {AFO_SOURCE}, and {LAND_NAV_LESSON}.",
-            )
         extra = rng.sample(remainder_pool, remaining_needed)
         for quiz in extra:
             used.add(str(quiz["id"]))

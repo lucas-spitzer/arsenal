@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.repositories.wiki_entries import WIKI_ENTRY_LIST_COLUMNS, WikiEntryRepository
-from app.routers.assessments import _with_signed_visuals, load_library_catalog, router
+from app.routers.assessments import with_signed_visuals, list_every_quiz, load_library_catalog, router
 
 NOW = "2026-01-01T00:00:00Z"
 
@@ -53,7 +53,7 @@ def test_visuals_are_signed_together() -> None:
         {"id": "d", "visual": None},
     ]
     settings = SimpleNamespace(sources_bucket="sources", signed_url_expires_seconds=3600)
-    signed = asyncio.run(_with_signed_visuals(rows, Storage(), settings))  # type: ignore[arg-type]
+    signed = asyncio.run(with_signed_visuals(rows, Storage(), settings))  # type: ignore[arg-type]
 
     assert peak == 2
     assert signed[0]["visual"]["url"] == "https://files.example/visuals/one.png"
@@ -163,7 +163,27 @@ def test_library_catalog_loads_every_list_once() -> None:
 
         async def list_quizzes(self, workspace_id: str, **_: Any) -> list[dict[str, Any]]:
             calls.append(f"quizzes:{workspace_id}")
-            return []
+            return [
+                {
+                    "id": "quiz-1",
+                    "workspace_id": "ws-1",
+                    "source_id": None,
+                    "lesson_id": "lesson-1",
+                    "knowledge_project_id": "proj-2",
+                    "production_run_id": None,
+                    "stage_run_id": None,
+                    "question": "Which force is the largest MAGTF?",
+                    "question_type": "multiple_choice",
+                    "options": ["MEF", "MEB"],
+                    "correct_answer": "MEF",
+                    "explanation": None,
+                    "difficulty": "medium",
+                    "citations": [],
+                    "origin": {"source": "lesson_practice"},
+                    "visual": None,
+                    "created_at": NOW,
+                }
+            ]
 
         async def list_scenarios(self, workspace_id: str, **_: Any) -> list[dict[str, Any]]:
             calls.append(f"scenarios:{workspace_id}")
@@ -207,3 +227,50 @@ def test_library_catalog_loads_every_list_once() -> None:
     assert catalog.flashcards[0].visual is not None
     assert catalog.flashcards[0].visual.url == "https://files.example/visuals/hill.png?exp=3600&bucket=sources"
     assert catalog.knowledge_titles[0].title == "Offense"
+    assert catalog.quizzes[0].source_id is None
+    assert catalog.quizzes[0].lesson_id == "lesson-1"
+
+
+def test_library_catalog_reads_quizzes_past_the_first_page() -> None:
+    class Assessments:
+        def __init__(self) -> None:
+            self.offsets: list[int] = []
+
+        async def list_quizzes(self, workspace_id: str, *, limit: int, offset: int) -> list[dict[str, Any]]:
+            assert workspace_id == "ws-1"
+            assert limit == 200
+            self.offsets.append(offset)
+            if offset == 0:
+                return [_quiz(index) for index in range(limit)]
+            return [_quiz(index) for index in range(3)]
+
+        async def list_flashcards(self, workspace_id: str, **_: Any) -> list[dict[str, Any]]:
+            return []
+
+        async def list_scenarios(self, workspace_id: str, **_: Any) -> list[dict[str, Any]]:
+            return []
+
+    assessments = Assessments()
+    rows = asyncio.run(list_every_quiz(assessments, "ws-1"))  # type: ignore[arg-type]
+
+    assert assessments.offsets == [0, 200]
+    assert len(rows) == 203
+    assert rows[0]["id"] == "quiz-0"
+    assert rows[-1]["id"] == "quiz-2"
+
+
+def _quiz(index: int) -> dict[str, Any]:
+    return {
+        "id": f"quiz-{index}",
+        "workspace_id": "ws-1",
+        "source_id": None,
+        "lesson_id": "lesson-1",
+        "question": "Question",
+        "question_type": "multiple_choice",
+        "options": ["A", "B"],
+        "correct_answer": "A",
+        "difficulty": "medium",
+        "citations": [],
+        "origin": {"source": "lesson_practice"},
+        "created_at": NOW,
+    }

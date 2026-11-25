@@ -22,16 +22,23 @@ export function FlashcardFace({
   visual: AssessmentVisual | null | undefined
 }) {
   const face = cardFace(side, visual?.placement)
+  const bodyClass = `flashcard__body${flashcardLengthModifier(text)}`
   if (!visual?.url || face === 'text') {
-    return <span className="flashcard__body">{text}</span>
+    return <span className={bodyClass}>{text}</span>
   }
   if (face === 'image') {
     return <AssessmentPicture visual={visual} text={text} />
   }
   return (
-    <span className="flashcard__body flashcard__body--beside">
+    <span className={`${bodyClass} flashcard__body--beside`}>
       <AssessmentPicture visual={visual} text={text} />
       <span>{text}</span>
     </span>
   )
+}
+
+function flashcardLengthModifier(text: string): string {
+  if (text.length > 260) return ' flashcard__body--xlong'
+  if (text.length > 140) return ' flashcard__body--long'
+  return ''
 }

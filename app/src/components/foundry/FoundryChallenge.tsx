@@ -8,6 +8,7 @@ import {
   type CompetitionSettings,
   type PlatoonDashboard,
 } from '../../lib/atlasApi'
+import { StandingsTable } from '../academy/StandingsTable'
 import { Loader } from '../shared/Loader'
 
 export function FoundryChallenge() {
@@ -204,26 +205,7 @@ export function FoundryChallenge() {
             <h3 className="as-console__card-title" style={{ marginTop: 24 }}>
               Standings
             </h3>
-            <table className="ldr__table">
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>Name</th>
-                  <th>AP</th>
-                  <th>Mastered</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dashboard.leaderboard.map((entry) => (
-                  <tr key={entry.user_id}>
-                    <td>{entry.rank}</td>
-                    <td>{entry.name}</td>
-                    <td>{entry.lifetime_ap}</td>
-                    <td>{entry.concepts_mastered}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <StandingsTable entries={dashboard.leaderboard} />
           </section>
         </div>
       )}

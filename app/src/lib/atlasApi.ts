@@ -118,6 +118,65 @@ export interface AtlasAccess {
   finalized: boolean
 }
 
+export interface DashboardSubject {
+  subject_kind: SubjectKind
+  subject_id: string
+  subject_name: string
+}
+
+export interface DashboardSummary {
+  lifetime_ap: number
+  concepts_mastered: number
+  total_questions: number
+  accuracy: number | null
+  questions_answered: number
+  correct_answers: number
+}
+
+export interface DashboardWeakQuestion extends DashboardSubject {
+  quiz_id: string
+  question: string
+  correct_count: number
+  incorrect_count: number
+}
+
+export interface DashboardDay {
+  day: string
+  answered: number
+  correct: number
+  points: number
+}
+
+export interface Dashboard {
+  user_id: string
+  subjects: DashboardSubject[]
+  summary: DashboardSummary
+  weak_questions: DashboardWeakQuestion[]
+  activity: DashboardDay[]
+  active_days: number
+  ends_at: string
+}
+
+export async function getDashboard(
+  workspaceId: string,
+  options: {
+    userId?: string | null
+    subjectKind?: SubjectKind | null
+    subjectId?: string | null
+    tz?: string | null
+  } = {},
+): Promise<Dashboard> {
+  const params = new URLSearchParams()
+  if (options.userId) params.set('user_id', options.userId)
+  if (options.subjectKind && options.subjectId) {
+    params.set('subject_kind', options.subjectKind)
+    params.set('subject_id', options.subjectId)
+  }
+  if (options.tz) params.set('tz', options.tz)
+  const query = params.toString()
+  return apiRequest<Dashboard>(`/workspaces/${workspaceId}/atlas/dashboard${query ? `?${query}` : ''}`)
+}
+
 export async function getAtlasAccess(workspaceId: string): Promise<AtlasAccess> {
   return apiRequest<AtlasAccess>(`/workspaces/${workspaceId}/atlas/access`)
 }

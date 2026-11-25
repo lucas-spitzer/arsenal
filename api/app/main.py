@@ -1,4 +1,6 @@
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
@@ -9,6 +11,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from app.config import get_settings
 from app.dependencies.auth import require_approved_user
 from app.errors import register_exception_handlers
+from app.services.http_client import close_shared_client
 from app.logging_config import configure_logging
 from app.models.auth import CurrentUser, CurrentUserResponse
 from app.routers import (
@@ -36,9 +39,16 @@ from app.routers import (
 configure_logging()
 settings = get_settings()
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    yield
+    await close_shared_client()
+
+
 _api_docs = os.getenv("API_DOCS") == "1"
 app = FastAPI(
     title="Arsenal API",
+    lifespan=lifespan,
     docs_url="/docs" if _api_docs else None,
     redoc_url="/redoc" if _api_docs else None,
     openapi_url="/openapi.json" if _api_docs else None,

@@ -15,6 +15,13 @@ import {
   type KnowledgeProjectDetail,
   type KnowledgeProjectSummary,
 } from '../../../lib/knowledgeApi'
+import {
+  IMAGE_ACCEPT,
+  MAX_QUESTION_IMAGES,
+  imageStatus,
+  mergeImages,
+  questionImageNames,
+} from '../../../lib/questionPackImages'
 import { useLessons } from '../../../lib/useLessons'
 import { ErrorBanner } from '../ErrorBanner'
 import { FoundryDialog } from '../FoundryDialog'
@@ -25,6 +32,8 @@ import { RunSteps } from './RunSteps'
 type KnowledgeView = { kind: 'list' } | { kind: 'setup' } | { kind: 'project'; id: string }
 
 const POLL_MS = 3000
+// Vercel Functions reject request bodies over 4.5 MB.
+const MAX_REQUEST_BYTES = 4.5 * 1024 * 1024
 const KINDS = ['icon', 'diagram', 'example'] as const
 const FLASHCARD_PLACEMENTS = [
   { value: 'back', label: 'Back, instead of the definition' },
@@ -34,6 +43,10 @@ const FLASHCARD_PLACEMENTS = [
 
 function errorMessage(caught: unknown, fallback: string): string {
   return caught instanceof Error ? caught.message : fallback
+}
+
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function sourceTitleFor(source: Parameters<typeof sourceTitle>[0] | undefined): string {
@@ -160,16 +173,56 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
   const readySources = sources.filter((source) => source.status === 'ready')
   const [home, setHome] = useState<KnowledgeHome>({ kind: 'book', sourceId: readySources[0]?.id ?? '' })
   const [notes, setNotes] = useState('')
-  const [files, setFiles] = useState<File[]>([])
+  const [file, setFile] = useState<File | null>(null)
+  const [images, setImages] = useState<File[]>([])
+  const [neededImages, setNeededImages] = useState<string[]>([])
+  const [imageNotice, setImageNotice] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const pickedFileRef = useRef<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const selectedLessonId = home.kind === 'lesson'
     ? lessons.find((lesson) => lesson.id === home.lessonId)?.id ?? lessons[0]?.id ?? ''
     : ''
+  const isJson = file !== null && file.name.toLowerCase().endsWith('.json')
+  const files = file ? [file, ...(isJson ? images : [])] : []
+  const status = imageStatus(isJson ? neededImages : [], isJson ? images : [])
+  const totalBytes = files.reduce((sum, item) => sum + item.size, 0)
+  const tooLarge = totalBytes > MAX_REQUEST_BYTES
   const homeReady = home.kind === 'book' ? home.sourceId.length > 0 : selectedLessonId.length > 0
   const hasContent = home.kind === 'lesson' ? files.length > 0 : files.length > 0 || notes.trim().length > 0
-  const ready = homeReady && hasContent
+  const ready = homeReady && hasContent && status.missing.length === 0 && !tooLarge
+
+  const pickFile = (next: File | null) => {
+    pickedFileRef.current = next
+    setFile(next)
+    setNeededImages([])
+    if (!next) return
+    setNotes('')
+    if (!next.name.toLowerCase().endsWith('.json')) return
+    next
+      .text()
+      .then((text) => {
+        if (pickedFileRef.current === next) setNeededImages(questionImageNames(text))
+      })
+      .catch(() => undefined)
+  }
+
+  const clearUploads = () => {
+    pickFile(null)
+    setImages([])
+    setImageNotice(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (imageInputRef.current) imageInputRef.current.value = ''
+  }
+
+  const addImages = (picked: File[]) => {
+    const { files: next, dropped } = mergeImages(images, picked)
+    setImages(next)
+    setImageNotice(dropped > 0 ? `Only ${MAX_QUESTION_IMAGES} images fit. ${dropped} not added.` : null)
+    if (imageInputRef.current) imageInputRef.current.value = ''
+  }
   const homeName = home.kind === 'book'
     ? sourceTitleFor(readySources.find((source) => source.id === home.sourceId))
     : lessons.find((lesson) => lesson.id === selectedLessonId)?.title ?? ''
@@ -226,9 +279,8 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
               onClick={() => {
                 if (home.kind === 'book') return
                 setHome({ kind: 'book', sourceId: readySources[0]?.id ?? '' })
-                setFiles([])
+                clearUploads()
                 setNotes('')
-                if (fileInputRef.current) fileInputRef.current.value = ''
               }}
             >
               Book
@@ -241,9 +293,8 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
               onClick={() => {
                 if (home.kind === 'lesson') return
                 setHome({ kind: 'lesson', lessonId: lessons[0]?.id ?? '' })
-                setFiles([])
+                clearUploads()
                 setNotes('')
-                if (fileInputRef.current) fileInputRef.current.value = ''
               }}
             >
               Class
@@ -290,8 +341,8 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
                 ))}
               </select>
               <p className="dsn-hint">
-                Practice questions for this class. A question pack is JSON, or a zip of the JSON and the images. Terms,
-                lists, ELOs, and abbreviations still go on a book. Study guides are not uploaded here yet.
+                Practice questions for this class. Upload the JSON, then add the images it names, or upload a zip of
+                both. Terms, lists, ELOs, and abbreviations still go on a book. Study guides are not uploaded here yet.
               </p>
             </>
           )}
@@ -306,37 +357,101 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
               id="kproj-file"
               type="file"
               hidden
-              multiple
-              accept={home.kind === 'lesson' ? '.json,.png,.jpg,.jpeg,.webp,.zip' : '.json,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp,.zip'}
-              onChange={(event) => {
-                const next = event.target.files ? Array.from(event.target.files) : []
-                setFiles(next)
-                if (next.length > 0) setNotes('')
-              }}
+              accept={home.kind === 'lesson' ? '.json,.zip' : '.json,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp,.zip'}
+              onChange={(event) => pickFile(event.target.files?.[0] ?? null)}
             />
             <button type="button" className="as-console__cta as-console__cta--ghost" onClick={() => fileInputRef.current?.click()}>
               {home.kind === 'lesson' ? '⇪ Upload questions' : '⇪ Upload notes'}
             </button>
-            {files.length > 0 ? <span className="kproj-file__name">{files.map((item) => item.name).join(', ')}</span> : null}
-            {files.length > 0 ? (
-              <button
-                type="button"
-                className="kproj-file__clear"
-                onClick={() => {
-                  setFiles([])
-                  if (fileInputRef.current) fileInputRef.current.value = ''
-                }}
-              >
+            {file ? <span className="kproj-file__name">{file.name}</span> : null}
+            {file ? (
+              <button type="button" className="kproj-file__clear" onClick={clearUploads}>
                 Clear
               </button>
             ) : null}
           </div>
           <p className="dsn-hint">
             {home.kind === 'lesson'
-              ? 'The image file name has to match the filename on the question.'
-              : 'JSON with terms, key lists, and ELOs is imported as wiki entries. Other files are transcribed first. A question pack with pictures is a zip of the JSON and the images, or the JSON and the image files selected together. The image file name has to match the filename on the question.'}
+              ? 'One JSON question pack, or a zip of the JSON and its images.'
+              : 'JSON with terms, key lists, and ELOs is imported as wiki entries. Other files are transcribed first. A question pack with pictures can be a zip of the JSON and the images.'}
           </p>
         </div>
+        {isJson ? (
+          <div className="kproj-field">
+            <label className="kproj-label" htmlFor="kproj-images">
+              Question images
+            </label>
+            <div className="kproj-file">
+              <input
+                ref={imageInputRef}
+                id="kproj-images"
+                type="file"
+                hidden
+                multiple
+                accept={IMAGE_ACCEPT}
+                onChange={(event) => addImages(event.target.files ? Array.from(event.target.files) : [])}
+              />
+              <button
+                type="button"
+                className="as-console__cta as-console__cta--ghost"
+                disabled={images.length >= MAX_QUESTION_IMAGES}
+                onClick={() => imageInputRef.current?.click()}
+              >
+                ⇪ Add images
+              </button>
+              <span className="kproj-file__name">
+                {images.length} of {MAX_QUESTION_IMAGES}
+              </span>
+              {images.length > 0 ? (
+                <button
+                  type="button"
+                  className="kproj-file__clear"
+                  onClick={() => {
+                    setImages([])
+                    setImageNotice(null)
+                  }}
+                >
+                  Clear all
+                </button>
+              ) : null}
+            </div>
+            {images.length > 0 ? (
+              <ul className="kproj-images">
+                {images.map((image) => (
+                  <li key={image.name} className={status.unused.includes(image.name) ? 'is-unused' : undefined}>
+                    <span>{image.name}</span>
+                    {status.unused.includes(image.name) ? <span className="kproj-images__tag">Not used</span> : null}
+                    <button
+                      type="button"
+                      className="kproj-file__clear"
+                      aria-label={`Remove ${image.name}`}
+                      onClick={() => setImages(images.filter((item) => item !== image))}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p className={`dsn-hint${status.missing.length > 0 ? ' is-error' : ''}`}>
+              {neededImages.length === 0
+                ? 'No question in this file names an image.'
+                : `${status.attached.length} of ${neededImages.length} images attached.`}
+              {status.missing.length > 0 ? ` Missing: ${status.missing.join(', ')}.` : ''}
+            </p>
+            {imageNotice ? <p className="dsn-hint is-error">{imageNotice}</p> : null}
+            <p className="dsn-hint">
+              Add up to {MAX_QUESTION_IMAGES} PNG, JPEG, or WebP images. Each file name has to match the image filename
+              on its question.
+            </p>
+          </div>
+        ) : null}
+        {tooLarge ? (
+          <p className="dsn-hint is-error">
+            This upload is {formatMegabytes(totalBytes)}. The limit is {formatMegabytes(MAX_REQUEST_BYTES)}. Shrink the
+            images or split the questions into two packs.
+          </p>
+        ) : null}
         {home.kind === 'book' ? (
           <div className="kproj-field">
             <label className="kproj-label" htmlFor="kproj-notes">
@@ -527,7 +642,7 @@ function ReviewView({
 }) {
   const [isBusy, setIsBusy] = useState(false)
   const hasImage = project.items.some((item) => item.visual != null)
-  const actionLabel = isBusy ? 'Saving…' : hasImage ? 'Update images' : 'Done'
+  const actionLabel = isBusy ? 'Saving…' : 'Save and finish'
 
   return (
     <div className="kproj-compose">
@@ -544,7 +659,7 @@ function ReviewView({
             void attachKnowledgeVisuals(project.id)
               .then((next) => {
                 onChange(next)
-                if (!hasImage) onDone()
+                onDone()
               })
               .catch((caught: unknown) => onError(errorMessage(caught, 'Could not update images.')))
               .finally(() => setIsBusy(false))

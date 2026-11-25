@@ -1,6 +1,8 @@
 import { Check, Info, Send, Shuffle, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useAtlas } from '../../features/atlas/atlasContext'
+import { isAdminAccess } from '../../features/auth/access'
+import { useAuth } from '../../features/auth/authContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { filterAndSortRecords } from '../../lib/academyOutputs'
@@ -20,6 +22,8 @@ import {
   StudySourceReference,
 } from './StudySessionChrome'
 import { AssessmentPicture, FlashcardFace } from './AssessmentPicture'
+import { CORRECT_BURST_MS, CorrectBurst } from './CorrectBurst'
+import { showsFlashcardDeck } from './types'
 import { useStudyFullscreen } from './useStudyFullscreen'
 
 type PracticeMode = 'flashcards' | 'questions'
@@ -53,11 +57,14 @@ export function FlashcardsView({
   projectId?: string | null
 }) {
   const { activeWorkspace } = useWorkspace()
+  const { approvedUser } = useAuth()
   const { flashcards, quizzes, sources: workspaceSources } = useWorkspaceData()
   const { setLifetimeAp } = useAtlas()
   const { fullscreen, toggle } = useStudyFullscreen()
+  const cardsAllowed = showsFlashcardDeck(isAdminAccess(approvedUser?.role))
 
-  const [mode, setMode] = useState<PracticeMode>('flashcards')
+  const [requestedMode, setRequestedMode] = useState<PracticeMode>('flashcards')
+  const mode: PracticeMode = cardsAllowed ? requestedMode : 'questions'
   const [sourceId, setSourceId] = useState<string | null>(initialSource)
   const [sourceProp, setSourceProp] = useState(initialSource)
   const [shuffleSeed, setShuffleSeed] = useState(() => Date.now())
@@ -70,6 +77,9 @@ export function FlashcardsView({
   const [gradeError, setGradeError] = useState<string | null>(null)
   const [questionSeed, setQuestionSeed] = useState(() => Date.now())
   const [floatLabel, setFloatLabel] = useState<string | null>(null)
+  const burstTimer = useRef<number | undefined>(undefined)
+
+  useEffect(() => () => window.clearTimeout(burstTimer.current), [])
   const [newlyMastered, setNewlyMastered] = useState(false)
   const [serverRight, setServerRight] = useState<string | null>(null)
   const targetAppliedRef = useRef<string | null>(null)
@@ -93,9 +103,11 @@ export function FlashcardsView({
       return source ? sourceDisplayName(source) : 'Unassigned'
     }
     const seen = new Map<string, string>()
-    for (const card of flashcards) {
-      if (!card.source_id || seen.has(card.source_id)) continue
-      seen.set(card.source_id, labelOf(card.source_id))
+    if (cardsAllowed) {
+      for (const card of flashcards) {
+        if (!card.source_id || seen.has(card.source_id)) continue
+        seen.set(card.source_id, labelOf(card.source_id))
+      }
     }
     for (const quiz of quizzes) {
       if (!isWikiTermQuiz(quiz) || !quiz.source_id || seen.has(quiz.source_id)) continue
@@ -104,7 +116,7 @@ export function FlashcardsView({
     return [...seen.entries()]
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [flashcards, quizzes, workspaceSources])
+  }, [cardsAllowed, flashcards, quizzes, workspaceSources])
 
   const filteredCards = useMemo(
     () =>
@@ -200,7 +212,7 @@ export function FlashcardsView({
 
   const setPracticeMode = (next: PracticeMode) => {
     if (next === mode) return
-    setMode(next)
+    setRequestedMode(next)
     resetPosition()
   }
 
@@ -268,6 +280,7 @@ export function FlashcardsView({
   const revealed = shortAnswer ? shortGrade !== null : selected !== null
 
   const applyScoreResult = (result: {
+    correct: boolean
     lifetime_ap: number
     right_answer: string
     newly_mastered: boolean
@@ -276,11 +289,10 @@ export function FlashcardsView({
     setLifetimeAp(result.lifetime_ap)
     setServerRight(result.right_answer)
     setNewlyMastered(result.newly_mastered)
-    if (result.points_total > 0) {
-      setFloatLabel(
-        result.newly_mastered ? `Mastered · +${result.points_total} AP` : `+${result.points_total} AP`,
-      )
-      window.setTimeout(() => setFloatLabel(null), 900)
+    if (result.correct) {
+      setFloatLabel(result.points_total > 0 ? `+${result.points_total} AP` : '')
+      window.clearTimeout(burstTimer.current)
+      burstTimer.current = window.setTimeout(() => setFloatLabel(null), CORRECT_BURST_MS)
     }
   }
 
@@ -335,22 +347,24 @@ export function FlashcardsView({
 
   const toolbar = (
     <div className="study-stage__toolbar">
-      <div className="lib__chips" role="group" aria-label="Practice mode">
-        <button
-          type="button"
-          className={`lib__chip${mode === 'flashcards' ? ' is-active' : ''}`}
-          onClick={() => setPracticeMode('flashcards')}
-        >
-          Flashcards
-        </button>
-        <button
-          type="button"
-          className={`lib__chip${mode === 'questions' ? ' is-active' : ''}`}
-          onClick={() => setPracticeMode('questions')}
-        >
-          Questions
-        </button>
-      </div>
+      {cardsAllowed ? (
+        <div className="lib__chips" role="group" aria-label="Practice mode">
+          <button
+            type="button"
+            className={`lib__chip${mode === 'flashcards' ? ' is-active' : ''}`}
+            onClick={() => setPracticeMode('flashcards')}
+          >
+            Flashcards
+          </button>
+          <button
+            type="button"
+            className={`lib__chip${mode === 'questions' ? ' is-active' : ''}`}
+            onClick={() => setPracticeMode('questions')}
+          >
+            Questions
+          </button>
+        </div>
+      ) : null}
       <div className="study-stage__toolbar-actions">
         <label className="lib__select">
           <span className="lib__select-label">Source</span>
@@ -380,7 +394,7 @@ export function FlashcardsView({
     <section className="study-session study-session--practice">
       <StudyHead
         eyebrow="Recall practice"
-        title="Flashcard review"
+        title={cardsAllowed && mode === 'flashcards' ? 'Flashcard review' : 'Term questions'}
         description={
           mode === 'flashcards'
             ? 'Flip through key terms and check the definition on the back.'
@@ -442,9 +456,7 @@ export function FlashcardsView({
               }}
             >
               <div className="quiz quiz--prompt" style={{ position: 'relative' }}>
-                {floatLabel ? (
-                  <span className={`ap-float${newlyMastered ? ' ap-float--mastery' : ''}`}>{floatLabel}</span>
-                ) : null}
+                {floatLabel !== null ? <CorrectBurst key={quiz.id} label={floatLabel} mastery={newlyMastered} /> : null}
                 {newlyMastered ? <p className="ap-mastery-banner">Concept mastered · +3 bonus</p> : null}
                 {quiz.visual?.url && showsStemImage(quiz.visual.placement) ? (
                   <AssessmentPicture visual={quiz.visual} text={drawn.question} />

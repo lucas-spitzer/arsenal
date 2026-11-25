@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,6 +20,11 @@ from app.models.atlas import (
     AtlasMeResponse,
     CompetitionSettingsResponse,
     CompetitionSettingsUpdate,
+    DashboardDay,
+    DashboardResponse,
+    DashboardSubject,
+    DashboardSummary,
+    DashboardWeakQuestion,
     ExamAttemptResponse,
     ExamQuestion,
     ExamStartRequest,
@@ -36,6 +42,14 @@ from app.repositories.assessments import AssessmentRepository
 from app.repositories.atlas import AtlasRepository
 from app.repositories.lessons import LessonRepository
 from app.repositories.sources import SourceRepository
+from app.services.atlas_dashboard import (
+    PLATOON_DASHBOARD,
+    daily_activity,
+    quiz_subject,
+    subject_options,
+    summary,
+    weak_questions,
+)
 from app.services.atlas_exams import (
     ExamAssemblyError,
     assemble_full_practice,
@@ -60,6 +74,15 @@ class AtlasError(Exception):
 
 
 DEFAULT_ENDS_AT = "2026-12-01T05:00:00+00:00"
+
+
+@dataclass(frozen=True)
+class _Loaded:
+    """Rows an exam submit already fetched in parallel, so grading does not refetch them."""
+
+    existing: dict[str, Any] | None
+    quiz: dict[str, Any] | None
+    progress: dict[str, Any] | None
 
 
 class AtlasService:
@@ -192,8 +215,13 @@ class AtlasService:
         attempt_id: str,
         payload: AnswerSubmitRequest,
     ) -> AnswerSubmitResponse:
-        await self.ensure_access(user, workspace_id)
-        attempt = await self.atlas.get_attempt(attempt_id, workspace_id, user.id)
+        _competition, attempt, existing, quiz, progress = await asyncio.gather(
+            self.ensure_access(user, workspace_id),
+            self.atlas.get_attempt(attempt_id, workspace_id, user.id),
+            self.atlas.get_answer(attempt_id, payload.quiz_id),
+            self.assessments.get_quiz(payload.quiz_id, workspace_id),
+            self.atlas.get_progress(user.id, payload.quiz_id),
+        )
         if not attempt:
             raise AtlasError("Exam attempt not found.", status_code=404)
         if attempt.get("status") != "in_progress":
@@ -204,6 +232,7 @@ class AtlasService:
             attempt=attempt,
             payload=payload,
             allow_any_quiz=False,
+            loaded=_Loaded(existing=existing, quiz=quiz, progress=progress),
         )
 
     async def complete_exam(
@@ -450,6 +479,80 @@ class AtlasService:
         )
         return self._competition_response(row)
 
+    async def dashboard(
+        self,
+        *,
+        user: CurrentUser,
+        workspace_id: str,
+        owner_id: str,
+        user_id: str | None,
+        subject_kind: str | None,
+        subject_id: str | None,
+        tz: str | None,
+    ) -> DashboardResponse:
+        competition = await self.ensure_access(user, workspace_id)
+        target = user_id or user.id
+        if target != user.id and not is_admin(user):
+            raise AtlasError("Only Academics can view another student's analytics.", status_code=403)
+        scope: tuple[str, str] | None = None
+        if subject_kind or subject_id:
+            if subject_kind not in {"source", "lesson"} or not subject_id:
+                raise AtlasError("Choose a source or class.")
+            scope = (subject_kind, subject_id)
+
+        if target == PLATOON_DASHBOARD:
+            observer_ids = await self._observer_user_ids()
+            answers, progress, events, quiz_rows, source_rows, lesson_rows = await asyncio.gather(
+                self.atlas.list_answers_for_workspace(workspace_id),
+                self.atlas.list_progress_for_workspace(workspace_id),
+                self.atlas.list_score_events_for_workspace(workspace_id),
+                self.list_all_quizzes(workspace_id),
+                self.sources.list_for_workspace(workspace_id, owner_id),
+                self.lessons.list_with_children(workspace_id),
+            )
+            answers, progress, events = (
+                [row for row in rows if str(row.get("user_id") or "") not in observer_ids]
+                for rows in (answers, progress, events)
+            )
+        else:
+            answers, progress, events, quiz_rows, source_rows, lesson_rows = await asyncio.gather(
+                self.atlas.list_answers_for_user(workspace_id, target),
+                self.atlas.list_progress_for_user(workspace_id, target),
+                self.atlas.list_score_events_for_user(workspace_id, target),
+                self.list_all_quizzes(workspace_id),
+                self.sources.list_for_workspace(workspace_id, owner_id),
+                self.lessons.list_with_children(workspace_id),
+            )
+        learners = max(1, len({str(row.get("user_id")) for row in answers if row.get("user_id")}))
+        quizzes = {str(row["id"]): row for row in quiz_rows}
+        names: dict[tuple[str, str], str] = {
+            ("source", str(row["id"])): source_label(row) for row in source_rows
+        }
+        names.update({("lesson", str(row["id"])): str(row.get("title") or "Class") for row in lesson_rows})
+
+        activity = daily_activity(answers=answers, events=events, quizzes=quizzes, scope=scope, tz=tz)
+        return DashboardResponse(
+            user_id=target,
+            subjects=[DashboardSubject.model_validate(row) for row in subject_options(answers, quizzes, names)],
+            summary=DashboardSummary.model_validate(
+                summary(
+                    answers=answers,
+                    progress=progress,
+                    events=events,
+                    quizzes=quizzes,
+                    scope=scope,
+                    learners=learners,
+                )
+            ),
+            weak_questions=[
+                DashboardWeakQuestion.model_validate(row)
+                for row in weak_questions(progress=progress, quizzes=quizzes, names=names, scope=scope)
+            ],
+            activity=[DashboardDay.model_validate(row) for row in activity],
+            active_days=sum(1 for row in activity if row["answered"] > 0),
+            ends_at=competition["ends_at"],
+        )
+
     async def platoon_dashboard(self, *, user: CurrentUser, workspace_id: str) -> PlatoonDashboardResponse:
         if not is_admin(user):
             raise AtlasError("Platoon dashboard is limited to Academics.", status_code=403)
@@ -477,19 +580,11 @@ class AtlasService:
         }
         by_subject: dict[str, dict[str, Any]] = {}
         for answer in answers:
-            quiz = quizzes.get(str(answer.get("quiz_id") or ""))
-            if not quiz:
+            subject = quiz_subject(quizzes.get(str(answer.get("quiz_id") or "")))
+            if subject is None:
                 continue
-            if quiz.get("lesson_id"):
-                kind = "lesson"
-                subject_id = str(quiz["lesson_id"])
-                name = lessons.get(subject_id, "Class")
-            elif quiz.get("source_id"):
-                kind = "source"
-                subject_id = str(quiz["source_id"])
-                name = sources.get(subject_id, "Source")
-            else:
-                continue
+            kind, subject_id = subject
+            name = lessons.get(subject_id, "Class") if kind == "lesson" else sources.get(subject_id, "Source")
             key = f"{kind}:{subject_id}"
             bucket = by_subject.setdefault(
                 key,
@@ -515,15 +610,10 @@ class AtlasService:
         for row in progress:
             if not row.get("mastered_at"):
                 continue
-            quiz = quizzes.get(str(row.get("quiz_id") or ""))
-            if not quiz:
+            subject = quiz_subject(quizzes.get(str(row.get("quiz_id") or "")))
+            if subject is None:
                 continue
-            if quiz.get("lesson_id"):
-                key = f"lesson:{quiz['lesson_id']}"
-            elif quiz.get("source_id"):
-                key = f"source:{quiz['source_id']}"
-            else:
-                continue
+            key = f"{subject[0]}:{subject[1]}"
             if key in by_subject:
                 by_subject[key]["mastered_ids"].add(str(row["quiz_id"]))
 
@@ -566,11 +656,21 @@ class AtlasService:
         attempt: dict[str, Any],
         payload: AnswerSubmitRequest,
         allow_any_quiz: bool,
+        loaded: _Loaded | None = None,
     ) -> AnswerSubmitResponse:
-        existing = await self.atlas.get_answer(str(attempt["id"]), payload.quiz_id)
+        if loaded is None:
+            existing = await self.atlas.get_answer(str(attempt["id"]), payload.quiz_id)
+        else:
+            existing = loaded.existing
         if existing:
-            progress = await self.atlas.get_progress(user.id, payload.quiz_id)
-            lifetime = await self._lifetime_ap(workspace_id, user.id)
+            if loaded is None:
+                progress, lifetime = await asyncio.gather(
+                    self.atlas.get_progress(user.id, payload.quiz_id),
+                    self._lifetime_ap(workspace_id, user.id),
+                )
+            else:
+                progress = loaded.progress
+                lifetime = await self._lifetime_ap(workspace_id, user.id)
             return AnswerSubmitResponse(
                 correct=bool(existing.get("is_correct")),
                 right_answer="",
@@ -596,7 +696,7 @@ class AtlasService:
             if str(planned.get("question") or "") != payload.question:
                 raise AtlasError("Question text no longer matches this exam question.")
 
-        quiz = await self.assessments.get_quiz(payload.quiz_id, workspace_id)
+        quiz = loaded.quiz if loaded is not None else await self.assessments.get_quiz(payload.quiz_id, workspace_id)
         if not quiz:
             raise AtlasError("That question is not in this workspace.", status_code=404)
         try:
@@ -622,6 +722,7 @@ class AtlasService:
             feedback=None,
             correct=correct,
             right_answer=right,
+            loaded=loaded,
         )
 
     async def _record_graded_answer(
@@ -639,8 +740,9 @@ class AtlasService:
         feedback: str | None,
         correct: bool,
         right_answer: str,
+        loaded: _Loaded | None = None,
     ) -> AnswerSubmitResponse:
-        progress = await self.atlas.get_progress(user.id, quiz_id)
+        progress = loaded.progress if loaded is not None else await self.atlas.get_progress(user.id, quiz_id)
         events: list[tuple[str, int]] = []
         newly_mastered = False
         if correct:
@@ -657,7 +759,6 @@ class AtlasService:
                 user_id=user.id,
                 quiz_id=quiz_id,
             )
-        progress = await self.atlas.upsert_progress(progress_payload)
         points_total = sum_points(events)
         questions = attempt.get("questions") or []
         question_index = next(
@@ -678,30 +779,40 @@ class AtlasService:
             "is_correct": correct,
             "points_awarded": points_total,
         }
-        answer = await self.atlas.insert_answer(answer_row)
-        if events:
-            await self.atlas.insert_score_events(
-                [
-                    {
-                        "workspace_id": workspace_id,
-                        "user_id": user.id,
-                        "quiz_id": quiz_id,
-                        "attempt_id": attempt["id"],
-                        "answer_id": answer["id"],
-                        "event_type": event_type,
-                        "points": points,
-                    }
-                    for event_type, points in events
-                ]
-            )
-        answers = await self.atlas.list_answers_for_attempt(str(attempt["id"]))
-        attempt_correct = sum(1 for row in answers if row.get("is_correct"))
-        attempt_points = sum(int(row.get("points_awarded") or 0) for row in answers)
-        await self.atlas.update_attempt(
-            str(attempt["id"]),
-            {"correct_count": attempt_correct, "points_earned": attempt_points},
+        progress, answer = await asyncio.gather(
+            self.atlas.upsert_progress(progress_payload),
+            self.atlas.insert_answer(answer_row),
         )
-        lifetime = await self._lifetime_ap(workspace_id, user.id)
+        # The unique (attempt, quiz) answer row means this answer is counted once.
+        # complete_exam recounts from every answer at the end.
+        attempt_correct = int(attempt.get("correct_count") or 0) + (1 if correct else 0)
+        attempt_points = int(attempt.get("points_earned") or 0) + points_total
+
+        async def lifetime_after_events() -> int:
+            if events:
+                await self.atlas.insert_score_events(
+                    [
+                        {
+                            "workspace_id": workspace_id,
+                            "user_id": user.id,
+                            "quiz_id": quiz_id,
+                            "attempt_id": attempt["id"],
+                            "answer_id": answer["id"],
+                            "event_type": event_type,
+                            "points": points,
+                        }
+                        for event_type, points in events
+                    ]
+                )
+            return await self._lifetime_ap(workspace_id, user.id)
+
+        _updated, lifetime = await asyncio.gather(
+            self.atlas.update_attempt(
+                str(attempt["id"]),
+                {"correct_count": attempt_correct, "points_earned": attempt_points},
+            ),
+            lifetime_after_events(),
+        )
         return AnswerSubmitResponse(
             correct=correct,
             right_answer=right_answer,
@@ -718,8 +829,8 @@ class AtlasService:
         )
 
     async def _lifetime_ap(self, workspace_id: str, user_id: str) -> int:
-        events = await self.atlas.list_score_events_for_user(workspace_id, user_id)
-        return sum(int(row.get("points") or 0) for row in events)
+        rows = await self.atlas.list_score_points_for_user(workspace_id, user_id)
+        return sum(int(row.get("points") or 0) for row in rows)
 
     async def _stats_for_user(self, workspace_id: str, user_id: str) -> AtlasMeResponse:
         events = await self.atlas.list_score_events_for_user(workspace_id, user_id)

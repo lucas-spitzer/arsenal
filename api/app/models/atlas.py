@@ -139,6 +139,48 @@ class SubjectBreakdown(BaseModel):
     questions_answered: int
 
 
+class DashboardSubject(BaseModel):
+    subject_kind: SubjectKind
+    subject_id: str
+    subject_name: str
+
+
+class DashboardSummary(BaseModel):
+    lifetime_ap: int
+    concepts_mastered: int
+    total_questions: int
+    accuracy: float | None
+    questions_answered: int
+    correct_answers: int
+
+
+class DashboardWeakQuestion(BaseModel):
+    quiz_id: str
+    question: str
+    subject_kind: SubjectKind
+    subject_id: str
+    subject_name: str
+    correct_count: int
+    incorrect_count: int
+
+
+class DashboardDay(BaseModel):
+    day: str
+    answered: int
+    correct: int
+    points: int
+
+
+class DashboardResponse(BaseModel):
+    user_id: str
+    subjects: list[DashboardSubject]
+    summary: DashboardSummary
+    weak_questions: list[DashboardWeakQuestion]
+    activity: list[DashboardDay]
+    active_days: int
+    ends_at: datetime
+
+
 class PlatoonDashboardResponse(BaseModel):
     platoon_total_ap: int
     concepts_mastered: int

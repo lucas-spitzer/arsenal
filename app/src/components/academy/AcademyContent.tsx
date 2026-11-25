@@ -73,11 +73,9 @@ export function AcademyContent({
           )}
           {page === 'quiz' && (
             <QuizView
-              key={`${scope.sourceId ?? ''}:${scope.projectId ?? ''}:${scope.batchKey ?? ''}`}
+              key={`${scope.sourceId ?? ''}:${scope.lessonId ?? ''}:${scope.projectId ?? ''}:${scope.batchKey ?? ''}`}
               sourceId={scope.sourceId}
-              targetId={scope.targetId}
-              projectId={scope.projectId}
-              batchKey={scope.batchKey}
+              lessonId={scope.lessonId ?? null}
             />
           )}
           {page === 'analytics' && <AnalyticsView onOpen={onOpen} />}

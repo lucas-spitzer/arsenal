@@ -151,6 +151,13 @@ class AtlasRepository:
             order="created_at.desc",
         )
 
+    async def list_score_points_for_user(self, workspace_id: str, user_id: str) -> list[dict[str, Any]]:
+        return await self.db.select_many(
+            "score_events",
+            filters={"workspace_id": f"eq.{workspace_id}", "user_id": f"eq.{user_id}"},
+            columns="points",
+        )
+
     async def list_score_events_for_workspace(self, workspace_id: str) -> list[dict[str, Any]]:
         return await self.db.select_many(
             "score_events",

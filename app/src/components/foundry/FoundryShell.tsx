@@ -66,6 +66,7 @@ function readShellState(): ShellState {
       scope && typeof scope === 'object'
         ? {
             sourceId: typeof scope.sourceId === 'string' ? scope.sourceId : null,
+            lessonId: typeof scope.lessonId === 'string' ? scope.lessonId : null,
             targetId: typeof scope.targetId === 'string' ? scope.targetId : null,
             projectId: typeof scope.projectId === 'string' ? scope.projectId : null,
             threadId: typeof scope.threadId === 'string' ? scope.threadId : null,

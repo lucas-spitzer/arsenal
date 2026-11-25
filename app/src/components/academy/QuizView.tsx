@@ -1,5 +1,5 @@
 import { Check, Info, RotateCcw, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAtlas } from '../../features/atlas/atlasContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
@@ -16,28 +16,32 @@ import { stemPicture } from '../../lib/assessmentVisual'
 import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { useLessons } from '../../lib/useLessons'
 import { AssessmentPicture } from './AssessmentPicture'
+import { CORRECT_BURST_MS, CorrectBurst } from './CorrectBurst'
+import { quizLaunchFromScope } from './types'
 import { StudyHead, StudyPanel, StudySourceReference } from './StudySessionChrome'
 import { useStudyFullscreen } from './useStudyFullscreen'
 
 type Mode = 'full_practice' | 'subject'
 type Miss = { quizId: string; question: string; selected: string; answer: string }
+type Answered = { selected: number; feedback: AnswerSubmitResult }
 
-export function QuizView(_legacyLibraryScope?: {
+export function QuizView({
+  sourceId = null,
+  lessonId = null,
+}: {
   sourceId?: string | null
-  targetId?: string | null
-  projectId?: string | null
-  batchKey?: string | null
+  lessonId?: string | null
 }) {
-  void _legacyLibraryScope
   const { activeWorkspace } = useWorkspace()
   const { quizzes, sources } = useWorkspaceData()
   const { lessons } = useLessons(activeWorkspace?.id ?? null)
   const { setLifetimeAp } = useAtlas()
   const { fullscreen, toggle } = useStudyFullscreen()
 
-  const [mode, setMode] = useState<Mode>('full_practice')
-  const [subjectKind, setSubjectKind] = useState<SubjectKind>('source')
-  const [subjectId, setSubjectId] = useState('')
+  const [launch] = useState(() => quizLaunchFromScope({ sourceId, lessonId }))
+  const [mode, setMode] = useState<Mode>(launch.mode)
+  const [subjectKind, setSubjectKind] = useState<SubjectKind>(launch.subjectKind)
+  const [subjectId, setSubjectId] = useState(launch.subjectId)
   const [attempt, setAttempt] = useState<ExamAttempt | null>(null)
   const [index, setIndex] = useState(0)
   const [selected, setSelected] = useState<number | null>(null)
@@ -49,6 +53,11 @@ export function QuizView(_legacyLibraryScope?: {
   const [apGained, setApGained] = useState(0)
   const [masteredCount, setMasteredCount] = useState(0)
   const [floatLabel, setFloatLabel] = useState<string | null>(null)
+  const [answered, setAnswered] = useState<Record<number, Answered>>({})
+  const burstTimer = useRef<number | undefined>(undefined)
+  const finishing = useRef(false)
+
+  useEffect(() => () => window.clearTimeout(burstTimer.current), [])
 
   const subjectOptions = useMemo(() => {
     const sourceOpts = sources.map((source) => ({
@@ -65,6 +74,7 @@ export function QuizView(_legacyLibraryScope?: {
     }))
     return [...sourceOpts, ...lessonOpts].filter((row) => row.count >= 10)
   }, [sources, lessons, quizzes])
+  const subjectReady = subjectOptions.some((row) => row.kind === subjectKind && row.id === subjectId)
 
   const questions = attempt?.questions ?? []
   const current: ExamQuestion | null = questions[index] ?? null
@@ -82,6 +92,7 @@ export function QuizView(_legacyLibraryScope?: {
     setFeedback(null)
     setSelected(null)
     setIndex(0)
+    setAnswered({})
     try {
       const next = await startExam(activeWorkspace.id, {
         exam_type: mode,
@@ -106,12 +117,14 @@ export function QuizView(_legacyLibraryScope?: {
         selected_index: optionIndex,
       })
       setFeedback(result)
+      setAnswered((rows) => ({ ...rows, [index]: { selected: optionIndex, feedback: result } }))
       setLifetimeAp(result.lifetime_ap)
       setApGained((value) => value + result.points_total)
       if (result.newly_mastered) setMasteredCount((value) => value + 1)
-      if (result.points_total > 0) {
-        setFloatLabel(result.newly_mastered ? `Mastered · +${result.points_total} AP` : `+${result.points_total} AP`)
-        window.setTimeout(() => setFloatLabel(null), 900)
+      if (result.correct) {
+        setFloatLabel(result.points_total > 0 ? `+${result.points_total} AP` : '')
+        window.clearTimeout(burstTimer.current)
+        burstTimer.current = window.setTimeout(() => setFloatLabel(null), CORRECT_BURST_MS)
       }
       if (!result.correct) {
         setMisses((rows) => [
@@ -132,27 +145,60 @@ export function QuizView(_legacyLibraryScope?: {
     }
   }
 
+  const showQuestion = (target: number) => {
+    const saved = answered[target]
+    window.clearTimeout(burstTimer.current)
+    setFloatLabel(null)
+    setIndex(target)
+    setSelected(saved?.selected ?? null)
+    setFeedback(saved?.feedback ?? null)
+  }
+
   const next = async () => {
-    if (!revealed || !activeWorkspace || !attempt) return
+    if (!revealed || !activeWorkspace || !attempt || submitting) return
     if (isLast) {
+      if (finishing.current) return
+      finishing.current = true
       try {
         const done = await completeExam(activeWorkspace.id, attempt.id)
         setAttempt(done)
         setFinished(true)
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : 'Could not finish the exam.')
+      } finally {
+        finishing.current = false
       }
       return
     }
-    setIndex((value) => value + 1)
-    setSelected(null)
-    setFeedback(null)
+    showQuestion(index + 1)
   }
+
+  const prev = () => {
+    if (index <= 0 || submitting) return
+    showQuestion(index - 1)
+  }
+
+  // Arrow keys page through the exam like the pager. Ignored while typing in a form control.
+  useEffect(() => {
+    if (!attempt || finished) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return
+      event.preventDefault()
+      if (event.key === 'ArrowLeft') prev()
+      else void next()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
 
   const reset = () => {
     setAttempt(null)
     setFinished(false)
     setIndex(0)
+    setAnswered({})
     setSelected(null)
     setFeedback(null)
     setMisses([])
@@ -169,7 +215,7 @@ export function QuizView(_legacyLibraryScope?: {
         description="A full exam draws thirty questions. Subject exams draw ten from one source or class."
       />
 
-      <div className="study-stage">
+      <div className="study-stage study-stage--wide">
         {!attempt ? (
           <div className="quiz__launch">
             <div className="quiz__launch-copy">
@@ -196,7 +242,7 @@ export function QuizView(_legacyLibraryScope?: {
                 <label className="lib__select lib__select--wide">
                   <span className="lib__select-label">Subject</span>
                   <select
-                    value={subjectId ? `${subjectKind}:${subjectId}` : ''}
+                    value={subjectReady ? `${subjectKind}:${subjectId}` : ''}
                     onChange={(event) => {
                       const [kind, id] = event.target.value.split(':')
                       if (kind === 'source' || kind === 'lesson') {
@@ -218,7 +264,7 @@ export function QuizView(_legacyLibraryScope?: {
                 type="button"
                 className="study__btn study__btn--primary quiz__launch-cta"
                 onClick={() => void begin()}
-                disabled={mode === 'subject' && !subjectId}
+                disabled={mode === 'subject' && !subjectReady}
               >
                 Start exam
               </button>
@@ -268,18 +314,16 @@ export function QuizView(_legacyLibraryScope?: {
               }
               progress={{ current: index + 1, total: questions.length }}
               pager={{
-                onPrev: () => undefined,
+                onPrev: prev,
                 onNext: () => void next(),
-                prevDisabled: true,
+                prevDisabled: index <= 0 || submitting,
                 nextDisabled: !revealed,
                 label: isLast && revealed ? 'Finish' : current.subject_name || 'Next',
               }}
             >
               <div className="quiz quiz--prompt" style={{ position: 'relative' }}>
-                {floatLabel ? (
-                  <span className={`ap-float${feedback?.newly_mastered ? ' ap-float--mastery' : ''}`}>
-                    {floatLabel}
-                  </span>
+                {floatLabel !== null ? (
+                  <CorrectBurst key={current.quiz_id} label={floatLabel} mastery={Boolean(feedback?.newly_mastered)} />
                 ) : null}
                 {feedback?.newly_mastered ? (
                   <p className="ap-mastery-banner">Concept mastered · +3 bonus</p>

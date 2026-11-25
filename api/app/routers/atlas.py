@@ -1,9 +1,12 @@
+import logging
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.config import Settings, get_settings
 from app.dependencies.auth import require_approved_user
-from app.dependencies.services import get_atlas_service
+from app.dependencies.services import get_atlas_service, get_supabase_storage_client
 from app.dependencies.workspace import require_workspace
 from app.models.atlas import (
     AnswerSubmitRequest,
@@ -12,7 +15,9 @@ from app.models.atlas import (
     AtlasMeResponse,
     CompetitionSettingsResponse,
     CompetitionSettingsUpdate,
+    DashboardResponse,
     ExamAttemptResponse,
+    ExamQuestion,
     ExamStartRequest,
     LeaderboardResponse,
     PlatoonDashboardResponse,
@@ -20,13 +25,32 @@ from app.models.atlas import (
 )
 from app.models.auth import CurrentUser
 from app.models.workspace import WorkspaceResponse
+from app.routers.assessments import with_signed_visuals
 from app.services.atlas import AtlasError, AtlasService
+from app.services.supabase_storage import SupabaseStorageClient
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/workspaces/{workspace_id}/atlas", tags=["atlas"])
+
+Storage = Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)]
+AppSettings = Annotated[Settings, Depends(get_settings)]
 
 
 def _raise(exc: AtlasError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+async def _with_question_images(
+    attempt: ExamAttemptResponse,
+    storage: SupabaseStorageClient,
+    settings: Settings,
+) -> ExamAttemptResponse:
+    """Stored question images carry a storage path; the page needs a signed URL."""
+    rows = [question.model_dump() for question in attempt.questions]
+    if not any(row.get("visual") for row in rows):
+        return attempt
+    signed = await with_signed_visuals(rows, storage, settings)
+    return attempt.model_copy(update={"questions": [ExamQuestion.model_validate(row) for row in signed]})
 
 
 @router.post("/exams", response_model=ExamAttemptResponse, status_code=201)
@@ -35,9 +59,11 @@ async def start_exam(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     atlas: Annotated[AtlasService, Depends(get_atlas_service)],
+    storage: Storage,
+    settings: AppSettings,
 ) -> ExamAttemptResponse:
     try:
-        return await atlas.start_exam(
+        attempt = await atlas.start_exam(
             user=user,
             workspace_id=workspace.id,
             owner_id=workspace.owner_id,
@@ -46,6 +72,7 @@ async def start_exam(
     except AtlasError as exc:
         _raise(exc)
         raise
+    return await _with_question_images(attempt, storage, settings)
 
 
 @router.post("/exams/{attempt_id}/answers", response_model=AnswerSubmitResponse)
@@ -56,6 +83,7 @@ async def submit_exam_answer(
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     atlas: Annotated[AtlasService, Depends(get_atlas_service)],
 ) -> AnswerSubmitResponse:
+    started = time.perf_counter()
     try:
         return await atlas.submit_exam_answer(
             user=user,
@@ -66,6 +94,8 @@ async def submit_exam_answer(
     except AtlasError as exc:
         _raise(exc)
         raise
+    finally:
+        logger.debug("atlas answer graded in %.0f ms", (time.perf_counter() - started) * 1000)
 
 
 @router.post("/exams/{attempt_id}/complete", response_model=ExamAttemptResponse)
@@ -74,12 +104,15 @@ async def complete_exam(
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     atlas: Annotated[AtlasService, Depends(get_atlas_service)],
+    storage: Storage,
+    settings: AppSettings,
 ) -> ExamAttemptResponse:
     try:
-        return await atlas.complete_exam(user=user, workspace_id=workspace.id, attempt_id=attempt_id)
+        attempt = await atlas.complete_exam(user=user, workspace_id=workspace.id, attempt_id=attempt_id)
     except AtlasError as exc:
         _raise(exc)
         raise
+    return await _with_question_images(attempt, storage, settings)
 
 
 @router.post("/practice/answers", response_model=AnswerSubmitResponse)
@@ -112,6 +145,31 @@ async def atlas_me(
 ) -> AtlasMeResponse:
     try:
         return await atlas.me(user=user, workspace_id=workspace.id)
+    except AtlasError as exc:
+        _raise(exc)
+        raise
+
+
+@router.get("/dashboard", response_model=DashboardResponse)
+async def atlas_dashboard(
+    workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
+    user: Annotated[CurrentUser, Depends(require_approved_user)],
+    atlas: Annotated[AtlasService, Depends(get_atlas_service)],
+    user_id: str | None = None,
+    subject_kind: str | None = None,
+    subject_id: str | None = None,
+    tz: str | None = None,
+) -> DashboardResponse:
+    try:
+        return await atlas.dashboard(
+            user=user,
+            workspace_id=workspace.id,
+            owner_id=workspace.owner_id,
+            user_id=user_id,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            tz=tz,
+        )
     except AtlasError as exc:
         _raise(exc)
         raise

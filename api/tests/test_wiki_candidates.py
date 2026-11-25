@@ -123,6 +123,27 @@ def test_conflict_with_override_applies_candidate_definition() -> None:
     assert updates[0]["status"] == "canonical"
 
 
+def test_deprecated_match_is_revived_with_candidate_text() -> None:
+    existing = {
+        **_existing_entry("war", "War", "An old short definition."),
+        "status": "deprecated",
+        "significance": "Old significance.",
+    }
+
+    inserts, updates, conflicted = promote_candidates(
+        workspace_id="ws-1",
+        candidates=[_candidate("War", "A violent clash of interests.", significance="New significance.")],
+        existing_entries=[existing],
+    )
+
+    assert inserts == []
+    assert conflicted == []
+    assert updates[0]["id"] == "wiki-war"
+    assert updates[0]["status"] == "canonical"
+    assert updates[0]["definition"] == "A violent clash of interests."
+    assert updates[0]["significance"] == "New significance."
+
+
 def test_list_diverges_from_term_slug() -> None:
     existing = _existing_entry("tempo", "Tempo", "The rate of operations.", entry_kind="term")
 

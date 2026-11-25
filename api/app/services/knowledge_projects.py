@@ -67,6 +67,12 @@ logger = logging.getLogger(__name__)
 SPREAD_BLOOM = ("remember", "understand", "apply")
 TABLE_FOR_KIND = {"question": "quizzes", "scenario": "scenarios"}
 _TABLE_FOR_ITEM = {"flashcard": "flashcards", **TABLE_FOR_KIND}
+_IMPORTANCE_ALIASES = {
+    "critical": "essential",
+    "high": "essential",
+    "medium": "supporting",
+    "low": "contextual",
+}
 
 
 class KnowledgeProjectError(ValueError):
@@ -415,7 +421,14 @@ class KnowledgeProjectService:
                     entries=saved,
                 )
                 if plans:
-                    await self.projects.insert_plans(plans)
+                    card_plans = await self.projects.insert_plans(plans)
+                    await self._write_flashcards(
+                        project,
+                        card_plans,
+                        [plan for plan in card_plans if plan.get("enabled") and plan.get("wiki_entry_id")],
+                        saved,
+                        importing=True,
+                    )
             if notes.questions:
                 catalog = await self._citation_catalog(str(project["workspace_id"]), saved)
                 rows = _imported_question_rows(project, notes.questions, catalog)
@@ -466,7 +479,8 @@ class KnowledgeProjectService:
         section_title: str,
         notes: StructuredNotes,
     ) -> list[dict[str, Any]]:
-        existing = await self.wiki_entries.list_for_workspace(workspace_id, status="canonical", limit=1000)
+        # Every status: slugs are unique across deprecated entries too.
+        existing = await self.wiki_entries.list_for_workspace(workspace_id, limit=1000)
         candidates = _candidates(
             notes,
             source_id,
@@ -573,6 +587,26 @@ class KnowledgeProjectService:
         if not selected:
             raise KnowledgeProjectError("Check at least one entry.")
         entries = await self.wiki_entries.get_many([str(plan["wiki_entry_id"]) for plan in selected])
+        written = await self._write_flashcards(project, plans, selected, entries, importing=False)
+        if not written:
+            raise KnowledgeProjectError("Check at least one entry.")
+        return project
+
+    async def _write_flashcards(
+        self,
+        project: dict[str, Any],
+        plans: list[dict[str, Any]],
+        selected: list[dict[str, Any]],
+        entries: list[dict[str, Any]],
+        *,
+        importing: bool,
+    ) -> int:
+        """Write one card per selected plan, replacing the project's earlier cards.
+
+        ``importing`` is a fresh project: there are no earlier cards, and an
+        entry whose layout still needs an image is skipped instead of refused.
+        """
+        project_id = str(project["id"])
         by_id = {str(entry["id"]): entry for entry in entries}
         rows: list[dict[str, Any]] = []
         used_plans: list[dict[str, Any]] = []
@@ -583,20 +617,23 @@ class KnowledgeProjectService:
             layout = str(plan.get("layout") or "label_description")
             visual = plan.get("visual") if isinstance(plan.get("visual"), dict) else None
             if layout_needs_image(layout) and not storage_path_of(visual):
+                if importing:
+                    continue
                 raise KnowledgeProjectError(f"{entry.get('preferred_label')} needs an image for this layout.")
             rows.append(_flashcard_row(project, plan, entry))
             used_plans.append(plan)
         if not rows:
-            raise KnowledgeProjectError("Check at least one entry.")
-        existing = await self.projects.list_assessments("flashcards", project_id)
-        await self.projects.delete_rows("flashcards", [str(row["id"]) for row in existing])
-        for plan in plans:
-            if plan.get("item_type") == "flashcard" and plan.get("assessment_id"):
-                await self.projects.update_plan(str(plan["id"]), {"assessment_id": None})
+            return 0
+        if not importing:
+            existing = await self.projects.list_assessments("flashcards", project_id)
+            await self.projects.delete_rows("flashcards", [str(row["id"]) for row in existing])
+            for plan in plans:
+                if plan.get("item_type") == "flashcard" and plan.get("assessment_id"):
+                    await self.projects.update_plan(str(plan["id"]), {"assessment_id": None})
         saved = await self.projects.insert_rows("flashcards", rows)
         for plan, card in zip(used_plans, saved, strict=True):
             await self.projects.update_plan(str(plan["id"]), {"assessment_id": card["id"]})
-        return project
+        return len(saved)
 
     async def save_flashcard(
         self,
@@ -1422,7 +1459,7 @@ def _imported_question_rows(
             "bloom_level": item.get("bloom_level"),
             "citations": citations,
             "origin": {
-                "source": "lesson_practice" if lesson_id else "wiki_term",
+                "source": "lesson_practice" if lesson_id else "book_practice",
                 "format": subtype,
                 "from": "structured_notes",
             },
@@ -1714,7 +1751,8 @@ def _candidates(
     evidence = [{"source_id": source_id}]
     candidates: list[WikiCandidate] = []
     for entry in notes.entries:
-        importance = str(entry.get("importance") or "supporting")
+        importance = str(entry.get("importance") or "supporting").strip().lower()
+        importance = _IMPORTANCE_ALIASES.get(importance, importance)
         if importance not in {"essential", "supporting", "contextual"}:
             importance = "supporting"
         origin: dict[str, Any] = {

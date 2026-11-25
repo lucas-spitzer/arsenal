@@ -210,7 +210,8 @@ def promote_candidates(
     ``override_conflicts=False`` leaves conflicting candidates untouched and
     reports their indexes so the caller can surface them; ``True`` applies the
     candidate's definition over the existing one (the reviewed human choice
-    wins — the manual flow's dispute resolution).
+    wins — the manual flow's dispute resolution). A deprecated entry always
+    takes the candidate's text and comes back canonical.
     """
     entries_by_slug = {
         str(entry["canonical_slug"]): entry
@@ -246,12 +247,13 @@ def promote_candidates(
             entries_by_slug[slug] = row
             continue
 
+        deprecated = str(existing.get("status") or "") == "deprecated"
         conflict = definitions_conflict(
             str(existing.get("definition") or ""),
             candidate.definition,
         )
 
-        if conflict and not override_conflicts:
+        if conflict and not override_conflicts and not deprecated:
             conflicted.append(index)
             continue
 
@@ -263,13 +265,13 @@ def promote_candidates(
             }
             - {str(existing.get("preferred_label") or "")},
         )
-        replace_text = conflict and override_conflicts
+        replace_text = deprecated or (conflict and override_conflicts)
         updates.append(
             {
                 "id": existing["id"],
                 "definition": (
                     candidate.definition
-                    if conflict
+                    if conflict or deprecated
                     else existing.get("definition") or candidate.definition
                 ),
                 "significance": _optional_text(

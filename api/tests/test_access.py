@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.access import (
+    can_read_flashcards,
     can_read_library,
     counts_on_leaderboard,
     is_admin,
@@ -51,6 +52,16 @@ def test_observer_reads_the_platoon_library_like_a_student() -> None:
         workspace_name="The Basic School",
     ) is True
     assert can_read_library(observer, "admin-1", workspace_name="Personal notes") is False
+
+
+def test_flashcards_stay_hidden_from_students_and_observers() -> None:
+    admin = CurrentUser(id="admin-1", email="admin@example.com", role="admin")
+    student = CurrentUser(id="student-1", email="student@example.com", role="student")
+    observer = CurrentUser(id="observer-1", email="observer@example.com", role="observer")
+
+    assert can_read_flashcards(admin) is True
+    assert can_read_flashcards(student) is False
+    assert can_read_flashcards(observer) is False
 
 
 def test_observer_is_not_on_the_leaderboard() -> None:

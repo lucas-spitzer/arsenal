@@ -95,6 +95,26 @@ def test_json_and_image_files_selected_together() -> None:
     assert resolved.images == {"figure.png": PNG}
 
 
+def test_twenty_five_images_fit_and_twenty_six_do_not() -> None:
+    images = [_part(f"figure-{index}.png", PNG, "image/png") for index in range(26)]
+    resolved = resolve_knowledge_upload(
+        [_part("questions.json", NOTES, "application/json"), *images[:25]],
+        max_bytes=MAX_BYTES,
+    )
+    assert len(resolved.images) == 25
+
+    with pytest.raises(KnowledgeUploadError, match="at most 25 images"):
+        resolve_knowledge_upload(
+            [_part("questions.json", NOTES, "application/json"), *images],
+            max_bytes=MAX_BYTES,
+        )
+    with pytest.raises(KnowledgeUploadError, match="at most 25 images"):
+        resolve_knowledge_upload(
+            [_part("pack.zip", _zip({"questions.json": NOTES, **{f"figure-{i}.png": PNG for i in range(26)}}))],
+            max_bytes=MAX_BYTES,
+        )
+
+
 def test_a_zip_mixed_with_other_files_is_rejected() -> None:
     with pytest.raises(KnowledgeUploadError, match="zip by itself"):
         resolve_knowledge_upload(

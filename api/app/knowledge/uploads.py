@@ -16,6 +16,7 @@ from typing import Any
 from app.knowledge.visuals import VisualError, validate_image_upload
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+MAX_QUESTION_IMAGES = 25
 
 
 class KnowledgeUploadError(ValueError):
@@ -151,6 +152,8 @@ def _image_map(members: Iterable[tuple[str, bytes]], *, max_bytes: int) -> dict[
         if basename in images:
             raise KnowledgeUploadError(f"'{basename}' is in the upload more than once.")
         images[basename] = content
+    if len(images) > MAX_QUESTION_IMAGES:
+        raise KnowledgeUploadError(f"Upload at most {MAX_QUESTION_IMAGES} images (got {len(images)}).")
     return images
 
 

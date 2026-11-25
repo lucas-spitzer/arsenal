@@ -3,6 +3,7 @@ from typing import Any
 import httpx
 
 from app.config import Settings
+from app.services.http_client import shared_client
 
 
 class SupabaseRestError(Exception):
@@ -37,14 +38,13 @@ class SupabaseRestClient:
         prefer: str | None = None,
     ) -> Any:
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.request(
-                    method,
-                    f"{self.base_url}/{table}",
-                    headers=self._headers(prefer=prefer),
-                    params=params,
-                    json=json_body,
-                )
+            response = await shared_client().request(
+                method,
+                f"{self.base_url}/{table}",
+                headers=self._headers(prefer=prefer),
+                params=params,
+                json=json_body,
+            )
         except httpx.HTTPError as exc:
             raise SupabaseRestError("Supabase REST could not be reached.") from exc
 

@@ -3,6 +3,7 @@ import { useAuth } from '../../features/auth/authContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { getLeaderboard, type Leaderboard } from '../../lib/atlasApi'
 import { Loader } from '../shared/Loader'
+import { StandingsTable } from './StandingsTable'
 import { StudyHead } from './StudySessionChrome'
 
 export function LeaderboardView() {
@@ -88,28 +89,7 @@ export function LeaderboardView() {
             ) : null}
           </div>
 
-          <table className="ldr__table">
-            <thead>
-              <tr>
-                <th>Rank</th>
-                <th>Name</th>
-                <th>AP</th>
-                <th>Mastered</th>
-                <th>Accuracy</th>
-              </tr>
-            </thead>
-            <tbody>
-              {board.entries.map((entry) => (
-                <tr key={entry.user_id} className={entry.name === selfName ? 'is-you' : undefined}>
-                  <td>{entry.rank}</td>
-                  <td>{entry.name}</td>
-                  <td>{entry.lifetime_ap}</td>
-                  <td>{entry.concepts_mastered}</td>
-                  <td>{entry.accuracy == null ? '—' : `${entry.accuracy}%`}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <StandingsTable entries={board.entries} selfName={selfName} showAccuracy />
         </>
       ) : null}
     </section>
