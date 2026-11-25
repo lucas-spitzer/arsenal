@@ -1605,6 +1605,28 @@
   color: var(--color-dark-scarlet);
 }
 
+.quiz__short-answer {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.quiz__short-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
+}
+
+.quiz__short-verdict.is-correct {
+  color: var(--color-navy);
+}
+
+.quiz__short-verdict.is-wrong {
+  color: var(--color-dark-scarlet);
+}
+
 .quiz__explain {
   display: flex;
   align-items: flex-start;
@@ -5604,10 +5626,23 @@ article.anl__row {
   letter-spacing: 0.04em;
 }
 
-.ldr__goal {
-  font-size: 22px;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
+.ldr__platoon--goal {
+  flex-wrap: wrap;
+}
+
+.ldr__meter {
+  flex: 1 0 100%;
+  height: 4px;
+  background: var(--border-subtle);
+}
+
+.ldr__meter div {
+  height: 100%;
+  background: var(--color-gold);
+}
+
+.ldr .ldr__meter div {
+  background: var(--color-navy);
 }
 
 .ldr__platoon span {

@@ -39,6 +39,7 @@ class QuizResponse(BaseModel):
     options: list[Any]
     correct_answer: str
     answer_pool: dict[str, Any] = Field(default_factory=dict)
+    evaluation_criteria: list[Any] = Field(default_factory=list)
     bloom_level: str | None = None
     explanation: str | None
     difficulty: str

@@ -23,6 +23,11 @@ describe('academy rail gating', () => {
     expect(open).not.toContain('scenarios')
   })
 
+  it('omits scenarios from the rail for every role', () => {
+    expect(academyRailForRole(true).map((item) => item.id)).not.toContain('scenarios')
+    expect(academyRailForRole(false, true).map((item) => item.id)).not.toContain('scenarios')
+  })
+
   it('keeps scenarios admin-only even with student access', () => {
     expect(academyPageForRole('scenarios', false, true)).toBe('leaderboard')
     expect(academyPageForRole('quiz', false, false)).toBe('calendar')

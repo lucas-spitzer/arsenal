@@ -349,3 +349,47 @@ def test_question_image_filename_must_not_be_a_path() -> None:
                 },
             ),
         )
+
+
+def test_short_answer_needs_criteria() -> None:
+    notes = parse_structured_notes(
+        json.dumps(
+            {
+                "questions": [
+                    {
+                        "question": "What is friction?",
+                        "format": "short_answer",
+                        "criteria": [
+                            "Names the force that resists action",
+                            "Says it is present in every war",
+                        ],
+                        "explanation": "Friction resists every action in war.",
+                    },
+                ],
+            },
+        ),
+    )
+    assert notes is not None
+    question = notes.questions[0]
+    assert question["format"] == "short_answer"
+    assert question["criteria"] == [
+        "Names the force that resists action",
+        "Says it is present in every war",
+    ]
+    assert question["pool"]["correct"] == []
+    assert question["explanation"] == "Friction resists every action in war."
+
+    with pytest.raises(StructuredNotesError, match="at least one criterion"):
+        parse_structured_notes(
+            json.dumps(
+                {
+                    "questions": [
+                        {
+                            "question": "What is friction?",
+                            "format": "short_answer",
+                            "criteria": [],
+                        },
+                    ],
+                },
+            ),
+        )

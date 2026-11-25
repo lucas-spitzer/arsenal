@@ -123,6 +123,7 @@ export interface Quiz {
   options: string[]
   correct_answer: string
   answer_pool?: AnswerPool | null
+  evaluation_criteria?: string[]
   bloom_level?: string | null
   explanation: string | null
   difficulty: string

@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 
-from app.access import ADMIN_ROLE, STUDENT_ROLE, is_platoon_workspace
+from app.access import ADMIN_ROLE, is_platoon_reader, is_platoon_workspace
 from app.dependencies.auth import require_approved_user
 from app.dependencies.services import get_workspace_repository
 from app.models.auth import CurrentUser
@@ -17,7 +17,7 @@ async def require_workspace(
 ) -> WorkspaceResponse:
     if user.role == ADMIN_ROLE:
         workspace = await workspaces.get_for_owner(workspace_id, user.id)
-    elif user.role == STUDENT_ROLE:
+    elif is_platoon_reader(user):
         workspace = await workspaces.get(workspace_id)
         if workspace is not None and not is_platoon_workspace(str(workspace.get("name") or "")):
             workspace = None

@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
-from app.access import is_admin
+from app.access import counts_on_leaderboard, is_admin
 from app.config import Settings
 from app.knowledge.answer_pool import ShownAnswerError, grade_shown_answer
+from app.llm_defaults import DEFAULT_OPENAI_MODEL
 from app.models.atlas import (
     AnswerSubmitRequest,
     AnswerSubmitResponse,
@@ -27,6 +29,8 @@ from app.models.atlas import (
     PracticeAnswerRequest,
     SubjectBreakdown,
 )
+from app.services.openai_client import OpenAIClient
+from app.services.short_answer_grading import grade_short_answer
 from app.models.auth import CurrentUser
 from app.repositories.assessments import AssessmentRepository
 from app.repositories.atlas import AtlasRepository
@@ -234,6 +238,17 @@ class AtlasService:
         payload: PracticeAnswerRequest,
     ) -> AnswerSubmitResponse:
         await self.ensure_access(user, workspace_id)
+        response_text = (payload.response or "").strip()
+        if response_text:
+            return await self._submit_practice_short_answer(
+                user=user,
+                workspace_id=workspace_id,
+                quiz_id=payload.quiz_id,
+                question=payload.question,
+                response=response_text,
+            )
+        if payload.selected_index is None or not payload.options:
+            raise AtlasError("Pick an option or write a short answer.")
         sequence = await self.atlas.next_sequence(workspace_id, user.id, "practice", None, None)
         question = {
             "quiz_id": payload.quiz_id,
@@ -268,6 +283,86 @@ class AtlasService:
                 selected_index=payload.selected_index,
             ),
             allow_any_quiz=True,
+        )
+        await self.atlas.update_attempt(
+            str(attempt["id"]),
+            {
+                "status": "completed",
+                "completed_at": datetime.now(UTC).isoformat(),
+                "correct_count": 1 if result.correct else 0,
+                "points_earned": result.points_total,
+            },
+        )
+        return result
+
+    async def _submit_practice_short_answer(
+        self,
+        *,
+        user: CurrentUser,
+        workspace_id: str,
+        quiz_id: str,
+        question: str,
+        response: str,
+    ) -> AnswerSubmitResponse:
+        quiz = await self.assessments.get_quiz(quiz_id, workspace_id)
+        if not quiz:
+            raise AtlasError("That question is not in this workspace.", status_code=404)
+        kind = str(quiz.get("subtype") or quiz.get("question_type") or "")
+        if kind != "short_answer":
+            raise AtlasError("That question is not a short answer.")
+        criteria = [
+            str(item).strip()
+            for item in (quiz.get("evaluation_criteria") or [])
+            if str(item).strip()
+        ]
+        if not criteria:
+            raise AtlasError("That short answer has no grading criteria.")
+
+        sequence = await self.atlas.next_sequence(workspace_id, user.id, "practice", None, None)
+        attempt = await self.atlas.insert_attempt(
+            {
+                "workspace_id": workspace_id,
+                "user_id": user.id,
+                "exam_type": "practice",
+                "subject_kind": None,
+                "subject_id": None,
+                "subject_name": "Flashcards Questions",
+                "status": "in_progress",
+                "sequence_number": sequence,
+                "question_count": 1,
+                "correct_count": 0,
+                "points_earned": 0,
+                "quota_snapshot": {"exam_type": "practice"},
+                "questions": [{"quiz_id": quiz_id, "question": question, "options": []}],
+            }
+        )
+
+        try:
+            grade = await asyncio.to_thread(
+                grade_short_answer,
+                question=question,
+                criteria=criteria,
+                explanation=str(quiz.get("explanation") or "") or None,
+                learner_answer=response,
+                client=OpenAIClient(),
+                model=DEFAULT_OPENAI_MODEL,
+            )
+        except Exception as exc:
+            raise AtlasError("Could not grade that answer. Try again.") from exc
+
+        result = await self._record_graded_answer(
+            user=user,
+            workspace_id=workspace_id,
+            attempt=attempt,
+            quiz=quiz,
+            quiz_id=quiz_id,
+            question=question,
+            options=[],
+            selected_index=None,
+            response=response,
+            feedback=grade.feedback or None,
+            correct=grade.passed,
+            right_answer="",
         )
         await self.atlas.update_attempt(
             str(attempt["id"]),
@@ -360,8 +455,17 @@ class AtlasService:
             raise AtlasError("Platoon dashboard is limited to Academics.", status_code=403)
         competition = await self.ensure_competition(workspace_id)
         entries = await self._build_leaderboard(workspace_id)
-        answers = await self.atlas.list_answers_for_workspace(workspace_id)
-        attempts = await self.atlas.list_attempts_for_workspace(workspace_id)
+        observer_ids = await self._observer_user_ids()
+        answers = [
+            row
+            for row in await self.atlas.list_answers_for_workspace(workspace_id)
+            if str(row.get("user_id") or "") not in observer_ids
+        ]
+        attempts = [
+            row
+            for row in await self.atlas.list_attempts_for_workspace(workspace_id)
+            if str(row.get("user_id") or "") not in observer_ids
+        ]
         quizzes = {str(row["id"]): row for row in await self.list_all_quizzes(workspace_id)}
         sources = {
             str(row["id"]): source_label(row)
@@ -403,7 +507,11 @@ class AtlasService:
             if answer.get("is_correct"):
                 bucket["correct"] += 1
             bucket["lifetime_ap"] += int(answer.get("points_awarded") or 0)
-        progress = await self.atlas.list_progress_for_workspace(workspace_id)
+        progress = [
+            row
+            for row in await self.atlas.list_progress_for_workspace(workspace_id)
+            if str(row.get("user_id") or "") not in observer_ids
+        ]
         for row in progress:
             if not row.get("mastered_at"):
                 continue
@@ -467,6 +575,7 @@ class AtlasService:
                 correct=bool(existing.get("is_correct")),
                 right_answer="",
                 explanation=None,
+                feedback=str(existing.get("feedback") or "") or None,
                 points_awarded=[],
                 points_total=int(existing.get("points_awarded") or 0),
                 correct_count=int(progress["correct_count"]) if progress else 0,
@@ -500,7 +609,38 @@ class AtlasService:
         except ShownAnswerError as exc:
             raise AtlasError(str(exc)) from exc
 
-        progress = await self.atlas.get_progress(user.id, payload.quiz_id)
+        return await self._record_graded_answer(
+            user=user,
+            workspace_id=workspace_id,
+            attempt=attempt,
+            quiz=quiz,
+            quiz_id=payload.quiz_id,
+            question=payload.question,
+            options=payload.options,
+            selected_index=payload.selected_index,
+            response=None,
+            feedback=None,
+            correct=correct,
+            right_answer=right,
+        )
+
+    async def _record_graded_answer(
+        self,
+        *,
+        user: CurrentUser,
+        workspace_id: str,
+        attempt: dict[str, Any],
+        quiz: dict[str, Any],
+        quiz_id: str,
+        question: str,
+        options: list[str],
+        selected_index: int | None,
+        response: str | None,
+        feedback: str | None,
+        correct: bool,
+        right_answer: str,
+    ) -> AnswerSubmitResponse:
+        progress = await self.atlas.get_progress(user.id, quiz_id)
         events: list[tuple[str, int]] = []
         newly_mastered = False
         if correct:
@@ -508,42 +648,44 @@ class AtlasService:
                 progress,
                 workspace_id=workspace_id,
                 user_id=user.id,
-                quiz_id=payload.quiz_id,
+                quiz_id=quiz_id,
             )
         else:
             progress_payload = apply_incorrect_progress(
                 progress,
                 workspace_id=workspace_id,
                 user_id=user.id,
-                quiz_id=payload.quiz_id,
+                quiz_id=quiz_id,
             )
         progress = await self.atlas.upsert_progress(progress_payload)
         points_total = sum_points(events)
+        questions = attempt.get("questions") or []
         question_index = next(
-            (index for index, row in enumerate(questions) if str(row.get("quiz_id")) == payload.quiz_id),
+            (index for index, row in enumerate(questions) if str(row.get("quiz_id")) == quiz_id),
             len(questions),
         )
-        answer = await self.atlas.insert_answer(
-            {
-                "attempt_id": attempt["id"],
-                "workspace_id": workspace_id,
-                "user_id": user.id,
-                "quiz_id": payload.quiz_id,
-                "question_index": question_index,
-                "question": payload.question,
-                "options": payload.options,
-                "selected_index": payload.selected_index,
-                "is_correct": correct,
-                "points_awarded": points_total,
-            }
-        )
+        answer_row: dict[str, Any] = {
+            "attempt_id": attempt["id"],
+            "workspace_id": workspace_id,
+            "user_id": user.id,
+            "quiz_id": quiz_id,
+            "question_index": question_index,
+            "question": question,
+            "options": options,
+            "selected_index": selected_index,
+            "response": response,
+            "feedback": feedback,
+            "is_correct": correct,
+            "points_awarded": points_total,
+        }
+        answer = await self.atlas.insert_answer(answer_row)
         if events:
             await self.atlas.insert_score_events(
                 [
                     {
                         "workspace_id": workspace_id,
                         "user_id": user.id,
-                        "quiz_id": payload.quiz_id,
+                        "quiz_id": quiz_id,
                         "attempt_id": attempt["id"],
                         "answer_id": answer["id"],
                         "event_type": event_type,
@@ -562,8 +704,9 @@ class AtlasService:
         lifetime = await self._lifetime_ap(workspace_id, user.id)
         return AnswerSubmitResponse(
             correct=correct,
-            right_answer=right,
+            right_answer=right_answer,
             explanation=str(quiz.get("explanation") or "") or None,
+            feedback=feedback,
             points_awarded=[PointsAwarded(event_type=event_type, points=points) for event_type, points in events],
             points_total=points_total,
             correct_count=int(progress["correct_count"]),
@@ -591,8 +734,30 @@ class AtlasService:
             correct_answers=correct,
         )
 
-    async def _build_leaderboard(self, workspace_id: str) -> list[LeaderboardEntry]:
+    async def _observer_user_ids(self) -> set[str]:
         roster = await self.atlas.list_approved_roster()
+        auth_users = await self._list_auth_users()
+        email_to_user = {
+            str(row.get("email") or "").casefold(): str(row.get("id") or "")
+            for row in auth_users
+            if row.get("email") and row.get("id")
+        }
+        ids: set[str] = set()
+        for person in roster:
+            if counts_on_leaderboard(person.get("role") if isinstance(person.get("role"), str) else None):
+                continue
+            email = str(person.get("email") or "").casefold()
+            user_id = email_to_user.get(email)
+            if user_id:
+                ids.add(user_id)
+        return ids
+
+    async def _build_leaderboard(self, workspace_id: str) -> list[LeaderboardEntry]:
+        roster = [
+            person
+            for person in await self.atlas.list_approved_roster()
+            if counts_on_leaderboard(person.get("role") if isinstance(person.get("role"), str) else None)
+        ]
         auth_users = await self._list_auth_users()
         email_to_user = {
             str(row.get("email") or "").casefold(): str(row.get("id") or "")

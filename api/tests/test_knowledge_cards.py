@@ -7,7 +7,7 @@ from app.knowledge.cards import entries_in_category, flashcard_sides, layout_nee
 from app.qngen.canonical_context import ConceptCard
 from app.qngen.skills.shared.orchestrator import run_skill_batch
 from app.qngen.stages.models import QuizGenOutput
-from app.services.knowledge_projects import KnowledgeProjectService
+from app.services.knowledge_projects import KnowledgeProjectError, KnowledgeProjectService
 
 
 def test_flashcard_layouts() -> None:
@@ -373,6 +373,60 @@ def test_save_item_writes_the_pool_and_clears_the_draft() -> None:
     assert set(changes["options"]) == {"Friction", "Chance"}
     assert changes["correct_answer"] == "Friction"
     assert projects.updated_plans == [("plan-q", {"draft": None})]
+
+
+def test_save_item_writes_short_answer_criteria_without_a_pool() -> None:
+    projects = _RecordingProjects()
+
+    asyncio.run(
+        _service(projects).save_item(
+            _project(),
+            {"id": "plan-q", "item_type": "question", "assessment_id": "quiz-1"},
+            kind="question",
+            payload={
+                "question": "What is friction?",
+                "format": "short_answer",
+                "evaluation_criteria": [
+                    "Names the force that resists action",
+                    "Says it is present in every war",
+                ],
+                "explanation": "Friction resists every action in war.",
+                "difficulty": "medium",
+                "bloom_level": "understand",
+            },
+        ),
+    )
+
+    table, row_id, changes = projects.updated_rows[0]
+    assert table == "quizzes"
+    assert row_id == "quiz-1"
+    assert changes["question_type"] == "short_answer"
+    assert changes["evaluation_criteria"] == [
+        "Names the force that resists action",
+        "Says it is present in every war",
+    ]
+    assert changes["options"] == []
+    assert changes["correct_answer"] == ""
+    assert changes["answer_pool"] == {}
+
+
+def test_save_item_rejects_short_answer_without_criteria() -> None:
+    projects = _RecordingProjects()
+
+    with pytest.raises(KnowledgeProjectError, match="criterion"):
+        asyncio.run(
+            _service(projects).save_item(
+                _project(),
+                {"id": "plan-q", "item_type": "question", "assessment_id": "quiz-1"},
+                kind="question",
+                payload={
+                    "question": "What is friction?",
+                    "format": "short_answer",
+                    "evaluation_criteria": [],
+                    "difficulty": "medium",
+                },
+            ),
+        )
 
 
 def test_duplicate_item_copies_the_saved_question() -> None:

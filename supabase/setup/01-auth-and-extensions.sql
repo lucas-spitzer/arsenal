@@ -25,11 +25,12 @@ create table public.approved_users (
   rank text,
   created_at timestamptz not null default now(),
   constraint approved_users_role_check
-    check (role in ('admin', 'student'))
+    check (role in ('admin', 'student', 'observer'))
 );
 
 -- Insert your own address before signing in. admin: Foundry and Academy.
--- student: Academy only. This script does not insert a row.
+-- student: Academy only. observer: Academy like a student, not on the leaderboard.
+-- This script does not insert a row.
 --
 -- insert into public.approved_users (email, role, is_active)
 -- values ('you@example.com', 'admin', true)

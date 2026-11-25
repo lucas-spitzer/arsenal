@@ -59,15 +59,33 @@ export function LeaderboardView() {
             </p>
           ) : null}
 
-          <div className="ldr__platoon">
+          <div className={`ldr__platoon${board.platoon_goal != null ? ' ldr__platoon--goal' : ''}`}>
             <div>
               <span>Platoon total</span>
-              <strong>{board.platoon_total_ap} AP</strong>
+              <strong>{board.platoon_total_ap.toLocaleString()} AP</strong>
             </div>
-            <div>
-              <span>Goal</span>
-              <strong className="ldr__goal">BEST PLT AVG</strong>
-            </div>
+            {board.platoon_goal != null ? (
+              <div>
+                <span>Goal</span>
+                <strong>{board.platoon_goal.toLocaleString()} AP</strong>
+              </div>
+            ) : null}
+            {board.platoon_goal != null ? (
+              <div
+                className="ldr__meter"
+                role="meter"
+                aria-valuemin={0}
+                aria-valuemax={board.platoon_goal}
+                aria-valuenow={Math.min(board.platoon_total_ap, board.platoon_goal)}
+                aria-label="Platoon progress toward the goal"
+              >
+                <div
+                  style={{
+                    width: `${Math.min(100, (board.platoon_total_ap / board.platoon_goal) * 100)}%`,
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
 
           <table className="ldr__table">

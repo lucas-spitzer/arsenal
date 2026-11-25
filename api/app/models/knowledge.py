@@ -65,6 +65,7 @@ class KnowledgeQuestionView(BaseModel):
     options: list[Any] = Field(default_factory=list)
     correct_answer: str
     answer_pool: dict[str, Any] = Field(default_factory=dict)
+    evaluation_criteria: list[Any] = Field(default_factory=list)
     bloom_level: str | None = None
     explanation: str | None = None
     difficulty: str = "medium"
@@ -157,7 +158,8 @@ class KnowledgeVariantsRequest(BaseModel):
 class KnowledgeQuestionSave(BaseModel):
     question: str
     format: str
-    answer_pool: AnswerPoolPayload
+    answer_pool: AnswerPoolPayload | None = None
+    evaluation_criteria: list[str] = Field(default_factory=list)
     explanation: str | None = None
     difficulty: str = "medium"
     bloom_level: str | None = None

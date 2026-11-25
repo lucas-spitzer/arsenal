@@ -40,6 +40,7 @@ export interface AnswerSubmitResult {
   correct: boolean
   right_answer: string
   explanation?: string | null
+  feedback?: string | null
   points_awarded: PointsAwarded[]
   points_total: number
   correct_count: number
@@ -170,8 +171,9 @@ export async function submitPracticeAnswer(
   body: {
     quiz_id: string
     question: string
-    options: string[]
-    selected_index: number
+    options?: string[]
+    selected_index?: number
+    response?: string
   },
 ): Promise<AnswerSubmitResult> {
   return apiRequest<AnswerSubmitResult>(`/workspaces/${workspaceId}/atlas/practice/answers`, {

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.artifact_paths import next_available_slug, storage_slug
 from app.config import get_settings
-from app.access import STUDENT_ROLE, is_platoon_workspace
+from app.access import is_platoon_reader, is_platoon_workspace
 from app.dependencies.auth import require_admin, require_approved_user
 from app.dependencies.services import (
     get_stage_settings_repository,
@@ -127,7 +127,7 @@ async def list_workspaces(
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     workspaces: Annotated[WorkspaceRepository, Depends(get_workspace_repository)],
 ) -> list[WorkspaceResponse]:
-    if user.role == STUDENT_ROLE:
+    if is_platoon_reader(user):
         rows = [
             row
             for row in await workspaces.list_all()

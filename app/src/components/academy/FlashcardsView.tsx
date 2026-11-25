@@ -1,5 +1,5 @@
-import { Check, Info, Shuffle, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Check, Info, Send, Shuffle, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useAtlas } from '../../features/atlas/atlasContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
@@ -10,6 +10,10 @@ import { showsStemImage } from '../../lib/assessmentVisual'
 import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { isWikiTermQuiz } from '../../lib/assessmentOrigin'
 import type { Flashcard, Quiz } from '../../lib/workspaceApi'
+
+function isShortAnswerQuiz(quiz: Quiz): boolean {
+  return (quiz.subtype ?? quiz.question_type) === 'short_answer'
+}
 import {
   StudyHead,
   StudyPanel,
@@ -60,6 +64,10 @@ export function FlashcardsView({
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [selected, setSelected] = useState<number | null>(null)
+  const [responseDraft, setResponseDraft] = useState('')
+  const [shortGrade, setShortGrade] = useState<{ correct: boolean; feedback: string | null } | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [gradeError, setGradeError] = useState<string | null>(null)
   const [questionSeed, setQuestionSeed] = useState(() => Date.now())
   const [floatLabel, setFloatLabel] = useState<string | null>(null)
   const [newlyMastered, setNewlyMastered] = useState(false)
@@ -73,6 +81,9 @@ export function FlashcardsView({
     setIndex(0)
     setFlipped(false)
     setSelected(null)
+    setResponseDraft('')
+    setShortGrade(null)
+    setGradeError(null)
   }
 
   const sources = useMemo(() => {
@@ -154,9 +165,11 @@ export function FlashcardsView({
   const card = mode === 'flashcards' ? cards[safeIndex] : undefined
   const quiz = mode === 'questions' ? orderedQuestions[safeIndex] : undefined
 
+  const shortAnswer = quiz ? isShortAnswerQuiz(quiz) : false
+
   const drawn = useMemo(() => {
     if (!quiz) return null
-    if (!hasPool(quiz.answer_pool)) {
+    if (isShortAnswerQuiz(quiz) || !hasPool(quiz.answer_pool)) {
       return {
         question: quiz.question,
         options: quiz.options,
@@ -179,6 +192,10 @@ export function FlashcardsView({
     setIndex(0)
     setFlipped(false)
     setSelected(null)
+    setResponseDraft('')
+    setShortGrade(null)
+    setGradeError(null)
+    setSubmitting(false)
   }
 
   const setPracticeMode = (next: PracticeMode) => {
@@ -202,6 +219,10 @@ export function FlashcardsView({
     if (deck.length === 0) return
     setFlipped(false)
     setSelected(null)
+    setResponseDraft('')
+    setShortGrade(null)
+    setGradeError(null)
+    setSubmitting(false)
     setNewlyMastered(false)
     setServerRight(null)
     setFloatLabel(null)
@@ -244,7 +265,24 @@ export function FlashcardsView({
     return optionIsCorrect(quiz, option, optionIndex)
   }
 
-  const revealed = selected !== null
+  const revealed = shortAnswer ? shortGrade !== null : selected !== null
+
+  const applyScoreResult = (result: {
+    lifetime_ap: number
+    right_answer: string
+    newly_mastered: boolean
+    points_total: number
+  }) => {
+    setLifetimeAp(result.lifetime_ap)
+    setServerRight(result.right_answer)
+    setNewlyMastered(result.newly_mastered)
+    if (result.points_total > 0) {
+      setFloatLabel(
+        result.newly_mastered ? `Mastered · +${result.points_total} AP` : `+${result.points_total} AP`,
+      )
+      window.setTimeout(() => setFloatLabel(null), 900)
+    }
+  }
 
   const choose = (optionIndex: number) => {
     if (selected !== null || !quiz || !drawn || !activeWorkspace) return
@@ -257,20 +295,33 @@ export function FlashcardsView({
       options: drawn.options,
       selected_index: optionIndex,
     })
-      .then((result) => {
-        setLifetimeAp(result.lifetime_ap)
-        setServerRight(result.right_answer)
-        setNewlyMastered(result.newly_mastered)
-        if (result.points_total > 0) {
-          setFloatLabel(
-            result.newly_mastered ? `Mastered · +${result.points_total} AP` : `+${result.points_total} AP`,
-          )
-          window.setTimeout(() => setFloatLabel(null), 900)
-        }
-      })
+      .then(applyScoreResult)
       .catch(() => {
         // Keep local reveal even if scoring fails; Academics can retry.
       })
+  }
+
+  const submitShortAnswer = (event: FormEvent) => {
+    event.preventDefault()
+    const text = responseDraft.trim()
+    if (!text || submitting || shortGrade || !quiz || !drawn || !activeWorkspace) return
+    setSubmitting(true)
+    setGradeError(null)
+    setNewlyMastered(false)
+    setServerRight(null)
+    void submitPracticeAnswer(activeWorkspace.id, {
+      quiz_id: quiz.id,
+      question: drawn.question,
+      response: text,
+    })
+      .then((result) => {
+        setShortGrade({ correct: result.correct, feedback: result.feedback ?? null })
+        applyScoreResult(result)
+      })
+      .catch((caught) => {
+        setGradeError(caught instanceof Error ? caught.message : 'Could not grade that answer.')
+      })
+      .finally(() => setSubmitting(false))
   }
 
   const nextQuestion = () => {
@@ -399,38 +450,74 @@ export function FlashcardsView({
                   <AssessmentPicture visual={quiz.visual} text={drawn.question} />
                 ) : null}
                 <p className="quiz__question">{drawn.question}</p>
-                <div className="quiz__options">
-                  {drawn.options.map((option, optionIndex) => {
-                    let cls = 'quiz__option'
-                    const correct =
-                      serverRight != null ? option === serverRight : optionCorrect(option, optionIndex)
-                    const showCorrect = revealed && correct
-                    const showWrong = revealed && optionIndex === selected && !correct
-                    if (showCorrect) cls += ' is-correct'
-                    else if (showWrong) cls += ' is-wrong'
-                    return (
-                      <button
-                        key={optionIndex}
-                        type="button"
-                        className={cls}
-                        disabled={revealed}
-                        onClick={() => choose(optionIndex)}
-                      >
-                        <span className="quiz__option-text">{option}</span>
-                        {showCorrect ? (
-                          <span className="quiz__option-status">
-                            <Check size={16} /> Correct
-                          </span>
-                        ) : null}
-                        {showWrong ? (
-                          <span className="quiz__option-status">
-                            <X size={16} /> Incorrect
-                          </span>
-                        ) : null}
+                {shortAnswer ? (
+                  <form className="quiz__short-answer" onSubmit={submitShortAnswer}>
+                    <label className="lib__select">
+                      <span className="lib__select-label">Your answer</span>
+                      <textarea
+                        className="as-wiki__input"
+                        rows={4}
+                        value={responseDraft}
+                        disabled={revealed || submitting}
+                        onChange={(event) => setResponseDraft(event.target.value)}
+                        placeholder="Write a short answer"
+                      />
+                    </label>
+                    {shortGrade ? (
+                      <p className={`quiz__short-verdict${shortGrade.correct ? ' is-correct' : ' is-wrong'}`}>
+                        {shortGrade.correct ? (
+                          <>
+                            <Check size={16} /> Pass
+                          </>
+                        ) : (
+                          <>
+                            <X size={16} /> Needs work
+                          </>
+                        )}
+                      </p>
+                    ) : null}
+                    {shortGrade?.feedback ? <p className="quiz__explain">{shortGrade.feedback}</p> : null}
+                    {gradeError ? <p className="quiz__score-note">{gradeError}</p> : null}
+                    {!revealed ? (
+                      <button type="submit" className="study__btn" disabled={submitting || !responseDraft.trim()}>
+                        <Send size={16} /> {submitting ? 'Grading…' : 'Submit answer'}
                       </button>
-                    )
-                  })}
-                </div>
+                    ) : null}
+                  </form>
+                ) : (
+                  <div className="quiz__options">
+                    {drawn.options.map((option, optionIndex) => {
+                      let cls = 'quiz__option'
+                      const correct =
+                        serverRight != null ? option === serverRight : optionCorrect(option, optionIndex)
+                      const showCorrect = revealed && correct
+                      const showWrong = revealed && optionIndex === selected && !correct
+                      if (showCorrect) cls += ' is-correct'
+                      else if (showWrong) cls += ' is-wrong'
+                      return (
+                        <button
+                          key={optionIndex}
+                          type="button"
+                          className={cls}
+                          disabled={revealed}
+                          onClick={() => choose(optionIndex)}
+                        >
+                          <span className="quiz__option-text">{option}</span>
+                          {showCorrect ? (
+                            <span className="quiz__option-status">
+                              <Check size={16} /> Correct
+                            </span>
+                          ) : null}
+                          {showWrong ? (
+                            <span className="quiz__option-status">
+                              <X size={16} /> Incorrect
+                            </span>
+                          ) : null}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
                 {revealed && quiz.explanation ? (
                   <p className="quiz__explain">
                     <Info size={15} /> {quiz.explanation}

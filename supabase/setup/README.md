@@ -84,6 +84,8 @@ Run these only on databases that already have a Foundry schema and need a target
 | `../maintenance/add-quiz-results.sql` | DB was created before personal quiz results. Adds `quiz_results` with RLS and role revokes. Idempotent. |
 | `alter-approved-users-name-rank.sql` | DB was created before roster display name and rank. Adds nullable `approved_users.name` and `approved_users.rank`. Idempotent. Then run `seed-approved-users-roster.sql` to upsert the platoon roster (match on email; updates name/rank only). |
 | `alter-atlas-challenge.sql` | DB was created before Atlas Points. Adds `question_progress`, `exam_attempts`, `exam_answers`, `score_events`, and `competition_settings` with RLS + role revokes. Idempotent. Then run `../maintenance/wipe-quiz-results-for-atlas.sql` to clear legacy batch scores before launch. |
+| `../maintenance/alter-approved-users-observer.sql` | DB was created before the observer role. Widens `approved_users.role` to allow `observer`. Idempotent. |
+| `../maintenance/alter-short-answer.sql` | DB was created before Short answer questions. Adds `quizzes.evaluation_criteria`, nullable `exam_answers.selected_index`, and `exam_answers.response` / `feedback`. Idempotent. |
 
 Delete scripts and seed SQL stay on the machine that has them so they do not leak confidential information about the platform and its plans. See [`supabase/maintenance/README.md`](../maintenance/README.md).
 

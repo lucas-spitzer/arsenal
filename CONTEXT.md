@@ -24,6 +24,10 @@ _Avoid_: owner, operator, instructor
 A member of the platoon who studies in Academy.
 _Avoid_: viewer, user, trainee
 
+**Observer**:
+A person with student-level Academy access who is not on the leaderboard.
+_Avoid_: guest, auditor, spectator
+
 **Foundry**:
 The studio where the admin produces the platoon's library.
 _Avoid_: backend, CMS, authoring tool

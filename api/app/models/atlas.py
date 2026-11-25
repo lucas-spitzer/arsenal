@@ -59,6 +59,7 @@ class AnswerSubmitResponse(BaseModel):
     correct: bool
     right_answer: str
     explanation: str | None = None
+    feedback: str | None = None
     points_awarded: list[PointsAwarded] = Field(default_factory=list)
     points_total: int = 0
     correct_count: int
@@ -72,8 +73,9 @@ class AnswerSubmitResponse(BaseModel):
 class PracticeAnswerRequest(BaseModel):
     quiz_id: str
     question: str
-    options: list[str] = Field(min_length=1)
-    selected_index: int = Field(ge=0)
+    options: list[str] = Field(default_factory=list)
+    selected_index: int | None = None
+    response: str | None = None
 
 
 class AtlasMeResponse(BaseModel):

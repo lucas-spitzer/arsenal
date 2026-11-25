@@ -1,4 +1,4 @@
-"""Create a knowledge project and queue its structure, draft, and image runs."""
+"""Create a knowledge project and queue its structure and draft runs."""
 
 from __future__ import annotations
 
@@ -21,10 +21,12 @@ from app.knowledge.answer_pool import (
     validate_pool,
 )
 from app.knowledge.cards import (
+    CHOICE_QUESTION_FORMATS,
     LAYOUTS,
     PLACEMENT_FOR_LAYOUT,
     QUESTION_FORMATS,
     SCENARIO_FORMATS,
+    SHORT_ANSWER,
     entries_in_category,
     entry_category,
     flashcard_sides,
@@ -47,10 +49,8 @@ from app.qngen.stages.scenario_gen import ScenarioGenStage
 from app.pipeline import (
     KNOWLEDGE_DRAFT_TARGET,
     KNOWLEDGE_STRUCTURE_TARGET,
-    KNOWLEDGE_VISUAL_TARGET,
     build_knowledge_draft_pipeline,
     build_knowledge_structure_pipeline,
-    build_knowledge_visual_pipeline,
 )
 from app.repositories.knowledge_projects import KnowledgeProjectRepository
 from app.repositories.production_runs import ProductionRunRepository
@@ -737,7 +737,7 @@ class KnowledgeProjectService:
 
         rounds: list[tuple[str, str, int]]
         if mix == "spread" and kind == "question":
-            formats = QUESTION_FORMATS
+            formats = CHOICE_QUESTION_FORMATS
             rounds = [(formats[i % len(formats)], SPREAD_BLOOM[i % len(SPREAD_BLOOM)], 1) for i in range(count)]
         else:
             rounds = [(item_format, bloom_level, count)]
@@ -1087,15 +1087,23 @@ class KnowledgeProjectService:
         )
 
     async def start_attach(self, project: dict[str, Any]) -> dict[str, Any]:
+        """Copy each plan's image onto its question, flashcard, or scenario.
+
+        Files are already in storage. A pack with no images finishes in this request.
+        """
         self._require_status(project, "ready")
-        return await self._enqueue(
-            project,
-            run_column="visual_run_id",
-            target=KNOWLEDGE_VISUAL_TARGET,
-            pipeline=build_knowledge_visual_pipeline(),
-            job="attach",
-            failure="Could not queue the image update.",
-        )
+        project_id = str(project["id"])
+        for plan in await self.projects.list_plans(project_id):
+            assessment_id = plan.get("assessment_id")
+            table = _TABLE_FOR_ITEM.get(str(plan.get("item_type") or ""))
+            if not assessment_id or not table:
+                continue
+            visual = plan.get("visual") if isinstance(plan.get("visual"), dict) else None
+            if not storage_path_of(visual):
+                visual = None
+            await self.projects.update_row(table, str(assessment_id), {"visual": visual})
+        updated = await self.projects.update(project_id, {"status": "ready", "error": None})
+        return updated or project
 
     async def detail(
         self,
@@ -1353,6 +1361,7 @@ def _assessment_rows(
                     "options": item.get("options") or [],
                     "correct_answer": item["correct_answer"],
                     "answer_pool": item.get("answer_pool") or {},
+                    "evaluation_criteria": item.get("evaluation_criteria") or [],
                     "explanation": item.get("explanation"),
                     "subtype": item_format,
                 },
@@ -1379,9 +1388,7 @@ def _imported_question_rows(
     """Quiz rows for questions that arrived in the notes file."""
     rows: list[dict[str, Any]] = []
     for item in questions:
-        pool = AnswerPool.model_validate(item["pool"])
         subtype = str(item["format"])
-        rendered = draw(pool, subtype)
         citations: list[dict[str, str]] = []
         cite = item.get("citation") if isinstance(item.get("citation"), dict) else None
         if cite:
@@ -1393,6 +1400,20 @@ def _imported_question_rows(
             if wiki_id:
                 citations = [{"uri": f"wiki://{wiki_id}", "type": "wiki"}]
         lesson_id = project.get("lesson_id")
+        if subtype == SHORT_ANSWER:
+            question_text = str(item["question"])
+            options: list[str] = []
+            correct_answer = ""
+            answer_pool: dict[str, Any] = {}
+            criteria = [str(row).strip() for row in item.get("criteria") or [] if str(row).strip()]
+        else:
+            pool = AnswerPool.model_validate(item["pool"])
+            rendered = draw(pool, subtype)
+            question_text = rendered.question or item["question"]
+            options = rendered.options
+            correct_answer = rendered.correct_answer
+            answer_pool = pool.model_dump()
+            criteria = []
         row = {
             "workspace_id": project["workspace_id"],
             "source_id": project.get("source_id"),
@@ -1405,11 +1426,12 @@ def _imported_question_rows(
                 "format": subtype,
                 "from": "structured_notes",
             },
-            "question": rendered.question or item["question"],
+            "question": question_text,
             "question_type": subtype,
-            "options": rendered.options,
-            "correct_answer": rendered.correct_answer,
-            "answer_pool": pool.model_dump(),
+            "options": options,
+            "correct_answer": correct_answer,
+            "answer_pool": answer_pool,
+            "evaluation_criteria": criteria,
             "explanation": item.get("explanation"),
             "subtype": subtype,
         }
@@ -1554,6 +1576,25 @@ def _question_changes(payload: dict[str, Any], *, item_format: str) -> dict[str,
     question = " ".join(str(payload.get("question") or "").split())
     if not question:
         raise KnowledgeProjectError("Write the question.")
+    explanation = str(payload.get("explanation") or "").strip() or None
+    if item_format == SHORT_ANSWER:
+        criteria = [
+            " ".join(str(item).split())
+            for item in payload.get("evaluation_criteria") or []
+            if str(item).strip()
+        ]
+        if not criteria:
+            raise KnowledgeProjectError("Add at least one criterion.")
+        return {
+            "question": question,
+            "subtype": item_format,
+            "question_type": normalize_question_type(item_format),
+            "options": [],
+            "correct_answer": "",
+            "answer_pool": {},
+            "evaluation_criteria": criteria,
+            "explanation": explanation,
+        }
     try:
         pool = AnswerPool.model_validate(payload.get("answer_pool") or {})
         pool.correct = [" ".join(text.split()) for text in pool.correct if text.strip()]
@@ -1571,7 +1612,8 @@ def _question_changes(payload: dict[str, Any], *, item_format: str) -> dict[str,
         "options": rendered.options,
         "correct_answer": rendered.correct_answer,
         "answer_pool": pool.model_dump(),
-        "explanation": (str(payload.get("explanation") or "").strip() or None),
+        "evaluation_criteria": [],
+        "explanation": explanation,
     }
 
 
@@ -1612,6 +1654,7 @@ def _question_view(plan: dict[str, Any], row: dict[str, Any], visual: dict[str, 
         "options": row.get("options") or [],
         "correct_answer": str(row.get("correct_answer") or ""),
         "answer_pool": row.get("answer_pool") if isinstance(row.get("answer_pool"), dict) else {},
+        "evaluation_criteria": row.get("evaluation_criteria") or [],
         "bloom_level": row.get("bloom_level"),
         "explanation": row.get("explanation"),
         "difficulty": str(row.get("difficulty") or "medium"),

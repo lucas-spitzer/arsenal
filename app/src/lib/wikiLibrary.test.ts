@@ -73,23 +73,23 @@ describe('wiki knowledge on New Run and Library', () => {
       'library',
       'reader',
       'discussions',
-      'quiz',
     ])
     expect(academyRailForRole(true).map((item) => item.id)).toEqual([
+      'leaderboard',
       'calendar',
       'library',
       'reader',
       'discussions',
       'flashcards',
       'quiz',
-      'scenarios',
       'analytics',
     ])
     expect(academyRailItems.map((item) => item.id)).not.toContain('objectives')
-    expect(academyPageForRole('flashcards', false)).toBe('library')
-    expect(academyPageForRole('quiz', false)).toBe('quiz')
-    expect(academyPageForRole('analytics', false)).toBe('library')
-    expect(academyPageForRole('scenarios', false)).toBe('library')
+    expect(academyRailItems.map((item) => item.id)).not.toContain('scenarios')
+    expect(academyPageForRole('flashcards', false)).toBe('calendar')
+    expect(academyPageForRole('quiz', false)).toBe('calendar')
+    expect(academyPageForRole('analytics', false)).toBe('calendar')
+    expect(academyPageForRole('scenarios', false)).toBe('calendar')
     expect(academyPageForRole('reader', false)).toBe('reader')
     expect(academyPageForRole('flashcards', true)).toBe('flashcards')
 

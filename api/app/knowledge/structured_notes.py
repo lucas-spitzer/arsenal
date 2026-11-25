@@ -11,8 +11,9 @@ Accepted shapes:
 A term needs a label and a definition. A list needs a label plus an overview
 or at least one item. An ELO needs ``elo`` and ``response``. An abbreviation
 needs ``abbreviation``, ``title``, and ``definition``. A compare needs ``a``,
-``b``, and at least one diff. A question needs a stem, one correct answer, and
-one distractor. An optional ``image`` is a file name, or an object with
+``b``, and at least one diff. A choice question needs a stem, one correct
+answer, and one distractor. A short answer needs a stem and at least one
+criterion. An optional ``image`` is a file name, or an object with
 ``filename`` and ``alt``. The file name is a base name, not a path.
 ``prerequisites`` (wiki export) is accepted as ``prerequisite_labels``.
 """
@@ -25,7 +26,7 @@ from typing import Any
 
 from app.intellex.wiki_candidates import normalize_items
 from app.knowledge.answer_pool import BLOOM_LEVELS, TRUE_FALSE, AnswerPool, AnswerPoolError, Distractor, validate_pool
-from app.knowledge.cards import QUESTION_FORMATS
+from app.knowledge.cards import QUESTION_FORMATS, SHORT_ANSWER
 
 _DOCUMENT_KEYS = ("terms", "key_lists", "elos", "abbreviations", "compares", "questions")
 _DIFFICULTIES = ("easy", "medium", "hard")
@@ -344,12 +345,6 @@ def _questions(raw_items: list[Any], _entries: list[dict[str, Any]]) -> list[dic
         fmt = str(raw.get("format") or "multiple_choice").strip().lower()
         if fmt not in QUESTION_FORMATS:
             raise StructuredNotesError(f"Question {index} uses an unknown format.")
-        correct = _correct_answers(raw.get("correct"))
-        distractors = _question_distractors(raw.get("distractors"))
-        if not correct:
-            raise StructuredNotesError(f"Question {index} needs a correct answer.")
-        if not distractors:
-            raise StructuredNotesError(f"Question {index} needs a distractor.")
         difficulty = str(raw.get("difficulty") or "medium").strip().lower()
         if difficulty not in _DIFFICULTIES:
             raise StructuredNotesError(f"Question {index} uses an unknown difficulty.")
@@ -357,6 +352,28 @@ def _questions(raw_items: list[Any], _entries: list[dict[str, Any]]) -> list[dic
         if bloom and bloom not in BLOOM_LEVELS:
             raise StructuredNotesError(f"Question {index} uses an unknown cognitive level.")
         citation = _question_citation(raw, index)
+        if fmt == SHORT_ANSWER:
+            criteria = _question_criteria(raw.get("criteria"), index)
+            questions.append(
+                {
+                    "question": stem,
+                    "format": fmt,
+                    "citation": citation,
+                    "pool": AnswerPool().model_dump(),
+                    "criteria": criteria,
+                    "explanation": _optional_text(raw.get("explanation")),
+                    "difficulty": difficulty,
+                    "bloom_level": bloom,
+                    "image": _question_image(raw, index),
+                },
+            )
+            continue
+        correct = _correct_answers(raw.get("correct"))
+        distractors = _question_distractors(raw.get("distractors"))
+        if not correct:
+            raise StructuredNotesError(f"Question {index} needs a correct answer.")
+        if not distractors:
+            raise StructuredNotesError(f"Question {index} needs a distractor.")
         pool = AnswerPool(
             correct=correct,
             distractors=distractors,
@@ -372,6 +389,7 @@ def _questions(raw_items: list[Any], _entries: list[dict[str, Any]]) -> list[dic
                 "format": fmt,
                 "citation": citation,
                 "pool": pool.model_dump(),
+                "criteria": [],
                 "explanation": _optional_text(raw.get("explanation")),
                 "difficulty": difficulty,
                 "bloom_level": bloom,
@@ -379,6 +397,15 @@ def _questions(raw_items: list[Any], _entries: list[dict[str, Any]]) -> list[dic
             },
         )
     return questions
+
+
+def _question_criteria(raw: Any, index: int) -> list[str]:
+    if not isinstance(raw, list):
+        raise StructuredNotesError(f"Question {index} needs a criteria list.")
+    criteria = [" ".join(str(item).split()) for item in raw if str(item).strip()]
+    if not criteria:
+        raise StructuredNotesError(f"Question {index} needs at least one criterion.")
+    return criteria
 
 
 _CITE_FIELDS = (

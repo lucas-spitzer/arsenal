@@ -597,6 +597,8 @@ create table public.quizzes (
   -- Randomizable answers: {"correct": [..], "distractors": [{"text", "misconception"}], "show_count": 4}.
   -- options/correct_answer hold one default draw so older readers keep working.
   answer_pool jsonb not null default '{}',
+  -- Short-answer grading checklist. Empty for choice questions.
+  evaluation_criteria jsonb not null default '[]',
   bloom_level text,
   explanation text,
   difficulty text not null default 'medium',
@@ -891,11 +893,14 @@ create table public.exam_answers (
   question_index integer not null,
   question text not null,
   options jsonb not null,
-  selected_index integer not null,
+  -- Choice questions set selected_index. Short answers set response and feedback.
+  selected_index integer,
+  response text,
+  feedback text,
   is_correct boolean not null,
   points_awarded integer not null default 0,
   submitted_at timestamptz not null default now(),
-  constraint exam_answers_selected_check check (selected_index >= 0),
+  constraint exam_answers_selected_check check (selected_index is null or selected_index >= 0),
   constraint exam_answers_points_check check (points_awarded >= 0),
   unique (attempt_id, quiz_id)
 );

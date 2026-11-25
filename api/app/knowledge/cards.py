@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 LAYOUTS = ("label_description", "image_label", "image_label_description")
-QUESTION_FORMATS = ("multiple_choice", "true_false_correction", "multiple_select")
+CHOICE_QUESTION_FORMATS = ("multiple_choice", "true_false_correction", "multiple_select")
+SHORT_ANSWER = "short_answer"
+QUESTION_FORMATS = (*CHOICE_QUESTION_FORMATS, SHORT_ANSWER)
 SCENARIO_FORMATS = ("decision_prompt", "rubric_response")
 
 # Academy reads this placement. ``front_with_label`` is image plus the label

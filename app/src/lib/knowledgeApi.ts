@@ -40,6 +40,7 @@ export interface KnowledgeQuestion {
   options: string[]
   correct_answer: string
   answer_pool: AnswerPool | Record<string, never>
+  evaluation_criteria: string[]
   bloom_level: string | null
   explanation: string | null
   difficulty: string
@@ -124,7 +125,8 @@ export interface VariantsInput {
 export interface QuestionSave {
   question: string
   format: string
-  answer_pool: AnswerPool
+  answer_pool?: AnswerPool
+  evaluation_criteria?: string[]
   explanation: string | null
   difficulty: string
   bloom_level: string | null

@@ -544,6 +544,64 @@ def test_delete_refuses_a_project_that_is_already_drafting() -> None:
         asyncio.run(service.delete_project({"id": "project-1", "status": "drafting"}))
 
 
+def test_attach_finishes_a_pack_with_no_images_and_copies_one_that_has_a_file() -> None:
+    service = KnowledgeProjectService.__new__(KnowledgeProjectService)
+    visual = {"storage_path": "ws/knowledge/project-1/visuals/plan-file/stem.png", "kind": "diagram"}
+    project = {
+        "id": "project-1",
+        "status": "ready",
+        "error": "Could not queue the image update.",
+    }
+    quizzes = {
+        "quiz-file": {"id": "quiz-file", "visual": None},
+        "quiz-empty": {"id": "quiz-empty", "visual": {"storage_path": "stale.png"}},
+    }
+    plans = [
+        {
+            "id": "plan-file",
+            "item_type": "question",
+            "assessment_id": "quiz-file",
+            "visual": visual,
+        },
+        {
+            "id": "plan-empty",
+            "item_type": "question",
+            "assessment_id": "quiz-empty",
+            "visual": None,
+        },
+    ]
+
+    class Projects:
+        async def list_plans(self, project_id: str) -> list[dict[str, Any]]:
+            assert project_id == "project-1"
+            return plans
+
+        async def update_row(self, table: str, row_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+            assert table == "quizzes"
+            quizzes[row_id] = {**quizzes[row_id], **payload}
+            return quizzes[row_id]
+
+        async def update(self, project_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+            assert project_id == "project-1"
+            project.update(changes)
+            return project
+
+    service.projects = Projects()
+    updated = asyncio.run(service.start_attach(project))
+
+    assert updated["status"] == "ready"
+    assert updated["error"] is None
+    assert quizzes["quiz-file"]["visual"] == visual
+    assert quizzes["quiz-empty"]["visual"] is None
+
+
+def test_attach_refuses_a_project_that_is_still_drafting() -> None:
+    service = KnowledgeProjectService.__new__(KnowledgeProjectService)
+
+    with pytest.raises(KnowledgeProjectError, match="not ready"):
+        asyncio.run(service.start_attach({"id": "project-1", "status": "drafting"}))
+
+
 def test_attach_skips_a_plan_without_a_file_and_clears_a_removed_image() -> None:
     db = _MemoryDb()
     db.runs["run-2"] = {"id": "run-2", "pipeline": [{"step": "attach-visuals", "status": "pending"}]}

@@ -101,6 +101,7 @@ def promote_quizzes(
                 "options": question.get("options") or [],
                 "correct_answer": question["correct_answer"],
                 "answer_pool": question.get("answer_pool") or {},
+                "evaluation_criteria": question.get("evaluation_criteria") or [],
                 "bloom_level": question.get("bloom_level"),
                 "explanation": question.get("explanation"),
                 "difficulty": normalize_difficulty(question.get("difficulty")),

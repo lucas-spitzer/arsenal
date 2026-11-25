@@ -40,7 +40,9 @@ const QUESTION_FORMATS = [
   { value: 'multiple_choice', label: 'Multiple choice' },
   { value: 'true_false_correction', label: 'True or false, with a correction' },
   { value: 'multiple_select', label: 'Multiple select' },
+  { value: 'short_answer', label: 'Short answer' },
 ] as const
+const SHORT_ANSWER = 'short_answer'
 const SCENARIO_FORMATS = [
   { value: 'decision_prompt', label: 'Decision' },
   { value: 'rubric_response', label: 'Rubric response' },
@@ -827,6 +829,7 @@ interface QuestionDraft {
   bloom: string
   difficulty: string
   explanation: string
+  criteria: string
   pool: AnswerPool
 }
 
@@ -845,6 +848,7 @@ function questionDraft(question: KnowledgeQuestion): QuestionDraft {
     bloom: saved?.bloom ?? question.bloom_level ?? '',
     difficulty: saved?.difficulty ?? question.difficulty,
     explanation: saved?.explanation ?? question.explanation ?? '',
+    criteria: saved?.criteria ?? (question.evaluation_criteria ?? []).join('\n'),
     pool: saved?.pool ?? pool,
   }
 }
@@ -884,6 +888,7 @@ function QuestionEditor({
     setPreview(null)
   }
   const isTrueFalse = draft.format === 'true_false_correction'
+  const isShortAnswer = draft.format === SHORT_ANSWER
 
   return (
     <div className="kcomp__editor">
@@ -906,7 +911,18 @@ function QuestionEditor({
           />
         </Field>
       </div>
-      <AnswerPoolEditor pool={draft.pool} trueFalse={isTrueFalse} onChange={(pool) => update({ pool })} />
+      {isShortAnswer ? (
+        <Field label="Evaluation criteria, one per line">
+          <textarea
+            className="as-wiki__input"
+            rows={4}
+            value={draft.criteria}
+            onChange={(event) => update({ criteria: event.target.value })}
+          />
+        </Field>
+      ) : (
+        <AnswerPoolEditor pool={draft.pool} trueFalse={isTrueFalse} onChange={(pool) => update({ pool })} />
+      )}
       <Field label="Explanation">
         <textarea className="as-wiki__input" rows={3} value={draft.explanation} onChange={(event) => update({ explanation: event.target.value })} />
       </Field>
@@ -937,7 +953,7 @@ function QuestionEditor({
           Remove image
         </button>
       ) : null}
-      {preview ? (
+      {preview && !isShortAnswer ? (
         <div className="kcomp__preview" aria-live="polite">
           <span className="kproj-entry__meta">Sample draw</span>
           {preview.question ? <p>{preview.question}</p> : null}
@@ -961,7 +977,14 @@ function QuestionEditor({
                 saveKnowledgeQuestion(projectId, question.plan_id, {
                   question: draft.question,
                   format: draft.format,
-                  answer_pool: draft.pool,
+                  ...(isShortAnswer
+                    ? {
+                        evaluation_criteria: draft.criteria
+                          .split('\n')
+                          .map((line) => line.trim())
+                          .filter(Boolean),
+                      }
+                    : { answer_pool: draft.pool }),
                   explanation: draft.explanation || null,
                   difficulty: draft.difficulty,
                   bloom_level: draft.bloom || null,
@@ -974,9 +997,11 @@ function QuestionEditor({
         >
           Save question
         </button>
-        <button type="button" className="as-console__cta as-console__cta--ghost" onClick={() => setPreview(drawOptions(draft.pool, draft.format))}>
-          <Shuffle size={15} /> Preview draw
-        </button>
+        {isShortAnswer ? null : (
+          <button type="button" className="as-console__cta as-console__cta--ghost" onClick={() => setPreview(drawOptions(draft.pool, draft.format))}>
+            <Shuffle size={15} /> Preview draw
+          </button>
+        )}
       </div>
     </div>
   )

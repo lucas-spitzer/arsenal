@@ -6,7 +6,6 @@ import {
   HelpCircle,
   Layers,
   Library,
-  Lightbulb,
   MessageSquare,
   Trophy,
 } from 'lucide-react'
@@ -48,12 +47,11 @@ export const academyRailItems: { id: AcademyPage; label: string; icon: LucideIco
   { id: 'discussions', label: 'DSC', icon: MessageSquare },
   { id: 'flashcards', label: 'FLC', icon: Layers },
   { id: 'quiz', label: 'QIZ', icon: HelpCircle },
-  { id: 'scenarios', label: 'SCN', icon: Lightbulb },
   { id: 'analytics', label: 'ANL', name: 'Analytics', icon: ChartColumn },
 ]
 
 // Challenge surfaces stay hidden from students until Academics opens student_access.
-// Scenarios stay admin-only regardless.
+// Scenarios stay reachable from the Library for admins, but the rail no longer lists them.
 const challengeAcademyPages = new Set<AcademyPage>(['leaderboard', 'flashcards', 'quiz', 'analytics'])
 const alwaysAdminAcademyPages = new Set<AcademyPage>(['scenarios'])
 

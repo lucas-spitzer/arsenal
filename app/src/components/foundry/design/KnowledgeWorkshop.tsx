@@ -36,6 +36,17 @@ function errorMessage(caught: unknown, fallback: string): string {
   return caught instanceof Error ? caught.message : fallback
 }
 
+function sourceTitleFor(source: Parameters<typeof sourceTitle>[0] | undefined): string {
+  return source ? sourceTitle(source) : ''
+}
+
+/** The notes file name without its extension, else the book or class it belongs to. */
+function projectTitle(files: File[], homeName: string): string {
+  const notes = files.find((file) => file.name.toLowerCase().endsWith('.json')) ?? files[0]
+  const fromFile = notes ? notes.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() : ''
+  return fromFile || homeName.trim() || 'Knowledge notes'
+}
+
 export function KnowledgeWorkshop({ onShowStudy }: { onShowStudy: () => void }) {
   const [view, setView] = useState<KnowledgeView>({ kind: 'list' })
   if (view.kind === 'setup') {
@@ -147,7 +158,6 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
   const { sources } = useWorkspaceData()
   const { lessons, isLoading: lessonsLoading } = useLessons(activeWorkspace?.id ?? null)
   const readySources = sources.filter((source) => source.status === 'ready')
-  const [title, setTitle] = useState('')
   const [home, setHome] = useState<KnowledgeHome>({ kind: 'book', sourceId: readySources[0]?.id ?? '' })
   const [notes, setNotes] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -158,7 +168,11 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
     ? lessons.find((lesson) => lesson.id === home.lessonId)?.id ?? lessons[0]?.id ?? ''
     : ''
   const homeReady = home.kind === 'book' ? home.sourceId.length > 0 : selectedLessonId.length > 0
-  const ready = title.trim().length > 0 && homeReady && (files.length > 0 || notes.trim().length > 0)
+  const hasContent = home.kind === 'lesson' ? files.length > 0 : files.length > 0 || notes.trim().length > 0
+  const ready = homeReady && hasContent
+  const homeName = home.kind === 'book'
+    ? sourceTitleFor(readySources.find((source) => source.id === home.sourceId))
+    : lessons.find((lesson) => lesson.id === selectedLessonId)?.title ?? ''
 
   const submit = async () => {
     if (!ready || !activeWorkspace) return
@@ -169,7 +183,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
     setError(null)
     try {
       const project = await createKnowledgeProject(activeWorkspace.id, {
-        title: title.trim(),
+        title: projectTitle(files, homeName),
         home: nextHome,
         notes: notes.trim(),
         files,
@@ -199,12 +213,6 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
       </header>
       <div className="as-console__scroll kproj-setup">
         {error ? <ErrorBanner message={error} /> : null}
-        <div className="kproj-field">
-          <label className="kproj-label" htmlFor="kproj-title">
-            Title
-          </label>
-          <input id="kproj-title" className="as-wiki__input" value={title} onChange={(event) => setTitle(event.target.value)} />
-        </div>
         <div className="kproj-field">
           <span className="kproj-label" id="kproj-home-label">
             Belongs to
@@ -290,7 +298,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
         </div>
         <div className="kproj-field">
           <label className="kproj-label" htmlFor="kproj-file">
-            {home.kind === 'lesson' ? 'Practice questions' : 'Notes file'}
+            {home.kind === 'lesson' ? 'JSON Data Upload' : 'Notes file'}
           </label>
           <div className="kproj-file">
             <input
@@ -329,19 +337,21 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
               : 'JSON with terms, key lists, and ELOs is imported as wiki entries. Other files are transcribed first. A question pack with pictures is a zip of the JSON and the images, or the JSON and the image files selected together. The image file name has to match the filename on the question.'}
           </p>
         </div>
-        <div className="kproj-field">
-          <label className="kproj-label" htmlFor="kproj-notes">
-            {home.kind === 'lesson' ? 'Or paste a question pack' : 'Or paste notes'}
-          </label>
-          <textarea
-            id="kproj-notes"
-            className="as-wiki__input kproj-notes"
-            rows={8}
-            value={notes}
-            disabled={files.length > 0}
-            onChange={(event) => setNotes(event.target.value)}
-          />
-        </div>
+        {home.kind === 'book' ? (
+          <div className="kproj-field">
+            <label className="kproj-label" htmlFor="kproj-notes">
+              Or paste notes
+            </label>
+            <textarea
+              id="kproj-notes"
+              className="as-wiki__input kproj-notes"
+              rows={8}
+              value={notes}
+              disabled={files.length > 0}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+          </div>
+        ) : null}
       </div>
     </>
   )
@@ -441,16 +451,20 @@ function KnowledgeProject({
         </div>
       </header>
       <div className="as-console__scroll">
-        <h3 className="kproj-doc-title">{project.title}</h3>
-        {error ? <ErrorBanner message={error} onDismiss={() => setError(null)} /> : null}
-        {project.error ? <ErrorBanner message={project.error} /> : null}
-        {project.status === 'failed' ? (
-          <p className="dsn-hint">Structuring failed. Start a new project to try the notes again.</p>
-        ) : null}
-        {project.status === 'composing' ? (
-          <KnowledgeComposer project={project} onChange={setProject} onError={setError} />
-        ) : null}
-        {project.status === 'ready' ? <ReviewView project={project} onChange={setProject} onError={setError} /> : null}
+        <div className={project.status === 'ready' ? 'kproj-column' : undefined}>
+          <h3 className="kproj-doc-title">{project.title}</h3>
+          {error ? <ErrorBanner message={error} onDismiss={() => setError(null)} /> : null}
+          {project.error ? <ErrorBanner message={project.error} /> : null}
+          {project.status === 'failed' ? (
+            <p className="dsn-hint">Structuring failed. Start a new project to try the notes again.</p>
+          ) : null}
+          {project.status === 'composing' ? (
+            <KnowledgeComposer project={project} onChange={setProject} onError={setError} />
+          ) : null}
+          {project.status === 'ready' ? (
+            <ReviewView project={project} onChange={setProject} onError={setError} onDone={onBack} />
+          ) : null}
+        </div>
       </div>
       <FoundryDialog
         title="Delete knowledge draft"
@@ -504,16 +518,23 @@ function ReviewView({
   project,
   onChange,
   onError,
+  onDone,
 }: {
   project: KnowledgeProjectDetail
   onChange: (project: KnowledgeProjectDetail) => void
   onError: (message: string) => void
+  onDone: () => void
 }) {
   const [isBusy, setIsBusy] = useState(false)
+  const hasImage = project.items.some((item) => item.visual != null)
+  const actionLabel = isBusy ? 'Saving…' : hasImage ? 'Update images' : 'Done'
 
   return (
     <div className="kproj-compose">
       <div className="kproj-switches">
+        {hasImage ? null : (
+          <p className="dsn-hint">These questions are saved. Images are optional.</p>
+        )}
         <button
           type="button"
           className="as-console__cta"
@@ -521,12 +542,15 @@ function ReviewView({
           onClick={() => {
             setIsBusy(true)
             void attachKnowledgeVisuals(project.id)
-              .then(onChange)
+              .then((next) => {
+                onChange(next)
+                if (!hasImage) onDone()
+              })
               .catch((caught: unknown) => onError(errorMessage(caught, 'Could not update images.')))
               .finally(() => setIsBusy(false))
           }}
         >
-          Update images
+          {actionLabel}
         </button>
       </div>
       <ul className="kproj-entries">

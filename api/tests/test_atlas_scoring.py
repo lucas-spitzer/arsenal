@@ -124,3 +124,22 @@ def test_eligible_quizzes_skip_empty_stems() -> None:
         ]
     )
     assert [row["id"] for row in rows] == ["ok"]
+
+
+def test_eligible_quizzes_skip_short_answers() -> None:
+    rows = eligible_quizzes(
+        [
+            _quiz("ok", source_id="src"),
+            {
+                "id": "short",
+                "question": "What is friction?",
+                "question_type": "short_answer",
+                "subtype": "short_answer",
+                "options": [],
+                "correct_answer": "",
+                "answer_pool": {},
+                "evaluation_criteria": ["Names the force that resists action"],
+            },
+        ]
+    )
+    assert [row["id"] for row in rows] == ["ok"]
