@@ -89,7 +89,7 @@ export function LeaderboardView() {
             ) : null}
           </div>
 
-          <StandingsTable entries={board.entries} selfName={selfName} showAccuracy />
+          <StandingsTable entries={board.entries} selfName={selfName} showAccuracy showPointsInfo />
         </>
       ) : null}
     </section>

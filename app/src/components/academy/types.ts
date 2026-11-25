@@ -64,10 +64,10 @@ export const academyRailItems: { id: AcademyPage; label: string; icon: LucideIco
 ]
 
 // Challenge surfaces stay hidden from students until Academics opens student_access.
-// The flip-card deck stays with Academics. FLC still opens for term questions.
+// Flashcards are admin-only for now, for students and observers alike.
 // Scenarios stay reachable from the Library for admins, but the rail no longer lists them.
-const challengeAcademyPages = new Set<AcademyPage>(['leaderboard', 'flashcards', 'quiz', 'analytics'])
-const alwaysAdminAcademyPages = new Set<AcademyPage>(['scenarios'])
+const challengeAcademyPages = new Set<AcademyPage>(['leaderboard', 'quiz', 'analytics'])
+const alwaysAdminAcademyPages = new Set<AcademyPage>(['scenarios', 'flashcards'])
 
 /** Flip cards stay hidden from students and observers after challenge pages open. */
 export function showsFlashcardDeck(isAdmin: boolean): boolean {

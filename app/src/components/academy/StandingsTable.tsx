@@ -1,27 +1,48 @@
 import { ArrowDown, ArrowUp, Info } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { LeaderboardEntry } from '../../lib/atlasApi'
 import { REWARD_BANDS, groupByRewardBand } from '../../lib/leaderboardRewards'
+
+const POINT_RULES: readonly { label: string; points: string }[] = [
+  { label: 'First correct answer', points: '+5 AP' },
+  { label: 'Each repeat correct', points: '+1 AP' },
+  { label: 'Mastery (5th correct)', points: '+3 AP bonus' },
+  { label: 'Wrong answer', points: '0 AP' },
+]
 
 export function StandingsTable({
   entries,
   selfName,
   showAccuracy = false,
+  showPointsInfo = false,
 }: {
   entries: LeaderboardEntry[]
   selfName?: string
   showAccuracy?: boolean
+  showPointsInfo?: boolean
 }) {
-  const [rewardsOpen, setRewardsOpen] = useState(false)
+  const [openDialog, setOpenDialog] = useState<'points' | 'rewards' | null>(null)
+  const close = () => setOpenDialog(null)
 
   return (
     <div className="ldr__standings">
       <div className="ldr__standings-bar">
+        {showPointsInfo ? (
+          <button
+            type="button"
+            className="ldr__info-btn ldr__info-btn--start"
+            aria-haspopup="dialog"
+            onClick={() => setOpenDialog('points')}
+          >
+            <Info size={14} aria-hidden />
+            How points work
+          </button>
+        ) : null}
         <button
           type="button"
-          className="ldr__rewards-btn"
+          className="ldr__info-btn"
           aria-haspopup="dialog"
-          onClick={() => setRewardsOpen(true)}
+          onClick={() => setOpenDialog('rewards')}
         >
           <Info size={14} aria-hidden />
           Rewards
@@ -55,7 +76,38 @@ export function StandingsTable({
           </tbody>
         ))}
       </table>
-      {rewardsOpen ? <RewardsDialog onClose={() => setRewardsOpen(false)} /> : null}
+      {openDialog === 'rewards' ? (
+        <InfoDialog id="ldr-rewards-title" title="Rewards" onClose={close}>
+          <dl className="ldr__rewards-list">
+            {REWARD_BANDS.filter((band) => band.reward).map((band) => (
+              <div key={band.id} className={`ldr__rewards-item ldr__rewards-item--${band.id}`}>
+                <dt>{band.label}</dt>
+                <dd>{band.reward}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="ldr__rewards-note">
+            Each place also earns every reward listed below it. 1st takes all three.
+          </p>
+        </InfoDialog>
+      ) : null}
+      {openDialog === 'points' ? (
+        <InfoDialog id="ldr-points-title" title="How points work" onClose={close}>
+          <p className="ldr__rewards-note">Every question you answer earns Atlas Points (AP) by these rules.</p>
+          <dl className="ldr__points-list">
+            {POINT_RULES.map((rule) => (
+              <div key={rule.label} className="ldr__points-item">
+                <dt>{rule.label}</dt>
+                <dd>{rule.points}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="ldr__rewards-note">
+            Getting a question right five times masters it and earns 12 AP in total. Ties on AP go to more
+            concepts mastered, then higher accuracy. Points stop when the challenge closes.
+          </p>
+        </InfoDialog>
+      ) : null}
     </div>
   )
 }
@@ -84,7 +136,17 @@ function Movement({ places }: { places: number }) {
   )
 }
 
-function RewardsDialog({ onClose }: { onClose: () => void }) {
+function InfoDialog({
+  id,
+  title,
+  onClose,
+  children,
+}: {
+  id: string
+  title: string
+  onClose: () => void
+  children: ReactNode
+}) {
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -106,29 +168,19 @@ function RewardsDialog({ onClose }: { onClose: () => void }) {
         className="cal__dialog ldr__rewards"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="ldr-rewards-title"
+        aria-labelledby={id}
         tabIndex={-1}
         onClick={(click) => click.stopPropagation()}
       >
         <div className="cal__dialog-head">
-          <h3 id="ldr-rewards-title" className="cal__dialog-title">
-            Rewards
+          <h3 id={id} className="cal__dialog-title">
+            {title}
           </h3>
           <button type="button" className="cal__dialog-close" onClick={onClose}>
             Close
           </button>
         </div>
-        <dl className="ldr__rewards-list">
-          {REWARD_BANDS.filter((band) => band.reward).map((band) => (
-            <div key={band.id} className={`ldr__rewards-item ldr__rewards-item--${band.id}`}>
-              <dt>{band.label}</dt>
-              <dd>{band.reward}</dd>
-            </div>
-          ))}
-        </dl>
-        <p className="ldr__rewards-note">
-          Each place also earns every reward listed below it. 1st takes all three.
-        </p>
+        {children}
       </div>
     </div>
   )

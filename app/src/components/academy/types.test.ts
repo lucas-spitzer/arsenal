@@ -70,10 +70,12 @@ describe('academy rail gating', () => {
     expect(academyPageForRole('quiz', false, true)).toBe('quiz')
   })
 
-  it('keeps the flip-card deck with Academics after challenge pages open', () => {
+  it('keeps flashcards admin-only even with student access', () => {
     expect(showsFlashcardDeck(true)).toBe(true)
     expect(showsFlashcardDeck(false)).toBe(false)
-    expect(academyRailForRole(false, true).map((item) => item.id)).toContain('flashcards')
-    expect(academyPageForRole('flashcards', false, true)).toBe('flashcards')
+    expect(academyRailForRole(false, true).map((item) => item.id)).not.toContain('flashcards')
+    expect(academyRailForRole(true, false).map((item) => item.id)).toContain('flashcards')
+    expect(academyPageForRole('flashcards', false, true)).toBe('leaderboard')
+    expect(academyPageForRole('flashcards', true, false)).toBe('flashcards')
   })
 })

@@ -5743,7 +5743,11 @@ article.anl__row {
   justify-content: flex-end;
 }
 
-.ldr__rewards-btn {
+.ldr__info-btn--start {
+  margin-right: auto;
+}
+
+.ldr__info-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -5761,7 +5765,7 @@ article.anl__row {
   cursor: pointer;
 }
 
-.ldr__rewards-btn:hover {
+.ldr__info-btn:hover {
   background: var(--ldr-accent);
   color: #fff;
 }
@@ -5833,4 +5837,33 @@ article.anl__row {
   margin: 0;
   font-size: 13px;
   color: var(--color-gray);
+}
+
+.ldr__points-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border: 1px solid var(--border-subtle);
+}
+
+.ldr__points-item {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+}
+
+.ldr__points-item + .ldr__points-item {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ldr__points-item dt {
+  color: var(--color-gray);
+}
+
+.ldr__points-item dd {
+  margin: 0;
+  color: var(--color-navy);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
