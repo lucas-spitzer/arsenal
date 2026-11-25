@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -61,6 +61,8 @@ from app.services.atlas_scoring import (
     accuracy_from_counts,
     apply_correct_progress,
     apply_incorrect_progress,
+    leaderboard_stats,
+    rank_movement,
     sort_leaderboard_rows,
     sum_points,
 )
@@ -75,6 +77,7 @@ class AtlasError(Exception):
 
 
 DEFAULT_ENDS_AT = "2026-12-01T03:00:00+00:00"
+MOVEMENT_WINDOW = timedelta(hours=24)
 
 
 def competition_closed(competition: dict[str, Any], now: datetime) -> bool:
@@ -920,46 +923,30 @@ class AtlasService:
         events = await self.atlas.list_score_events_for_workspace(workspace_id)
         progress = await self.atlas.list_progress_for_workspace(workspace_id)
         answers = await self.atlas.list_answers_for_workspace(workspace_id)
-        ap_by_user: dict[str, int] = {}
-        for row in events:
-            user_id = str(row["user_id"])
-            ap_by_user[user_id] = ap_by_user.get(user_id, 0) + int(row.get("points") or 0)
-        mastered_by_user: dict[str, int] = {}
-        for row in progress:
-            if not row.get("mastered_at"):
-                continue
-            user_id = str(row["user_id"])
-            mastered_by_user[user_id] = mastered_by_user.get(user_id, 0) + 1
-        correct_by_user: dict[str, int] = {}
-        total_by_user: dict[str, int] = {}
-        for row in answers:
-            user_id = str(row["user_id"])
-            total_by_user[user_id] = total_by_user.get(user_id, 0) + 1
-            if row.get("is_correct"):
-                correct_by_user[user_id] = correct_by_user.get(user_id, 0) + 1
+        current_stats = leaderboard_stats(events, progress, answers)
+        prior_stats = leaderboard_stats(events, progress, answers, as_of=self._clock() - MOVEMENT_WINDOW)
+        empty_stats = {"lifetime_ap": 0, "concepts_mastered": 0, "accuracy": None}
 
-        raw_rows: list[dict[str, Any]] = []
+        people: list[dict[str, Any]] = []
         for person in roster:
             email = str(person.get("email") or "").casefold()
             user_id = email_to_user.get(email)
             if not user_id:
                 # Include roster names with zero scores even before first login mapping fails.
                 user_id = f"email:{email}"
-            raw_rows.append(
+            people.append(
                 {
                     "user_id": user_id,
                     "name": str(person.get("name") or person.get("email") or "Student"),
                     "rank_title": person.get("rank"),
-                    "lifetime_ap": ap_by_user.get(user_id, 0) if not user_id.startswith("email:") else 0,
-                    "concepts_mastered": mastered_by_user.get(user_id, 0) if not user_id.startswith("email:") else 0,
-                    "accuracy": accuracy_from_counts(
-                        correct_by_user.get(user_id, 0),
-                        total_by_user.get(user_id, 0),
-                    )
-                    if not user_id.startswith("email:")
-                    else None,
                 }
             )
+
+        def standings(stats: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+            return [{**person, **stats.get(person["user_id"], empty_stats)} for person in people]
+
+        raw_rows = standings(current_stats)
+        movement = rank_movement(raw_rows, standings(prior_stats))
         ordered = sort_leaderboard_rows(raw_rows)
         return [
             LeaderboardEntry(
@@ -970,6 +957,7 @@ class AtlasService:
                 lifetime_ap=int(row["lifetime_ap"]),
                 concepts_mastered=int(row["concepts_mastered"]),
                 accuracy=row.get("accuracy"),
+                movement_24h=movement.get(str(row["user_id"]), 0),
             )
             for index, row in enumerate(ordered, start=1)
         ]

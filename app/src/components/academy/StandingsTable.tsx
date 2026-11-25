@@ -1,4 +1,4 @@
-import { Info } from 'lucide-react'
+import { ArrowDown, ArrowUp, Info } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { LeaderboardEntry } from '../../lib/atlasApi'
 import { REWARD_BANDS, groupByRewardBand } from '../../lib/leaderboardRewards'
@@ -35,6 +35,7 @@ export function StandingsTable({
             <th>AP</th>
             <th>Mastered</th>
             {showAccuracy ? <th>Accuracy</th> : null}
+            <th>24Hr</th>
           </tr>
         </thead>
         {groupByRewardBand(entries).map(({ band, entries: rows }) => (
@@ -46,6 +47,9 @@ export function StandingsTable({
                 <td>{entry.lifetime_ap}</td>
                 <td>{entry.concepts_mastered}</td>
                 {showAccuracy ? <td>{entry.accuracy == null ? '—' : `${entry.accuracy}%`}</td> : null}
+                <td>
+                  <Movement places={entry.movement_24h ?? 0} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -53,6 +57,30 @@ export function StandingsTable({
       </table>
       {rewardsOpen ? <RewardsDialog onClose={() => setRewardsOpen(false)} /> : null}
     </div>
+  )
+}
+
+function Movement({ places }: { places: number }) {
+  if (places > 0) {
+    return (
+      <span className="ldr__move ldr__move--up" aria-label={`Up ${places}`}>
+        <ArrowUp size={14} aria-hidden />
+        {places}
+      </span>
+    )
+  }
+  if (places < 0) {
+    return (
+      <span className="ldr__move ldr__move--down" aria-label={`Down ${-places}`}>
+        <ArrowDown size={14} aria-hidden />
+        {-places}
+      </span>
+    )
+  }
+  return (
+    <span className="ldr__move ldr__move--flat" aria-label="No change">
+      —
+    </span>
   )
 }
 

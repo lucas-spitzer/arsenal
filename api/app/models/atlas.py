@@ -100,6 +100,7 @@ class LeaderboardEntry(BaseModel):
     lifetime_ap: int
     concepts_mastered: int
     accuracy: float | None
+    movement_24h: int = 0
 
 
 class LeaderboardResponse(BaseModel):

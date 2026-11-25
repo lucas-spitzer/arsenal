@@ -8,9 +8,9 @@ export interface RewardBand {
 }
 
 export const REWARD_BANDS: readonly RewardBand[] = [
-  { id: 'champion', label: '1st', maxRank: 1, reward: 'Academic Champion badge' },
-  { id: 'podium', label: 'Top 3', maxRank: 3, reward: 'Alpha Co decals' },
-  { id: 'top-ten', label: 'Top 10', maxRank: 10, reward: 'Academic Weapon badge' },
+  { id: 'champion', label: '1st', maxRank: 1, reward: 'Academic Champion Badge' },
+  { id: 'podium', label: 'Top 3', maxRank: 3, reward: 'Official Alpha Co Decals' },
+  { id: 'top-ten', label: 'Top 10', maxRank: 10, reward: 'Academic Weapon Badge' },
   { id: 'field', label: 'Standings', maxRank: Number.POSITIVE_INFINITY, reward: null },
 ]
 

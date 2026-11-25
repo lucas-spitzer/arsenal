@@ -5685,6 +5685,31 @@ article.anl__row {
   background: rgba(0, 30, 46, 0.08);
 }
 
+.ldr__move {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ldr__move--up {
+  color: var(--ldr-up, #2e7d32);
+}
+
+.ldr__move--down {
+  color: var(--color-scarlet);
+}
+
+.ldr__move--flat {
+  color: var(--color-light-gray);
+  font-weight: 400;
+}
+
+.academy--v3 .ldr__move--up {
+  --ldr-up: #5fbf7a;
+}
+
 .ldr__frozen {
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--color-gold);

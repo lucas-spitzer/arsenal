@@ -1,4 +1,5 @@
 import random
+from datetime import UTC, datetime
 
 from app.services.atlas_exams import (
     ExamAssemblyError,
@@ -7,7 +8,9 @@ from app.services.atlas_exams import (
     eligible_quizzes,
 )
 from app.services.atlas_scoring import (
+    leaderboard_stats,
     points_for_correct_answer,
+    rank_movement,
     sort_leaderboard_rows,
     sum_points,
 )
@@ -44,6 +47,72 @@ def test_leaderboard_tie_break_order() -> None:
         ]
     )
     assert [row["name"] for row in rows] == ["2ndLt C", "2ndLt A", "2ndLt B"]
+
+
+CUTOFF = datetime(2026, 11, 24, 12, 0, tzinfo=UTC)
+EARLY = "2026-11-24T08:00:00+00:00"
+LATE = "2026-11-25T08:00:00Z"
+
+
+def _standings(stats: dict[str, dict]) -> list[dict]:
+    empty = {"lifetime_ap": 0, "concepts_mastered": 0, "accuracy": None}
+    return [{"user_id": user_id, "name": user_id, **stats.get(user_id, empty)} for user_id in ("a", "b", "c")]
+
+
+def _movement(events: list[dict]) -> dict[str, int]:
+    current = leaderboard_stats(events, [], [])
+    prior = leaderboard_stats(events, [], [], as_of=CUTOFF)
+    return rank_movement(_standings(current), _standings(prior))
+
+
+def test_late_points_move_a_student_up_and_others_down() -> None:
+    movement = _movement(
+        [
+            {"user_id": "a", "points": 10, "created_at": EARLY},
+            {"user_id": "b", "points": 5, "created_at": EARLY},
+            {"user_id": "c", "points": 20, "created_at": LATE},
+        ]
+    )
+    assert movement == {"c": 2, "a": -1, "b": -1}
+
+
+def test_points_before_the_cutoff_do_not_count_as_movement() -> None:
+    movement = _movement(
+        [
+            {"user_id": "a", "points": 10, "created_at": EARLY},
+            {"user_id": "c", "points": 20, "created_at": EARLY},
+        ]
+    )
+    assert movement == {"a": 0, "b": 0, "c": 0}
+
+
+def test_late_points_that_keep_the_order_are_no_movement() -> None:
+    movement = _movement(
+        [
+            {"user_id": "a", "points": 10, "created_at": EARLY},
+            {"user_id": "a", "points": 5, "created_at": LATE},
+            {"user_id": "b", "points": 3, "created_at": LATE},
+        ]
+    )
+    assert movement == {"a": 0, "b": 0, "c": 0}
+
+
+def test_stats_cutoff_applies_to_mastery_and_accuracy() -> None:
+    progress = [
+        {"user_id": "a", "mastered_at": EARLY},
+        {"user_id": "a", "mastered_at": LATE},
+        {"user_id": "a", "mastered_at": None},
+    ]
+    answers = [
+        {"user_id": "a", "is_correct": True, "submitted_at": EARLY},
+        {"user_id": "a", "is_correct": False, "submitted_at": LATE},
+    ]
+    assert leaderboard_stats([], progress, answers, as_of=CUTOFF)["a"] == {
+        "lifetime_ap": 0,
+        "concepts_mastered": 1,
+        "accuracy": 100,
+    }
+    assert leaderboard_stats([], progress, answers)["a"]["accuracy"] == 50
 
 
 def _quiz(quiz_id: str, *, source_id: str | None = None, lesson_id: str | None = None) -> dict:

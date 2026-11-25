@@ -67,6 +67,7 @@ export interface LeaderboardEntry {
   lifetime_ap: number
   concepts_mastered: number
   accuracy: number | null
+  movement_24h?: number
 }
 
 export interface Leaderboard {

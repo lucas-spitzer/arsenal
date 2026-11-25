@@ -91,3 +91,59 @@ def sort_leaderboard_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
 
     return sorted(rows, key=key)
+
+
+def _happened_by(value: Any, cutoff: datetime | None) -> bool:
+    if cutoff is None:
+        return True
+    if not value:
+        return False
+    when = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return when <= cutoff
+
+
+def leaderboard_stats(
+    events: list[dict[str, Any]],
+    progress: list[dict[str, Any]],
+    answers: list[dict[str, Any]],
+    *,
+    as_of: datetime | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Per-user AP, mastery, and accuracy, counting only activity at or before ``as_of``."""
+    ap: dict[str, int] = {}
+    mastered: dict[str, int] = {}
+    correct: dict[str, int] = {}
+    total: dict[str, int] = {}
+    for row in events:
+        if _happened_by(row.get("created_at"), as_of):
+            user_id = str(row["user_id"])
+            ap[user_id] = ap.get(user_id, 0) + int(row.get("points") or 0)
+    for row in progress:
+        if row.get("mastered_at") and _happened_by(row.get("mastered_at"), as_of):
+            user_id = str(row["user_id"])
+            mastered[user_id] = mastered.get(user_id, 0) + 1
+    for row in answers:
+        if _happened_by(row.get("submitted_at"), as_of):
+            user_id = str(row["user_id"])
+            total[user_id] = total.get(user_id, 0) + 1
+            if row.get("is_correct"):
+                correct[user_id] = correct.get(user_id, 0) + 1
+    return {
+        user_id: {
+            "lifetime_ap": ap.get(user_id, 0),
+            "concepts_mastered": mastered.get(user_id, 0),
+            "accuracy": accuracy_from_counts(correct.get(user_id, 0), total.get(user_id, 0)),
+        }
+        for user_id in set(ap) | set(mastered) | set(total)
+    }
+
+
+def rank_movement(current: list[dict[str, Any]], prior: list[dict[str, Any]]) -> dict[str, int]:
+    """Places gained per user (positive = moved up) between two unsorted standings."""
+    prior_rank = {str(row["user_id"]): rank for rank, row in enumerate(sort_leaderboard_rows(prior), start=1)}
+    return {
+        str(row["user_id"]): prior_rank.get(str(row["user_id"]), rank) - rank
+        for rank, row in enumerate(sort_leaderboard_rows(current), start=1)
+    }
