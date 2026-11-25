@@ -53,7 +53,7 @@ export function LeaderboardView() {
       {board ? (
         <>
           {board.finalized ? (
-            <p className="ldr__frozen">Final standings frozen</p>
+            <p className="ldr__frozen">Challenge closed. Final standings.</p>
           ) : ends ? (
             <p className="ldr__frozen">
               Challenge ends {ends.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}

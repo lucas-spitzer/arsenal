@@ -194,6 +194,18 @@ class AtlasRepository:
         )
         return rows[0]
 
+    async def finalize_competition_if_open(
+        self,
+        workspace_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        rows = await self.db.update(
+            "competition_settings",
+            filters={"workspace_id": f"eq.{workspace_id}", "finalized_at": "is.null"},
+            payload=payload,
+        )
+        return rows[0] if rows else None
+
     async def list_approved_roster(self) -> list[dict[str, Any]]:
         return await self.db.select_many(
             "approved_users",

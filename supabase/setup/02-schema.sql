@@ -933,7 +933,7 @@ on public.score_events (workspace_id, created_at desc);
 create table public.competition_settings (
   workspace_id uuid primary key references public.workspaces (id) on delete cascade,
   starts_at timestamptz not null default now(),
-  ends_at timestamptz not null default '2026-12-01 05:00:00+00',
+  ends_at timestamptz not null default '2026-12-01 03:00:00+00',
   platoon_goal integer,
   student_access boolean not null default false,
   finalized_at timestamptz,

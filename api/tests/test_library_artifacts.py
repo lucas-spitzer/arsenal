@@ -304,7 +304,8 @@ def test_questions_only_json_lands_in_the_library_without_wiki_rows() -> None:
     assert result["question_count"] == 1
     assert wiki.inserted == []
     assert quizzes.rows[0]["citations"] == []
-    assert quizzes.rows[0]["origin"]["source"] == "structured_notes"
+    assert quizzes.rows[0]["origin"]["source"] == "book_practice"
+    assert quizzes.rows[0]["origin"]["from"] == "structured_notes"
     assert "knowledge_project_id" not in quizzes.rows[0]
 
 

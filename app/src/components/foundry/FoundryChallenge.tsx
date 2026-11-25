@@ -19,6 +19,7 @@ export function FoundryChallenge() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [goalDraft, setGoalDraft] = useState('')
+  const [endsDraft, setEndsDraft] = useState('')
   const [loadToken, setLoadToken] = useState(0)
 
   const reload = useCallback(() => {
@@ -34,6 +35,7 @@ export function FoundryChallenge() {
         setCompetition(nextCompetition)
         setDashboard(nextDashboard)
         setGoalDraft(nextCompetition.platoon_goal != null ? String(nextCompetition.platoon_goal) : '')
+        setEndsDraft(toLocalInputValue(nextCompetition.ends_at))
         setError(null)
       })
       .catch((caught: unknown) => {
@@ -71,6 +73,25 @@ export function FoundryChallenge() {
       setCompetition(next)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not update the platoon goal.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveEnds = async () => {
+    const endsAt = new Date(endsDraft)
+    if (Number.isNaN(endsAt.getTime())) {
+      setError('Pick an end date and time.')
+      return
+    }
+    setSaving(true)
+    try {
+      const next = await updateCompetition(workspaceId, { ends_at: endsAt.toISOString() })
+      setCompetition(next)
+      setEndsDraft(toLocalInputValue(next.ends_at))
+      reload()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not update the end time.')
     } finally {
       setSaving(false)
     }
@@ -122,6 +143,29 @@ export function FoundryChallenge() {
               />
               Open LDR / QIZ / FLC Questions / ANL to students
             </label>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'end', marginTop: 16 }}>
+              <label className="as-console__field">
+                <span className="as-console__field-label">End time (your local time)</span>
+                <input
+                  className="as-console__input"
+                  type="datetime-local"
+                  value={endsDraft}
+                  disabled={Boolean(competition.finalized_at)}
+                  onChange={(event) => setEndsDraft(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={saving || Boolean(competition.finalized_at) || !endsDraft}
+                onClick={() => void saveEnds()}
+              >
+                Save end time
+              </button>
+            </div>
+            <p className="as-console__field-label" style={{ marginTop: 8 }}>
+              At the end time, answers stop earning AP and the standings freeze on their own.
+            </p>
             <div style={{ display: 'flex', gap: 12, alignItems: 'end', marginTop: 16 }}>
               <label className="as-console__field">
                 <span className="as-console__field-label">Platoon goal (optional)</span>
@@ -211,4 +255,11 @@ export function FoundryChallenge() {
       )}
     </div>
   )
+}
+
+function toLocalInputValue(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }

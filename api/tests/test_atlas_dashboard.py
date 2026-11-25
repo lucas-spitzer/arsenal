@@ -160,6 +160,7 @@ def _service() -> tuple[AtlasService, _Atlas]:
         lessons=_Lessons(),  # type: ignore[arg-type]
         db=None,  # type: ignore[arg-type]
         settings=None,  # type: ignore[arg-type]
+        clock=lambda: datetime(2026, 11, 25, 12, 0, tzinfo=UTC),
     )
     return service, atlas
 

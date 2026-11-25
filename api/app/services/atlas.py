@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -73,7 +74,20 @@ class AtlasError(Exception):
         super().__init__(detail)
 
 
-DEFAULT_ENDS_AT = "2026-12-01T05:00:00+00:00"
+DEFAULT_ENDS_AT = "2026-12-01T03:00:00+00:00"
+
+
+def competition_closed(competition: dict[str, Any], now: datetime) -> bool:
+    """A frozen challenge, or one past its end time, awards no more Atlas Points."""
+    if competition.get("finalized_at"):
+        return True
+    ends_at = competition.get("ends_at")
+    if not ends_at:
+        return False
+    end = ends_at if isinstance(ends_at, datetime) else datetime.fromisoformat(str(ends_at).replace("Z", "+00:00"))
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=UTC)
+    return now >= end
 
 
 @dataclass(frozen=True)
@@ -95,6 +109,7 @@ class AtlasService:
         lessons: LessonRepository,
         db: SupabaseRestClient,
         settings: Settings,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.atlas = atlas
         self.assessments = assessments
@@ -102,6 +117,7 @@ class AtlasService:
         self.lessons = lessons
         self.db = db
         self.settings = settings
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     async def ensure_access(self, user: CurrentUser, workspace_id: str) -> dict[str, Any]:
         competition = await self.ensure_competition(workspace_id)
@@ -112,7 +128,7 @@ class AtlasService:
     async def ensure_competition(self, workspace_id: str) -> dict[str, Any]:
         existing = await self.atlas.get_competition(workspace_id)
         if existing:
-            return existing
+            return await self._freeze_if_ended(workspace_id, existing)
         now = datetime.now(UTC).isoformat()
         return await self.atlas.upsert_competition(
             {
@@ -126,6 +142,28 @@ class AtlasService:
                 "updated_at": now,
             }
         )
+
+    async def _freeze_if_ended(self, workspace_id: str, competition: dict[str, Any]) -> dict[str, Any]:
+        if competition.get("finalized_at") or not competition_closed(competition, self._clock()):
+            return competition
+        # Scoring already stopped at ends_at, so a snapshot taken on a later read is still exact.
+        snapshot = await self._final_standings_payload(workspace_id)
+        frozen = await self.atlas.finalize_competition_if_open(workspace_id, snapshot)
+        if frozen:
+            return frozen
+        return await self.atlas.get_competition(workspace_id) or competition
+
+    async def _final_standings_payload(self, workspace_id: str) -> dict[str, Any]:
+        entries = await self._build_leaderboard(workspace_id)
+        now = datetime.now(UTC).isoformat()
+        return {
+            "finalized_at": now,
+            "final_standings": [entry.model_dump(mode="json") for entry in entries],
+            "updated_at": now,
+        }
+
+    def _scoring_open(self, competition: dict[str, Any]) -> bool:
+        return not competition_closed(competition, self._clock())
 
     async def list_all_quizzes(self, workspace_id: str) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -215,7 +253,7 @@ class AtlasService:
         attempt_id: str,
         payload: AnswerSubmitRequest,
     ) -> AnswerSubmitResponse:
-        _competition, attempt, existing, quiz, progress = await asyncio.gather(
+        competition, attempt, existing, quiz, progress = await asyncio.gather(
             self.ensure_access(user, workspace_id),
             self.atlas.get_attempt(attempt_id, workspace_id, user.id),
             self.atlas.get_answer(attempt_id, payload.quiz_id),
@@ -232,6 +270,7 @@ class AtlasService:
             attempt=attempt,
             payload=payload,
             allow_any_quiz=False,
+            scoring_open=self._scoring_open(competition),
             loaded=_Loaded(existing=existing, quiz=quiz, progress=progress),
         )
 
@@ -266,7 +305,8 @@ class AtlasService:
         workspace_id: str,
         payload: PracticeAnswerRequest,
     ) -> AnswerSubmitResponse:
-        await self.ensure_access(user, workspace_id)
+        competition = await self.ensure_access(user, workspace_id)
+        scoring_open = self._scoring_open(competition)
         response_text = (payload.response or "").strip()
         if response_text:
             return await self._submit_practice_short_answer(
@@ -275,6 +315,7 @@ class AtlasService:
                 quiz_id=payload.quiz_id,
                 question=payload.question,
                 response=response_text,
+                scoring_open=scoring_open,
             )
         if payload.selected_index is None or not payload.options:
             raise AtlasError("Pick an option or write a short answer.")
@@ -312,6 +353,7 @@ class AtlasService:
                 selected_index=payload.selected_index,
             ),
             allow_any_quiz=True,
+            scoring_open=scoring_open,
         )
         await self.atlas.update_attempt(
             str(attempt["id"]),
@@ -332,6 +374,7 @@ class AtlasService:
         quiz_id: str,
         question: str,
         response: str,
+        scoring_open: bool,
     ) -> AnswerSubmitResponse:
         quiz = await self.assessments.get_quiz(quiz_id, workspace_id)
         if not quiz:
@@ -392,6 +435,7 @@ class AtlasService:
             feedback=grade.feedback or None,
             correct=grade.passed,
             right_answer="",
+            scoring_open=scoring_open,
         )
         await self.atlas.update_attempt(
             str(attempt["id"]),
@@ -468,15 +512,7 @@ class AtlasService:
         if not is_admin(user):
             raise AtlasError("Only Academics can finalize the competition.", status_code=403)
         await self.ensure_competition(workspace_id)
-        entries = await self._build_leaderboard(workspace_id)
-        row = await self.atlas.update_competition(
-            workspace_id,
-            {
-                "finalized_at": datetime.now(UTC).isoformat(),
-                "final_standings": [entry.model_dump(mode="json") for entry in entries],
-                "updated_at": datetime.now(UTC).isoformat(),
-            },
-        )
+        row = await self.atlas.update_competition(workspace_id, await self._final_standings_payload(workspace_id))
         return self._competition_response(row)
 
     async def dashboard(
@@ -656,6 +692,7 @@ class AtlasService:
         attempt: dict[str, Any],
         payload: AnswerSubmitRequest,
         allow_any_quiz: bool,
+        scoring_open: bool,
         loaded: _Loaded | None = None,
     ) -> AnswerSubmitResponse:
         if loaded is None:
@@ -722,6 +759,7 @@ class AtlasService:
             feedback=None,
             correct=correct,
             right_answer=right,
+            scoring_open=scoring_open,
             loaded=loaded,
         )
 
@@ -740,6 +778,7 @@ class AtlasService:
         feedback: str | None,
         correct: bool,
         right_answer: str,
+        scoring_open: bool,
         loaded: _Loaded | None = None,
     ) -> AnswerSubmitResponse:
         progress = loaded.progress if loaded is not None else await self.atlas.get_progress(user.id, quiz_id)
@@ -759,6 +798,9 @@ class AtlasService:
                 user_id=user.id,
                 quiz_id=quiz_id,
             )
+        if not scoring_open:
+            events = []
+            newly_mastered = False
         points_total = sum_points(events)
         questions = attempt.get("questions") or []
         question_index = next(

@@ -277,7 +277,7 @@ def test_generation_runs_visuals_before_text_and_leaves_a_draft() -> None:
     assert "Five major terrain features" in text_prompt
     assert "A compass on a map." in text_prompt
     assert image_client.requests[0].aspect_ratio in {"16:9", "3:2", "4:3"}
-    assert "Hill, valley, ridge" in image_client.requests[0].prompt
+    assert image_client.requests[0].prompt == "A compass on a map."
     image_run = next(row for row in db.stage_runs.values() if row["stage_id"] == "generate-images")
     assert image_run["api_usage"]["calls"][0]["cost_usd"] == 0.1205
 
