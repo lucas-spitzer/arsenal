@@ -115,8 +115,8 @@ export function WeakQuestionPractice({
 
   const optionMarkedCorrect = (option: string, optionIndex: number) => {
     if (!quiz || !drawn) return false
-    if (result?.right_answer) return option === result.right_answer
-    if (drawn.correct) return drawn.correct.includes(option)
+    if (drawn.correct && drawn.correct.length > 0) return drawn.correct.includes(option)
+    if (result?.right_answer && option === result.right_answer) return true
     return optionIsCorrect(quiz, option, optionIndex)
   }
 
