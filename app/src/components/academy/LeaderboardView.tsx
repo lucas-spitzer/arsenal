@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../../features/auth/authContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
 import { getLeaderboard, type Leaderboard } from '../../lib/atlasApi'
+import { onPageReturn } from '../../lib/refreshOnReturn'
 import { Loader } from '../shared/Loader'
 import { StandingsTable } from './StandingsTable'
 import { StudyHead } from './StudySessionChrome'
@@ -12,28 +13,36 @@ export function LeaderboardView() {
   const [board, setBoard] = useState<Leaderboard | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const workspaceId = activeWorkspace?.id ?? null
+
   useEffect(() => {
-    if (!activeWorkspace) return
+    if (!workspaceId) return
     let cancelled = false
-    void getLeaderboard(activeWorkspace.id)
-      .then((next) => {
-        if (!cancelled) {
-          setBoard(next)
-          setError(null)
-        }
-      })
-      .catch((caught: unknown) => {
-        if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : 'Could not load the leaderboard.')
-        }
-      })
+    let latest = 0
+    const load = () => {
+      const request = ++latest
+      void getLeaderboard(workspaceId)
+        .then((next) => {
+          if (!cancelled && request === latest) {
+            setBoard(next)
+            setError(null)
+          }
+        })
+        .catch((caught: unknown) => {
+          if (!cancelled && request === latest) {
+            setError(caught instanceof Error ? caught.message : 'Could not load the leaderboard.')
+          }
+        })
+    }
+    load()
+    const unsubscribe = onPageReturn(load)
     return () => {
       cancelled = true
+      unsubscribe()
     }
-  }, [activeWorkspace])
+  }, [workspaceId])
 
   const selfName = approvedUser?.name ?? approvedUser?.email ?? user?.email ?? ''
-  const ends = board ? new Date(board.ends_at) : null
 
   return (
     <section className="ldr study-session">
@@ -54,11 +63,9 @@ export function LeaderboardView() {
         <>
           {board.finalized ? (
             <p className="ldr__frozen">Challenge closed. Final standings.</p>
-          ) : ends ? (
-            <p className="ldr__frozen">
-              Challenge ends {ends.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-            </p>
-          ) : null}
+          ) : (
+            <p className="ldr__frozen">Challenge ends Nov 30, 2026, 2200</p>
+          )}
 
           <div className={`ldr__platoon${board.platoon_goal != null ? ' ldr__platoon--goal' : ''}`}>
             <div>

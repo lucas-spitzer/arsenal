@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.config import Settings, get_settings
 from app.dependencies.auth import require_approved_user
@@ -177,10 +177,12 @@ async def atlas_dashboard(
 
 @router.get("/leaderboard", response_model=LeaderboardResponse)
 async def leaderboard(
+    response: Response,
     workspace: Annotated[WorkspaceResponse, Depends(require_workspace)],
     user: Annotated[CurrentUser, Depends(require_approved_user)],
     atlas: Annotated[AtlasService, Depends(get_atlas_service)],
 ) -> LeaderboardResponse:
+    response.headers["Cache-Control"] = "no-store"
     try:
         return await atlas.leaderboard(user=user, workspace_id=workspace.id)
     except AtlasError as exc:

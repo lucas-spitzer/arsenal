@@ -187,7 +187,7 @@ export async function getAtlasMe(workspaceId: string): Promise<AtlasMe> {
 }
 
 export async function getLeaderboard(workspaceId: string): Promise<Leaderboard> {
-  return apiRequest<Leaderboard>(`/workspaces/${workspaceId}/atlas/leaderboard`)
+  return apiRequest<Leaderboard>(`/workspaces/${workspaceId}/atlas/leaderboard`, { cache: 'no-store' })
 }
 
 export async function startExam(
