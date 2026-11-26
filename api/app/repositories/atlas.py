@@ -3,9 +3,35 @@ from typing import Any
 from app.services.supabase_rest import SupabaseRestClient
 
 
+# PostgREST stops a single read at 1000 rows. Analytics counts every answer, so page past that.
+_ANSWER_PAGE = 1000
+
+
 class AtlasRepository:
     def __init__(self, db: SupabaseRestClient) -> None:
         self.db = db
+
+    async def _select_all(
+        self,
+        table: str,
+        *,
+        filters: dict[str, str],
+        order: str,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            page = await self.db.select_many(
+                table,
+                filters=filters,
+                order=order,
+                limit=_ANSWER_PAGE,
+                offset=offset,
+            )
+            rows.extend(page)
+            if len(page) < _ANSWER_PAGE:
+                return rows
+            offset += _ANSWER_PAGE
 
     async def get_progress(self, user_id: str, quiz_id: str) -> dict[str, Any] | None:
         return await self.db.select_one(
@@ -127,16 +153,17 @@ class AtlasRepository:
         )
 
     async def list_answers_for_user(self, workspace_id: str, user_id: str) -> list[dict[str, Any]]:
-        return await self.db.select_many(
+        return await self._select_all(
             "exam_answers",
             filters={"workspace_id": f"eq.{workspace_id}", "user_id": f"eq.{user_id}"},
-            order="submitted_at.desc",
+            order="submitted_at.desc,id.desc",
         )
 
     async def list_answers_for_workspace(self, workspace_id: str) -> list[dict[str, Any]]:
-        return await self.db.select_many(
+        return await self._select_all(
             "exam_answers",
             filters={"workspace_id": f"eq.{workspace_id}"},
+            order="id.asc",
         )
 
     async def insert_score_events(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
