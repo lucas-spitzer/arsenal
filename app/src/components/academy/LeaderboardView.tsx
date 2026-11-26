@@ -64,7 +64,7 @@ export function LeaderboardView() {
           {board.finalized ? (
             <p className="ldr__frozen">Challenge closed. Final standings.</p>
           ) : (
-            <p className="ldr__frozen">Challenge ends Nov 30, 2026, 2200</p>
+            <p className="ldr__frozen">Challenge ends Nov 30, 2026 @ 2200</p>
           )}
 
           <div className={`ldr__platoon${board.platoon_goal != null ? ' ldr__platoon--goal' : ''}`}>
