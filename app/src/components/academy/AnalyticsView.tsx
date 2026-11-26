@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { isAdminAccess } from '../../features/auth/access'
 import { useAuth } from '../../features/auth/authContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
+import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import {
   getDashboard,
   getLeaderboard,
@@ -12,7 +13,7 @@ import {
 } from '../../lib/atlasApi'
 import { Loader } from '../shared/Loader'
 import { StudyHead } from './StudySessionChrome'
-import type { AcademyPage, AcademyScope } from './types'
+import { WeakQuestionPractice } from './WeakQuestionPractice'
 
 const ALL_SUBJECTS = 'all'
 const PLATOON = 'platoon'
@@ -31,12 +32,9 @@ function localTimeZone(): string {
   }
 }
 
-export function AnalyticsView({
-  onOpen,
-}: {
-  onOpen: (page: AcademyPage, scope: AcademyScope) => void
-}) {
+export function AnalyticsView() {
   const { activeWorkspace } = useWorkspace()
+  const { quizzes } = useWorkspaceData()
   const { approvedUser } = useAuth()
   const isAdmin = isAdminAccess(approvedUser?.role)
   const workspaceId = activeWorkspace?.id ?? null
@@ -46,6 +44,8 @@ export function AnalyticsView({
   const [roster, setRoster] = useState<LeaderboardEntry[]>([])
   const [loaded, setLoaded] = useState<{ key: string; dashboard: Dashboard } | null>(null)
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null)
+  const [practicing, setPracticing] = useState<DashboardWeakQuestion | null>(null)
+  const [reload, setReload] = useState(0)
 
   const requestKey = `${workspaceId ?? ''}|${studentId}|${subject}`
   const dashboard = loaded?.key === requestKey ? loaded.dashboard : null
@@ -91,15 +91,19 @@ export function AnalyticsView({
     return () => {
       cancelled = true
     }
-  }, [workspaceId, studentId, subject])
+  }, [workspaceId, studentId, subject, reload])
 
-  const practice = (row: DashboardWeakQuestion) => {
-    onOpen('quiz', {
-      sourceId: row.subject_kind === 'source' ? row.subject_id : null,
-      lessonId: row.subject_kind === 'lesson' ? row.subject_id : null,
-      targetId: null,
-      projectId: null,
-    })
+  const mine = studentId === ''
+  const practiceQuiz = practicing ? quizzes.find((quiz) => quiz.id === practicing.quiz_id) ?? null : null
+
+  const openPractice = (row: DashboardWeakQuestion) => {
+    if (!mine) return
+    setPracticing(row)
+  }
+
+  const closePractice = () => {
+    setPracticing(null)
+    setReload((value) => value + 1)
   }
 
   let body
@@ -142,29 +146,41 @@ export function AnalyticsView({
           </div>
         </div>
 
-        <section>
-          <h2 className="anl__label">Areas for Improvement</h2>
-          {dashboard.weak_questions.length > 0 ? (
-            <div className="anl__rows">
-              {dashboard.weak_questions.map((row) => (
-                <article key={row.quiz_id} className="anl__row">
-                  <div className="anl__term">
-                    <p className="anl__row-title">{row.question}</p>
-                    <p className="anl__note">
-                      {row.subject_name} · {row.correct_count} correct, {row.incorrect_count} missed
-                      {studentId === PLATOON ? ' across the platoon' : ''}
-                    </p>
-                  </div>
-                  <button type="button" className="anl__practice" onClick={() => practice(row)}>
-                    Practice
-                  </button>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <p className="anl__note">No missed questions waiting on mastery.</p>
-          )}
-        </section>
+        {mine && practicing ? (
+          <WeakQuestionPractice
+            key={practicing.quiz_id}
+            quiz={practiceQuiz}
+            stem={practicing.question}
+            subjectName={practicing.subject_name}
+            onBack={closePractice}
+          />
+        ) : (
+          <section>
+            <h2 className="anl__label">Areas for Improvement</h2>
+            {dashboard.weak_questions.length > 0 ? (
+              <div className="anl__rows">
+                {dashboard.weak_questions.map((row) => (
+                  <article key={row.quiz_id} className="anl__row">
+                    <div className="anl__term">
+                      <p className="anl__row-title">{row.question}</p>
+                      <p className="anl__note">
+                        {row.subject_name} · {row.correct_count} correct, {row.incorrect_count} missed
+                        {studentId === PLATOON ? ' across the platoon' : ''}
+                      </p>
+                    </div>
+                    {mine ? (
+                      <button type="button" className="anl__practice" onClick={() => openPractice(row)}>
+                        Practice
+                      </button>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="anl__note">No missed questions waiting on mastery.</p>
+            )}
+          </section>
+        )}
       </div>
     )
   }
@@ -188,6 +204,7 @@ export function AnalyticsView({
               onChange={(event) => {
                 setStudentId(event.target.value)
                 setSubject(ALL_SUBJECTS)
+                setPracticing(null)
               }}
             >
               <option value="">Me</option>
@@ -204,7 +221,13 @@ export function AnalyticsView({
         ) : null}
         <label className="lib__select">
           <span className="lib__select-label">Subject</span>
-          <select value={subject} onChange={(event) => setSubject(event.target.value)}>
+          <select
+            value={subject}
+            onChange={(event) => {
+              setSubject(event.target.value)
+              setPracticing(null)
+            }}
+          >
             <option value={ALL_SUBJECTS}>All subjects</option>
             {subjects.map((row) => (
               <option key={`${row.subject_kind}:${row.subject_id}`} value={`${row.subject_kind}:${row.subject_id}`}>

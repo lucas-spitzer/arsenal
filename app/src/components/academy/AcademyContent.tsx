@@ -78,7 +78,7 @@ export function AcademyContent({
               lessonId={scope.lessonId ?? null}
             />
           )}
-          {page === 'analytics' && <AnalyticsView onOpen={onOpen} />}
+          {page === 'analytics' && <AnalyticsView />}
           {page === 'scenarios' && (
             <ScenarioView
               sourceId={scope.sourceId}

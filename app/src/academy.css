@@ -5294,6 +5294,32 @@ article.anl__row {
   color: var(--text-inverse);
 }
 
+.anl__practice-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.anl__practice-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.anl__practice-bar .anl__note {
+  margin: 0;
+  text-align: right;
+}
+
+.anl__question {
+  position: relative;
+  padding: var(--space-5);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--color-navy);
+  background: var(--surface);
+}
+
 .anl__of {
   color: var(--color-gray);
   font-size: 0.55em;
