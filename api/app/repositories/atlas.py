@@ -3,8 +3,8 @@ from typing import Any
 from app.services.supabase_rest import SupabaseRestClient
 
 
-# PostgREST stops a single read at 1000 rows. Analytics counts every answer, so page past that.
-_ANSWER_PAGE = 1000
+# PostgREST stops a single read at 1000 rows. Standings and analytics sum the whole history.
+_READ_PAGE = 1000
 
 
 class AtlasRepository:
@@ -17,6 +17,7 @@ class AtlasRepository:
         *,
         filters: dict[str, str],
         order: str,
+        columns: str = "*",
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         offset = 0
@@ -24,14 +25,15 @@ class AtlasRepository:
             page = await self.db.select_many(
                 table,
                 filters=filters,
+                columns=columns,
                 order=order,
-                limit=_ANSWER_PAGE,
+                limit=_READ_PAGE,
                 offset=offset,
             )
             rows.extend(page)
-            if len(page) < _ANSWER_PAGE:
+            if len(page) < _READ_PAGE:
                 return rows
-            offset += _ANSWER_PAGE
+            offset += _READ_PAGE
 
     async def get_progress(self, user_id: str, quiz_id: str) -> dict[str, Any] | None:
         return await self.db.select_one(
@@ -40,15 +42,17 @@ class AtlasRepository:
         )
 
     async def list_progress_for_user(self, workspace_id: str, user_id: str) -> list[dict[str, Any]]:
-        return await self.db.select_many(
+        return await self._select_all(
             "question_progress",
             filters={"workspace_id": f"eq.{workspace_id}", "user_id": f"eq.{user_id}"},
+            order="quiz_id.asc",
         )
 
     async def list_progress_for_workspace(self, workspace_id: str) -> list[dict[str, Any]]:
-        return await self.db.select_many(
+        return await self._select_all(
             "question_progress",
             filters={"workspace_id": f"eq.{workspace_id}"},
+            order="user_id.asc,quiz_id.asc",
         )
 
     async def upsert_progress(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -172,23 +176,25 @@ class AtlasRepository:
         return await self.db.insert("score_events", rows)
 
     async def list_score_events_for_user(self, workspace_id: str, user_id: str) -> list[dict[str, Any]]:
-        return await self.db.select_many(
+        return await self._select_all(
             "score_events",
             filters={"workspace_id": f"eq.{workspace_id}", "user_id": f"eq.{user_id}"},
-            order="created_at.desc",
+            order="created_at.asc,id.asc",
         )
 
     async def list_score_points_for_user(self, workspace_id: str, user_id: str) -> list[dict[str, Any]]:
-        return await self.db.select_many(
+        return await self._select_all(
             "score_events",
             filters={"workspace_id": f"eq.{workspace_id}", "user_id": f"eq.{user_id}"},
             columns="points",
+            order="created_at.asc,id.asc",
         )
 
     async def list_score_events_for_workspace(self, workspace_id: str) -> list[dict[str, Any]]:
-        return await self.db.select_many(
+        return await self._select_all(
             "score_events",
             filters={"workspace_id": f"eq.{workspace_id}"},
+            order="created_at.asc,id.asc",
         )
 
     async def get_competition(self, workspace_id: str) -> dict[str, Any] | None:
