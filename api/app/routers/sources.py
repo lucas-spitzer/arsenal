@@ -406,7 +406,15 @@ async def delete_source(
     sources: Annotated[SourceRepository, Depends(get_source_repository)],
     storage: Annotated[SupabaseStorageClient, Depends(get_supabase_storage_client)],
 ) -> None:
-    row = await sources.delete(source_id, workspace.id, user.id)
+    try:
+        row = await sources.delete(source_id, workspace.id, user.id)
+    except SupabaseRestError as exc:
+        if "foreign key" in str(exc).lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This source still has a knowledge project. Remove that project first.",
+            ) from exc
+        raise
 
     if not row:
         raise HTTPException(
@@ -415,10 +423,10 @@ async def delete_source(
         )
 
     storage_path = str(row.get("storage_path") or "").strip()
-    if not storage_path:
+    if not storage_path or storage_path == "pending":
         return
 
-    await storage.delete(
+    await storage.delete_paths(
         bucket=settings.sources_bucket,
-        path=storage_path,
+        paths=[storage_path],
     )

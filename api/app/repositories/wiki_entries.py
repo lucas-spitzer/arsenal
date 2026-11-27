@@ -2,6 +2,13 @@ from typing import Any
 
 from app.services.supabase_rest import SupabaseRestClient
 
+# PostgREST returns at most this many rows per request.
+_REST_PAGE = 1000
+# One insert body stays small enough for a guide of a thousand entries.
+_WRITE_CHUNK = 200
+# An `in.(id,id,...)` filter has to fit in a request URL.
+_ID_CHUNK = 100
+
 # Catalog reads never need the 1536-dimension embedding.
 WIKI_ENTRY_LIST_COLUMNS = (
     "id",
@@ -35,19 +42,49 @@ class WikiEntryRepository:
         *,
         status: str | None = None,
         search: str | None = None,
-        limit: int = 500,
+        limit: int | None = 500,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        filters: dict[str, str] = {"workspace_id": f"eq.{workspace_id}"}
+        """List wiki entries.
 
-        if status:
-            filters["status"] = f"eq.{status}"
+        ``limit=None`` keeps asking until a short page comes back. A larger
+        limit is requested in pages of ``_REST_PAGE`` so a cap on one response
+        cannot hide the rest.
+        """
+        filters = self._filters(workspace_id, status=status, search=search)
+        if limit is None:
+            return await self._every_page(filters, offset=offset)
 
-        if search:
-            filters["or"] = (
-                f"(preferred_label.ilike.*{search}*,definition.ilike.*{search}*,significance.ilike.*{search}*)"
-            )
+        rows: list[dict[str, Any]] = []
+        cursor = offset
+        remaining = limit
+        while remaining > 0:
+            size = min(_REST_PAGE, remaining)
+            page = await self._page(filters, limit=size, offset=cursor)
+            rows.extend(page)
+            if len(page) < size:
+                return rows
+            cursor += len(page)
+            remaining -= len(page)
+        return rows
 
+    async def _every_page(self, filters: dict[str, str], *, offset: int) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        cursor = offset
+        while True:
+            page = await self._page(filters, limit=_REST_PAGE, offset=cursor)
+            rows.extend(page)
+            if len(page) < _REST_PAGE:
+                return rows
+            cursor += len(page)
+
+    async def _page(
+        self,
+        filters: dict[str, str],
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
         return await self.db.select_many(
             "wiki_entries",
             filters=filters,
@@ -56,6 +93,22 @@ class WikiEntryRepository:
             limit=limit,
             offset=offset,
         )
+
+    @staticmethod
+    def _filters(
+        workspace_id: str,
+        *,
+        status: str | None,
+        search: str | None,
+    ) -> dict[str, str]:
+        filters: dict[str, str] = {"workspace_id": f"eq.{workspace_id}"}
+        if status:
+            filters["status"] = f"eq.{status}"
+        if search:
+            filters["or"] = (
+                f"(preferred_label.ilike.*{search}*,definition.ilike.*{search}*,significance.ilike.*{search}*)"
+            )
+        return filters
 
     async def get_for_workspace(
         self,
@@ -74,17 +127,26 @@ class WikiEntryRepository:
         if not wiki_entry_ids:
             return []
 
-        return await self.db.select_many(
-            "wiki_entries",
-            filters={"id": f"in.({','.join(wiki_entry_ids)})"},
-            limit=len(wiki_entry_ids),
-        )
+        rows: list[dict[str, Any]] = []
+        for start in range(0, len(wiki_entry_ids), _ID_CHUNK):
+            chunk = wiki_entry_ids[start : start + _ID_CHUNK]
+            rows.extend(
+                await self.db.select_many(
+                    "wiki_entries",
+                    filters={"id": f"in.({','.join(chunk)})"},
+                    limit=len(chunk),
+                ),
+            )
+        return rows
 
     async def insert_many(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not rows:
             return []
 
-        return await self.db.insert("wiki_entries", rows)
+        saved: list[dict[str, Any]] = []
+        for start in range(0, len(rows), _WRITE_CHUNK):
+            saved.extend(await self.db.insert("wiki_entries", rows[start : start + _WRITE_CHUNK]))
+        return saved
 
     async def update(
         self,

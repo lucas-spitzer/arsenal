@@ -1,12 +1,14 @@
+import { Trash2 } from 'lucide-react'
 import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useWorkspaceData } from '../../features/workspace/workspaceDataContext'
 import { formatDate, statusLabel } from '../../lib/foundryFormat'
-import { mapSourceDisplay } from '../../lib/foundryMappers'
+import { mapSourceDisplay, type SourceDisplay } from '../../lib/foundryMappers'
 import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { FoundryViewToggle } from './FoundryViewToggle'
 import { ErrorBanner } from './ErrorBanner'
 import { Loader } from '../shared/Loader'
 import { CreateSourceDialog } from './CreateSourceDialog'
+import { FoundryDialog } from './FoundryDialog'
 import { UploadArtifactsDialog } from './UploadArtifactsDialog'
 import type { FoundryView } from './types'
 
@@ -17,6 +19,7 @@ export function FoundrySources() {
     isLoading,
     error,
     uploadSource,
+    deleteSource,
     uploadLibraryArtifact,
     createReferenceSource,
   } = useWorkspaceData()
@@ -28,6 +31,9 @@ export function FoundrySources() {
   const [artifactsKey, setArtifactsKey] = useState(0)
   const [createOpen, setCreateOpen] = useState(false)
   const [createKey, setCreateKey] = useState(0)
+  const [pendingDelete, setPendingDelete] = useState<SourceDisplay | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadSources = useMemo(
     () =>
@@ -76,6 +82,20 @@ export function FoundrySources() {
     }
   }
 
+  const confirmDelete = async () => {
+    if (!pendingDelete || isDeleting) return
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteSource(pendingDelete.id)
+      setPendingDelete(null)
+    } catch (caught) {
+      setDeleteError(caught instanceof Error ? caught.message : 'Could not remove this source.')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   return (
     <>
       <header className="as-console__header">
@@ -121,6 +141,7 @@ export function FoundrySources() {
       <div className="as-console__scroll">
         {error ? <ErrorBanner message={error} /> : null}
         {uploadError ? <ErrorBanner message={uploadError} /> : null}
+        {deleteError && !pendingDelete ? <ErrorBanner message={deleteError} /> : null}
         <div className="as-console__searchbar">
           <span style={{ color: '#6f828b' }}>⌕</span>
           <input
@@ -149,6 +170,7 @@ export function FoundrySources() {
                   <th>Status</th>
                   <th>Size</th>
                   <th>Uploaded</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -182,6 +204,14 @@ export function FoundrySources() {
                     </td>
                     <td className="num">{source.sizeLabel}</td>
                     <td className="num">{formatDate(source.uploadedAt)}</td>
+                    <td>
+                      <RemoveSourceButton
+                        onClick={() => {
+                          setDeleteError(null)
+                          setPendingDelete(source)
+                        }}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -192,15 +222,23 @@ export function FoundrySources() {
             {filtered.map((source) => (
               <div className="as-console__panel as-console__source-card" key={source.id} style={{ padding: 18 }}>
                 <div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--as-grotesk)',
-                      fontSize: '1.1rem',
-                      fontWeight: 600,
-                      color: '#fff',
-                    }}
-                  >
-                    {source.title}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+                    <div
+                      style={{
+                        fontFamily: 'var(--as-grotesk)',
+                        fontSize: '1.1rem',
+                        fontWeight: 600,
+                        color: '#fff',
+                      }}
+                    >
+                      {source.title}
+                    </div>
+                    <RemoveSourceButton
+                      onClick={() => {
+                        setDeleteError(null)
+                        setPendingDelete(source)
+                      }}
+                    />
                   </div>
                   <div style={{ fontSize: '0.8rem', color: '#9fb2bb', marginTop: 6 }}>
                     {source.purpose
@@ -256,6 +294,51 @@ export function FoundrySources() {
           setArtifactsOpen(false)
         }}
       />
+      <FoundryDialog
+        title="Remove source"
+        open={pendingDelete !== null}
+        onClose={() => {
+          if (!isDeleting) setPendingDelete(null)
+        }}
+      >
+        <p className="as-console__confirm-copy">
+          Remove {pendingDelete?.title}? The uploaded file is deleted.
+          {pendingDelete?.status === 'processing' ? ' Ingest for this file stops with it.' : ''}
+        </p>
+        {deleteError ? <ErrorBanner message={deleteError} /> : null}
+        <div className="as-console__dialog-actions">
+          <button
+            type="button"
+            className="as-console__cta as-console__cta--ghost"
+            onClick={() => setPendingDelete(null)}
+            disabled={isDeleting}
+            autoFocus
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="as-console__cta dsn-cta--danger"
+            disabled={isDeleting}
+            onClick={() => void confirmDelete()}
+          >
+            {isDeleting ? 'Removing…' : 'Remove'}
+          </button>
+        </div>
+      </FoundryDialog>
     </>
+  )
+}
+
+function RemoveSourceButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="as-console__cta as-console__cta--ghost dsn-cta--danger"
+      onClick={onClick}
+      aria-label="Remove source"
+    >
+      <Trash2 size={14} aria-hidden />
+    </button>
   )
 }

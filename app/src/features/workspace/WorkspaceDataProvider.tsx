@@ -6,6 +6,7 @@ import {
   getLibrary,
   listProductionRuns,
   listStageRuns,
+  deleteSource as deleteSourceRequest,
   uploadSource as uploadSourceRequest,
   createReferenceSource as createReferenceSourceRequest,
   uploadStructuredData as uploadStructuredDataRequest,
@@ -164,6 +165,17 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
     return () => window.clearInterval(intervalId)
   }, [workspaceId, activeRunCount, narrationPreparing, refresh])
 
+  const deleteSource = useCallback(
+    async (sourceId: string) => {
+      if (!workspaceId) {
+        throw new Error('No active workspace.')
+      }
+      await deleteSourceRequest(workspaceId, sourceId)
+      await refresh()
+    },
+    [workspaceId, refresh],
+  )
+
   const uploadSource = useCallback(
     async (file: File) => {
       if (!workspaceId) {
@@ -319,6 +331,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       error,
       activeRunCount,
       uploadSource,
+      deleteSource,
       createReferenceSource,
       uploadStructuredData,
       uploadLibraryArtifact,
@@ -346,6 +359,7 @@ export function WorkspaceDataProvider({ children }: WorkspaceDataProviderProps) 
       error,
       activeRunCount,
       uploadSource,
+      deleteSource,
       createReferenceSource,
       uploadStructuredData,
       uploadLibraryArtifact,

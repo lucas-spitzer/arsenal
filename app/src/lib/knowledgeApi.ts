@@ -180,6 +180,7 @@ export function deleteKnowledgeProject(projectId: string): Promise<void> {
 export type KnowledgeHome =
   | { kind: 'book'; sourceId: string }
   | { kind: 'lesson'; lessonId: string }
+  | { kind: 'lessons' }
 
 export function createKnowledgeProject(
   workspaceId: string,
@@ -188,7 +189,8 @@ export function createKnowledgeProject(
   const form = new FormData()
   form.set('title', input.title)
   if (input.home.kind === 'book') form.set('source_id', input.home.sourceId)
-  else form.set('lesson_id', input.home.lessonId)
+  else if (input.home.kind === 'lesson') form.set('lesson_id', input.home.lessonId)
+  else form.set('many_classes', 'true')
   form.set('raw_notes', input.files.length > 0 ? '' : input.notes)
   for (const file of input.files) form.append('file', file)
   return postForm(`/workspaces/${workspaceId}/knowledge-projects`, form)

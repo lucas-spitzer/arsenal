@@ -45,7 +45,7 @@ async def list_wiki_entries(
     wiki_entries: Annotated[WikiEntryRepository, Depends(get_wiki_entry_repository)],
     status_filter: Annotated[str | None, Query(alias="status")] = None,
     search: Annotated[str | None, Query()] = None,
-    limit: Annotated[int, Query(ge=1, le=1000)] = 500,
+    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[WikiEntryResponse]:
     rows = await wiki_entries.list_for_workspace(

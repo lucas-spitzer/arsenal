@@ -255,6 +255,10 @@ export async function uploadMultipart<TResponse>(
   return response.json() as Promise<TResponse>
 }
 
+export async function deleteSource(workspaceId: string, sourceId: string): Promise<void> {
+  await apiRequestVoid(`/workspaces/${workspaceId}/sources/${sourceId}`, { method: 'DELETE' })
+}
+
 export async function uploadSource(workspaceId: string, file: File): Promise<Source> {
   return uploadMultipart<Source>(`/workspaces/${workspaceId}/sources`, file)
 }
@@ -280,18 +284,26 @@ export async function uploadStructuredData(workspaceId: string, file: File): Pro
   return uploadMultipart<Source>(`/workspaces/${workspaceId}/sources/structured-data`, file)
 }
 
+const WIKI_PAGE = 1000
+
 export async function listWikiEntries(
   workspaceId: string,
   search?: string,
 ): Promise<WikiEntry[]> {
-  const params = new URLSearchParams()
-  if (search) {
-    params.set('search', search)
+  const rows: WikiEntry[] = []
+  let offset = 0
+  for (;;) {
+    const params = new URLSearchParams()
+    if (search) params.set('search', search)
+    params.set('limit', String(WIKI_PAGE))
+    params.set('offset', String(offset))
+    const page = await apiRequest<WikiEntry[]>(
+      `/workspaces/${workspaceId}/wiki/entries?${params.toString()}`,
+    )
+    rows.push(...page)
+    if (page.length < WIKI_PAGE) return rows
+    offset += page.length
   }
-  const query = params.toString()
-  return apiRequest<WikiEntry[]>(
-    `/workspaces/${workspaceId}/wiki/entries${query ? `?${query}` : ''}`,
-  )
 }
 
 export async function listArtifacts(workspaceId: string): Promise<Artifact[]> {

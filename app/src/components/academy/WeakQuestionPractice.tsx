@@ -7,7 +7,7 @@ import { showsStemImage } from '../../lib/assessmentVisual'
 import { submitPracticeAnswer, type AnswerSubmitResult } from '../../lib/atlasApi'
 import type { Quiz } from '../../lib/workspaceApi'
 import { AssessmentPicture } from './AssessmentPicture'
-import { ChoiceOptions } from './ChoiceOptions'
+import { ChoiceOptions } from './ChoiceOptions.tsx'
 import { answerLabels, isMultipleSelect } from './choiceOptions'
 import { CORRECT_BURST_MS, CorrectBurst } from './CorrectBurst'
 

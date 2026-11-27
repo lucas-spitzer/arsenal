@@ -249,7 +249,7 @@ async def _import_knowledge(
             "Question images belong in a Design Forge upload that includes the image files.",
         )
 
-    existing = await wiki_entries.list_for_workspace(workspace_id, status="canonical", limit=1000)
+    existing = await wiki_entries.list_for_workspace(workspace_id, status="canonical", limit=None)
     saved = await _save_wiki_entries(
         workspace_id=workspace_id,
         source_id=source_id,

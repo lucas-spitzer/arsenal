@@ -22,7 +22,7 @@ import {
   StudySourceReference,
 } from './StudySessionChrome'
 import { AssessmentPicture, FlashcardFace } from './AssessmentPicture'
-import { ChoiceOptions } from './ChoiceOptions'
+import { ChoiceOptions } from './ChoiceOptions.tsx'
 import { answerLabels, isMultipleSelect } from './choiceOptions'
 import { CORRECT_BURST_MS, CorrectBurst } from './CorrectBurst'
 import { showsFlashcardDeck } from './types'

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import random
+import uuid
 import zlib
 from typing import Any
 
@@ -110,7 +112,28 @@ class KnowledgeProjectService:
         content: bytes | None,
         storage: SupabaseStorageClient,
         images: dict[str, bytes] | None = None,
+        many_classes: bool = False,
+        class_catalog: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        if many_classes:
+            if lesson is not None or source is not None:
+                raise KnowledgeProjectError(
+                    "A pack that names its classes does not also pick one book or class.",
+                )
+            return await self._create_lesson_questions(
+                workspace_id=workspace_id,
+                owner_id=owner_id,
+                workspace_slug=workspace_slug,
+                title=title,
+                lesson=None,
+                raw_notes=raw_notes,
+                filename=filename,
+                content_type=content_type,
+                content=content,
+                images=images or {},
+                storage=storage,
+                class_catalog=class_catalog or [],
+            )
         if lesson is not None and source is not None:
             raise KnowledgeProjectError("Choose a book or a class.")
         if lesson is not None:
@@ -271,15 +294,23 @@ class KnowledgeProjectService:
         owner_id: str,
         workspace_slug: str,
         title: str,
-        lesson: dict[str, Any],
+        lesson: dict[str, Any] | None,
         raw_notes: str,
         filename: str | None,
         content_type: str | None,
         content: bytes | None,
         images: dict[str, bytes],
         storage: SupabaseStorageClient,
+        class_catalog: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Save a question pack on a class. Wiki notes still belong on a book."""
+        """Save a question pack or a study guide on a class.
+
+        A single class accepts the same JSON as a book: terms, lists, ELOs,
+        abbreviations, and compares become wiki entries, and questions become
+        practice rows. ``class_catalog`` still files each question under the
+        class named in its term, and that pack cannot carry wiki entries.
+        The project then belongs to neither one book nor one class.
+        """
         cleaned_title = " ".join(title.split())
         if not cleaned_title:
             raise KnowledgeProjectError("Give the project a title.")
@@ -307,13 +338,35 @@ class KnowledgeProjectService:
             parsed = require_structured_notes(text, filename=stored_name)
         except StructuredNotesError as exc:
             raise KnowledgeProjectError(str(exc)) from exc
-        if parsed.entries:
+        if parsed.entries and class_catalog is not None:
             raise KnowledgeProjectError(
                 "This file has wiki entries. Put terms, lists, ELOs, and abbreviations on a book. "
                 "A class upload is practice questions.",
             )
+        if parsed.entries:
+            if lesson is None:
+                raise KnowledgeProjectError("Choose a class for this study guide.")
+            return await self._create_lesson_guide(
+                workspace_id=workspace_id,
+                owner_id=owner_id,
+                workspace_slug=workspace_slug,
+                title=cleaned_title,
+                lesson=lesson,
+                text=text,
+                stored_name=stored_name,
+                payload=payload,
+                parsed=parsed,
+                images=images,
+                storage=storage,
+            )
         if not parsed.questions:
             raise KnowledgeProjectError("The question pack has no questions.")
+        if class_catalog is not None:
+            _assign_classes(
+                parsed.questions,
+                _question_terms(text, len(parsed.questions)),
+                class_catalog,
+            )
         try:
             require_question_images(
                 parsed.questions,
@@ -328,7 +381,7 @@ class KnowledgeProjectService:
                 "workspace_id": workspace_id,
                 "owner_id": owner_id,
                 "source_id": None,
-                "lesson_id": lesson["id"],
+                "lesson_id": None if lesson is None else lesson["id"],
                 "title": cleaned_title,
                 "status": "ready",
                 "raw_notes": text,
@@ -379,6 +432,76 @@ class KnowledgeProjectService:
             await self.projects.update(project_id, {"status": "failed", "error": str(exc)[:2000]})
             raise KnowledgeProjectError("Could not import the question pack.") from exc
 
+    async def _create_lesson_guide(
+        self,
+        *,
+        workspace_id: str,
+        owner_id: str,
+        workspace_slug: str,
+        title: str,
+        lesson: dict[str, Any],
+        text: str,
+        stored_name: str,
+        payload: bytes,
+        parsed: StructuredNotes,
+        images: dict[str, bytes],
+        storage: SupabaseStorageClient,
+    ) -> dict[str, Any]:
+        """Write a class study guide into the wiki. The project belongs to the class."""
+        if parsed.questions:
+            try:
+                require_question_images(
+                    parsed.questions,
+                    images,
+                    max_bytes=self.settings.study_material.max_file_bytes,
+                )
+            except KnowledgeUploadError as exc:
+                raise KnowledgeProjectError(str(exc)) from exc
+        project = await self.projects.create(
+            {
+                "workspace_id": workspace_id,
+                "owner_id": owner_id,
+                "source_id": None,
+                "lesson_id": lesson["id"],
+                "title": title,
+                "status": "composing",
+                "raw_notes": text,
+                "notes_filename": stored_name,
+                "notes_mime_type": "application/json",
+                "notes_byte_size": len(payload),
+            },
+        )
+        project_id = str(project["id"])
+        path = knowledge_notes_path(workspace_slug, project_id, stored_name)
+        try:
+            await storage.upload(
+                bucket=self.settings.sources_bucket,
+                path=path,
+                content=payload,
+                content_type="application/json",
+                upsert=True,
+            )
+            status = await self._import_notes_body(
+                project,
+                parsed,
+                source_id=None,
+                lesson_id=str(lesson["id"]),
+                workspace_slug=workspace_slug,
+                images=images,
+                storage=storage,
+            )
+            updated = await self.projects.update(
+                project_id,
+                {"notes_storage_path": path, "status": status, "error": None},
+            )
+            return updated or project
+        except KnowledgeProjectError:
+            raise
+        except Exception as exc:
+            logger.exception("Failed to import class guide for %s", project_id)
+            await self.projects.update(project_id, {"status": "failed", "error": str(exc)[:2000]})
+            raise KnowledgeProjectError("Could not import the JSON notes.") from exc
+
     async def _commit_structured_project(
         self,
         project: dict[str, Any],
@@ -406,59 +529,20 @@ class KnowledgeProjectService:
                 upsert=True,
             )
             notes = require_structured_notes(text, filename=filename)
-            saved: list[dict[str, Any]] = []
-            if notes.entries:
-                saved = await self._write_wiki_entries(
-                    workspace_id=str(project["workspace_id"]),
-                    source_id=str(source["id"]),
-                    project_id=str(project["id"]),
-                    section_title=str(project.get("title") or "").strip(),
-                    notes=notes,
-                )
-                plans = flashcard_plan_rows(
-                    project_id=project_id,
-                    workspace_id=str(project["workspace_id"]),
-                    entries=saved,
-                )
-                if plans:
-                    card_plans = await self.projects.insert_plans(plans)
-                    await self._write_flashcards(
-                        project,
-                        card_plans,
-                        [plan for plan in card_plans if plan.get("enabled") and plan.get("wiki_entry_id")],
-                        saved,
-                        importing=True,
-                    )
-            if notes.questions:
-                catalog = await self._citation_catalog(str(project["workspace_id"]), saved)
-                rows = _imported_question_rows(project, notes.questions, catalog)
-                saved_rows = await self.projects.insert_rows("quizzes", rows)
-                saved_plans = await self.projects.insert_plans(
-                    item_plan_rows(
-                        project_id=project_id,
-                        workspace_id=str(project["workspace_id"]),
-                        rows=saved_rows,
-                        item_type="question",
-                    ),
-                )
-                await self._attach_imported_images(
-                    project=project,
-                    workspace_slug=workspace_slug,
-                    questions=notes.questions,
-                    quizzes=saved_rows,
-                    plans=saved_plans,
-                    images=images,
-                    storage=storage,
-                )
-            composable = any(
-                str(entry.get("entry_kind") or "") in {"term", "list", "abbreviation", "compare"}
-                for entry in notes.entries
+            status = await self._import_notes_body(
+                project,
+                notes,
+                source_id=str(source["id"]),
+                lesson_id=None,
+                workspace_slug=workspace_slug,
+                images=images,
+                storage=storage,
             )
             updated = await self.projects.update(
                 project_id,
                 {
                     "notes_storage_path": path,
-                    "status": "ready" if notes.questions and not composable else "composing",
+                    "status": status,
                     "error": None,
                 },
             )
@@ -470,22 +554,120 @@ class KnowledgeProjectService:
             await self.projects.update(project_id, {"status": "failed", "error": str(exc)[:2000]})
             raise KnowledgeProjectError("Could not import the JSON notes.") from exc
 
+    async def _import_notes_body(
+        self,
+        project: dict[str, Any],
+        notes: StructuredNotes,
+        *,
+        source_id: str | None,
+        lesson_id: str | None,
+        workspace_slug: str,
+        images: dict[str, bytes],
+        storage: SupabaseStorageClient,
+    ) -> str:
+        """Write wiki entries, definition cards, and imported questions.
+
+        Returns ``ready`` when the file is only questions. A file with terms,
+        lists, abbreviations, or compares stays ``composing``.
+        """
+        project_id = str(project["id"])
+        workspace_id = str(project["workspace_id"])
+        saved: list[dict[str, Any]] = []
+        if notes.entries:
+            saved = await self._write_wiki_entries(
+                workspace_id=workspace_id,
+                source_id=source_id,
+                lesson_id=lesson_id,
+                project_id=project_id,
+                section_title=str(project.get("title") or "").strip(),
+                notes=notes,
+            )
+            plans = flashcard_plan_rows(
+                project_id=project_id,
+                workspace_id=workspace_id,
+                entries=saved,
+            )
+            if plans:
+                await self._import_flashcard_plans(project, plans, saved)
+        if notes.questions:
+            catalog = await self._citation_catalog(workspace_id, saved)
+            rows = _imported_question_rows(project, notes.questions, catalog)
+            saved_rows = await self.projects.insert_rows("quizzes", rows)
+            saved_plans = await self.projects.insert_plans(
+                item_plan_rows(
+                    project_id=project_id,
+                    workspace_id=workspace_id,
+                    rows=saved_rows,
+                    item_type="question",
+                ),
+            )
+            await self._attach_imported_images(
+                project=project,
+                workspace_slug=workspace_slug,
+                questions=notes.questions,
+                quizzes=saved_rows,
+                plans=saved_plans,
+                images=images,
+                storage=storage,
+            )
+        composable = any(
+            str(entry.get("entry_kind") or "") in {"term", "list", "abbreviation", "compare"}
+            for entry in notes.entries
+        )
+        if notes.questions and not composable:
+            return "ready"
+        return "composing"
+
+    async def _import_flashcard_plans(
+        self,
+        project: dict[str, Any],
+        plans: list[dict[str, Any]],
+        entries: list[dict[str, Any]],
+    ) -> None:
+        """Insert definition cards and the plans that point at them.
+
+        Card ids are chosen here so a large guide does not update each plan
+        after the insert. A layout that still needs an image is stored without
+        a card.
+        """
+        by_id = {str(entry["id"]): entry for entry in entries}
+        ready: list[dict[str, Any]] = []
+        cards: list[dict[str, Any]] = []
+        for plan in plans:
+            entry = by_id.get(str(plan.get("wiki_entry_id") or ""))
+            layout = str(plan.get("layout") or "label_description")
+            visual = plan.get("visual") if isinstance(plan.get("visual"), dict) else None
+            needs_image = layout_needs_image(layout) and not storage_path_of(visual)
+            if entry is None or not plan.get("enabled") or not plan.get("wiki_entry_id") or needs_image:
+                ready.append(plan)
+                continue
+            card_id = str(uuid.uuid4())
+            linked = {**plan, "assessment_id": card_id}
+            ready.append(linked)
+            cards.append({"id": card_id, **_flashcard_row(project, linked, entry)})
+        if cards:
+            await self.projects.insert_rows("flashcards", cards)
+        if ready:
+            await self.projects.insert_plans(ready)
+
     async def _write_wiki_entries(
         self,
         *,
         workspace_id: str,
-        source_id: str,
+        source_id: str | None,
         project_id: str,
         section_title: str,
         notes: StructuredNotes,
+        lesson_id: str | None = None,
     ) -> list[dict[str, Any]]:
         # Every status: slugs are unique across deprecated entries too.
-        existing = await self.wiki_entries.list_for_workspace(workspace_id, limit=1000)
+        existing = await self.wiki_entries.list_for_workspace(workspace_id, limit=None)
         candidates = _candidates(
             notes,
             source_id,
             knowledge_project_id=project_id,
             section_title=section_title,
+            lesson_id=lesson_id,
         )
         inserts, updates, conflicted = promote_candidates(
             workspace_id=workspace_id,
@@ -513,7 +695,7 @@ class KnowledgeProjectService:
 
     async def _citation_catalog(self, workspace_id: str, saved: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Entries a question may cite: this file first, then the canonical wiki."""
-        existing = await self.wiki_entries.list_for_workspace(workspace_id, status="canonical", limit=1000)
+        existing = await self.wiki_entries.list_for_workspace(workspace_id, status="canonical", limit=None)
         return citation_catalog(saved, existing)
 
     async def update_switches(
@@ -1417,6 +1599,68 @@ def _assessment_rows(
     return rows
 
 
+def _question_terms(text: str, count: int) -> list[str]:
+    """Class title on each question, in file order."""
+    payload = json.loads(text)
+    raw = payload.get("questions") if isinstance(payload, dict) else None
+    if not isinstance(raw, list) or len(raw) != count:
+        raise KnowledgeProjectError("Could not match each question to a class.")
+    terms: list[str] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            terms.append("")
+            continue
+        terms.append(" ".join(str(item.get("term") or "").split()))
+    return terms
+
+
+def _assign_classes(
+    questions: list[dict[str, Any]],
+    terms: list[str],
+    catalog: list[dict[str, Any]],
+) -> None:
+    """Point each question at the class named in ``term``, and drop that wiki cite."""
+    by_title: dict[str, str] = {}
+    for lesson in catalog:
+        title = " ".join(str(lesson.get("title") or "").split())
+        lesson_id = str(lesson.get("id") or "").strip()
+        if not title or not lesson_id:
+            continue
+        key = title.casefold()
+        if key in by_title and by_title[key] != lesson_id:
+            raise KnowledgeProjectError(f"Two classes share the title '{title}'.")
+        by_title[key] = lesson_id
+
+    missing: list[str] = []
+    unknown: list[str] = []
+    seen_unknown: set[str] = set()
+    for index, (question, term) in enumerate(zip(questions, terms, strict=True), start=1):
+        if not term:
+            missing.append(str(index))
+            continue
+        lesson_id = by_title.get(term.casefold())
+        if lesson_id is None:
+            if term.casefold() not in seen_unknown:
+                seen_unknown.add(term.casefold())
+                unknown.append(term)
+            continue
+        question["lesson_id"] = lesson_id
+        cite = question.get("citation")
+        cite_label = " ".join(str(cite.get("label") or "").split()) if isinstance(cite, dict) else ""
+        if isinstance(cite, dict) and str(cite.get("kind") or "") == "term" and cite_label.casefold() == term.casefold():
+            question["citation"] = None
+    if not missing and not unknown:
+        return
+    parts: list[str] = []
+    if missing:
+        label = "Question" if len(missing) == 1 else "Questions"
+        verb = "names" if len(missing) == 1 else "name"
+        parts.append(f"{label} {', '.join(missing)} {verb} no class.")
+    if unknown:
+        parts.append(f"No class named {', '.join(unknown)}.")
+    raise KnowledgeProjectError(" ".join(parts))
+
+
 def _imported_question_rows(
     project: dict[str, Any],
     questions: list[dict[str, Any]],
@@ -1436,7 +1680,7 @@ def _imported_question_rows(
             )
             if wiki_id:
                 citations = [{"uri": f"wiki://{wiki_id}", "type": "wiki"}]
-        lesson_id = project.get("lesson_id")
+        lesson_id = item.get("lesson_id") or project.get("lesson_id")
         if subtype == SHORT_ANSWER:
             question_text = str(item["question"])
             options: list[str] = []
@@ -1743,12 +1987,13 @@ def _structured_upload(
 
 def _candidates(
     notes: StructuredNotes,
-    source_id: str,
+    source_id: str | None,
     *,
     knowledge_project_id: str | None,
     section_title: str,
+    lesson_id: str | None = None,
 ) -> list[WikiCandidate]:
-    evidence = [{"source_id": source_id}]
+    evidence = [{"source_id": source_id}] if source_id else []
     candidates: list[WikiCandidate] = []
     for entry in notes.entries:
         importance = str(entry.get("importance") or "supporting").strip().lower()
@@ -1761,6 +2006,8 @@ def _candidates(
         }
         if knowledge_project_id:
             origin["knowledge_project_id"] = knowledge_project_id
+        if lesson_id:
+            origin["lesson_id"] = lesson_id
         elo_index = entry.get("elo_index")
         if isinstance(elo_index, int) and not isinstance(elo_index, bool):
             origin["elo_index"] = elo_index

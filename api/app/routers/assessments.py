@@ -101,6 +101,18 @@ async def with_signed_visuals(
     return prepared
 
 
+async def list_every_flashcard(assessments: AssessmentRepository, workspace_id: str) -> list[dict[str, Any]]:
+    """Every flashcard in the workspace. One page hides a large class guide."""
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        batch = await assessments.list_flashcards(workspace_id, limit=_LIBRARY_PAGE, offset=offset)
+        rows.extend(batch)
+        if len(batch) < _LIBRARY_PAGE:
+            return rows
+        offset += _LIBRARY_PAGE
+
+
 async def list_every_quiz(assessments: AssessmentRepository, workspace_id: str) -> list[dict[str, Any]]:
     """Every quiz in the workspace. One page hides older class packs from Library."""
     rows: list[dict[str, Any]] = []
@@ -137,8 +149,8 @@ async def load_library_catalog(
     ) = await asyncio.gather(
         sources.list_for_workspace(workspace_id, owner_id),
         artifacts.list_for_workspace(workspace_id),
-        wiki_entries.list_for_workspace(workspace_id),
-        assessments.list_flashcards(workspace_id),
+        wiki_entries.list_for_workspace(workspace_id, limit=None),
+        list_every_flashcard(assessments, workspace_id),
         list_every_quiz(assessments, workspace_id),
         assessments.list_scenarios(workspace_id),
         projects.list_titles(workspace_id),

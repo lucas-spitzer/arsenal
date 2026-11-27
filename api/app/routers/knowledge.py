@@ -88,11 +88,18 @@ async def create_knowledge_project(
     title: Annotated[str, Form()],
     source_id: Annotated[str, Form()] = "",
     lesson_id: Annotated[str, Form()] = "",
+    many_classes: Annotated[str, Form()] = "",
     raw_notes: Annotated[str, Form()] = "",
     file: Annotated[list[UploadFile] | None, File()] = None,
 ) -> KnowledgeProjectDetail:
     source = None
     lesson = None
+    span_classes = many_classes.strip().lower() in {"1", "true", "yes", "on"}
+    if span_classes and (source_id.strip() or lesson_id.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A pack that names its classes does not also pick one book or class.",
+        )
     if source_id.strip():
         source = await sources.get_for_workspace(source_id.strip(), workspace.id, user.id)
         if not source:
@@ -101,6 +108,10 @@ async def create_knowledge_project(
         lesson = await lessons.get(lesson_id.strip(), workspace.id)
         if not lesson:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found.")
+    class_catalog = None
+    if span_classes:
+        rows = await lessons.list_with_children(workspace.id)
+        class_catalog = [{"id": row["id"], "title": row["title"]} for row in rows]
     owner_workspace = await workspaces.get_for_owner(workspace.id, user.id)
     if not owner_workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
@@ -133,6 +144,8 @@ async def create_knowledge_project(
             content=resolved.content,
             images=resolved.images,
             storage=storage,
+            many_classes=span_classes,
+            class_catalog=class_catalog,
         )
     except (KnowledgeProjectError, KnowledgeUploadError, WikiTranscriptionError, VisualError) as exc:
         code = status.HTTP_503_SERVICE_UNAVAILABLE if "queued" in str(exc).lower() else status.HTTP_400_BAD_REQUEST

@@ -552,7 +552,7 @@ class WikiAuthoringService:
         }
 
     async def _list_all_entries(self, workspace_id: str) -> list[dict[str, Any]]:
-        return await self.wiki_entries.list_for_workspace(workspace_id, limit=1000)
+        return await self.wiki_entries.list_for_workspace(workspace_id, limit=None)
 
     async def _embed_entries(self, wiki_entry_ids: list[str]) -> None:
         if not wiki_entry_ids:

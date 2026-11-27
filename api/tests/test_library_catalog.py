@@ -13,6 +13,28 @@ def test_library_route_is_registered() -> None:
     assert "/workspaces/{workspace_id}/library" in paths
 
 
+def test_wiki_list_reads_past_the_first_page() -> None:
+    class Database:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        async def select_many(self, table: str, **kwargs: Any) -> list[dict[str, Any]]:
+            assert table == "wiki_entries"
+            limit = int(kwargs["limit"])
+            offset = int(kwargs["offset"])
+            self.calls.append((limit, offset))
+            if offset == 0:
+                return [{"id": str(index)} for index in range(limit)]
+            return [{"id": str(1000 + index)} for index in range(225)]
+
+    database = Database()
+    rows = asyncio.run(
+        WikiEntryRepository(database).list_for_workspace("ws-1", limit=None),  # type: ignore[arg-type]
+    )
+    assert database.calls == [(1000, 0), (1000, 1000)]
+    assert len(rows) == 1225
+
+
 def test_wiki_list_omits_embeddings() -> None:
     assert "embedding" not in WIKI_ENTRY_LIST_COLUMNS
     assert "embedded_at" not in WIKI_ENTRY_LIST_COLUMNS

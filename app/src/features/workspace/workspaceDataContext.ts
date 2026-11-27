@@ -30,6 +30,7 @@ export interface WorkspaceDataContextValue {
   error: string | null
   activeRunCount: number
   uploadSource: (file: File) => Promise<Source>
+  deleteSource: (sourceId: string) => Promise<void>
   createReferenceSource: (request: ReferenceSourceRequest) => Promise<Source>
   uploadStructuredData: (file: File) => Promise<Source>
   uploadLibraryArtifact: (request: LibraryArtifactUploadRequest) => Promise<LibraryArtifactUploadResult>

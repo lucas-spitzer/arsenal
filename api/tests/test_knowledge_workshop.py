@@ -1085,10 +1085,116 @@ def test_class_question_pack_is_saved_without_a_book() -> None:
     assert quiz["origin"]["source"] == "lesson_practice"
 
 
-def test_class_upload_rejects_wiki_entries() -> None:
-    service, _projects, _wiki = _question_pack_service()
-    content = json.dumps(
+def _many_class_questions() -> bytes:
+    return json.dumps(
         {
+            "questions": [
+                {
+                    "question": "Which force is the largest MAGTF?",
+                    "term": "Land Navigation",
+                    "correct": ["MEF"],
+                    "distractors": ["MEB"],
+                },
+                {
+                    "question": "Which force is the mid-sized MAGTF?",
+                    "term": "tactical planning",
+                    "correct": ["MEB"],
+                    "distractors": ["MEF"],
+                },
+            ],
+        },
+    ).encode()
+
+
+def test_many_class_pack_files_each_question_on_its_class() -> None:
+    service, projects, wiki = _question_pack_service()
+    wiki.existing = [
+        {
+            "id": "wiki-land",
+            "entry_kind": "term",
+            "preferred_label": "Land Navigation",
+            "aliases": [],
+        },
+    ]
+
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Phase I",
+        source=None,
+        raw_notes="",
+        filename="questions.json",
+        content_type="application/json",
+        content=_many_class_questions(),
+        storage=_Storage(),
+        many_classes=True,
+        class_catalog=[
+            {"id": "lesson-land", "title": "Land Navigation"},
+            {"id": "lesson-plan", "title": "Tactical Planning"},
+        ],
+    ))
+
+    assert projects.created is not None
+    assert projects.created["source_id"] is None
+    assert projects.created["lesson_id"] is None
+    assert [quiz["lesson_id"] for quiz in projects.quizzes] == ["lesson-land", "lesson-plan"]
+    assert projects.quizzes[0]["citations"] == []
+    assert projects.quizzes[0]["origin"]["source"] == "lesson_practice"
+
+
+def test_many_class_pack_rejects_an_unknown_class_before_insert() -> None:
+    service, projects, _wiki = _question_pack_service()
+
+    with pytest.raises(KnowledgeProjectError, match="No class named SAPR Policy"):
+        asyncio.run(service.create(
+            workspace_id="ws-1",
+            owner_id="user-1",
+            workspace_slug="acme",
+            title="Phase I",
+            source=None,
+            raw_notes="",
+            filename="questions.json",
+            content_type="application/json",
+            content=json.dumps(
+                {
+                    "questions": [
+                        {
+                            "question": "Who must report?",
+                            "term": "SAPR Policy",
+                            "correct": ["Every Marine"],
+                            "distractors": ["Only the commander"],
+                        },
+                    ],
+                },
+            ).encode(),
+            storage=_Storage(),
+            many_classes=True,
+            class_catalog=[{"id": "lesson-land", "title": "Land Navigation"}],
+        ))
+
+    assert projects.created is None
+    assert projects.quizzes == []
+
+
+def _class_guide() -> bytes:
+    return json.dumps(
+        {
+            "terms": [
+                {
+                    "term": "Friction",
+                    "definition": "Resistance that slows action.",
+                    "category": "Warfighting",
+                    "importance": "essential",
+                },
+            ],
+            "key_lists": [
+                {
+                    "concept": "The three MAGTFs",
+                    "overview": "Marine air-ground task forces by size.",
+                    "items": [{"name": "MEF", "details": "The largest."}],
+                },
+            ],
             "abbreviations": [
                 {
                     "abbreviation": "MEB",
@@ -1096,8 +1202,59 @@ def test_class_upload_rejects_wiki_entries() -> None:
                     "definition": "The mid-sized MAGTF.",
                 },
             ],
+            "compares": [
+                {
+                    "a": "Offense",
+                    "b": "Defense",
+                    "overview": "Both are forms of combat.",
+                    "diffs": [
+                        {
+                            "dimension": "Initiative",
+                            "a": "Seizes it.",
+                            "b": "Yields it.",
+                        },
+                    ],
+                },
+            ],
         },
     ).encode()
+
+
+def test_class_guide_writes_wiki_entries_without_a_book() -> None:
+    service, projects, wiki = _question_pack_service()
+
+    asyncio.run(service.create(
+        workspace_id="ws-1",
+        owner_id="user-1",
+        workspace_slug="acme",
+        title="Udemy",
+        source=None,
+        lesson={"id": "lesson-1", "title": "Udemy"},
+        raw_notes="",
+        filename="guide.json",
+        content_type="application/json",
+        content=_class_guide(),
+        storage=_Storage(),
+    ))
+
+    assert projects.created is not None
+    assert projects.created["source_id"] is None
+    assert projects.created["lesson_id"] == "lesson-1"
+    assert projects.created["status"] == "composing"
+    kinds = {row["entry_kind"] for row in wiki.inserted}
+    assert kinds == {"term", "list", "abbreviation", "compare"}
+    for row in wiki.inserted:
+        assert row["evidence"] == []
+        assert row["origin"]["lesson_id"] == "lesson-1"
+        assert row["origin"]["knowledge_project_id"] == "project-1"
+        assert "source_id" not in row["origin"]
+    assert projects.flashcards
+    assert all(card["source_id"] is None for card in projects.flashcards)
+    assert {plan["item_type"] for plan in projects.plans} == {"flashcard"}
+
+
+def test_many_class_pack_rejects_wiki_entries() -> None:
+    service, projects, _wiki = _question_pack_service()
 
     with pytest.raises(KnowledgeProjectError, match="book"):
         asyncio.run(service.create(
@@ -1106,13 +1263,16 @@ def test_class_upload_rejects_wiki_entries() -> None:
             workspace_slug="acme",
             title="Abbreviations",
             source=None,
-            lesson={"id": "lesson-1", "title": "Warfighting"},
             raw_notes="",
             filename="abbreviations.json",
             content_type="application/json",
-            content=content,
+            content=_class_guide(),
             storage=_Storage(),
+            many_classes=True,
+            class_catalog=[{"id": "lesson-1", "title": "Udemy"}],
         ))
+
+    assert projects.created is None
 
 
 def test_class_upload_rejects_a_notes_file() -> None:

@@ -32,6 +32,7 @@ import { RunSteps } from './RunSteps'
 type KnowledgeView = { kind: 'list' } | { kind: 'setup' } | { kind: 'project'; id: string }
 
 const POLL_MS = 3000
+const EVERY_CLASS = 'every-class'
 // Vercel Functions reject request bodies over 4.5 MB.
 const MAX_REQUEST_BYTES = 4.5 * 1024 * 1024
 const KINDS = ['icon', 'diagram', 'example'] as const
@@ -182,6 +183,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
   const pickedFileRef = useRef<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const isClass = home.kind === 'lesson' || home.kind === 'lessons'
   const selectedLessonId = home.kind === 'lesson'
     ? lessons.find((lesson) => lesson.id === home.lessonId)?.id ?? lessons[0]?.id ?? ''
     : ''
@@ -190,8 +192,10 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
   const status = imageStatus(isJson ? neededImages : [], isJson ? images : [])
   const totalBytes = files.reduce((sum, item) => sum + item.size, 0)
   const tooLarge = totalBytes > MAX_REQUEST_BYTES
-  const homeReady = home.kind === 'book' ? home.sourceId.length > 0 : selectedLessonId.length > 0
-  const hasContent = home.kind === 'lesson' ? files.length > 0 : files.length > 0 || notes.trim().length > 0
+  const homeReady = home.kind === 'book'
+    ? home.sourceId.length > 0
+    : home.kind === 'lessons' || selectedLessonId.length > 0
+  const hasContent = isClass ? files.length > 0 : files.length > 0 || notes.trim().length > 0
   const ready = homeReady && hasContent && status.missing.length === 0 && !tooLarge
 
   const pickFile = (next: File | null) => {
@@ -225,13 +229,15 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
   }
   const homeName = home.kind === 'book'
     ? sourceTitleFor(readySources.find((source) => source.id === home.sourceId))
-    : lessons.find((lesson) => lesson.id === selectedLessonId)?.title ?? ''
+    : home.kind === 'lessons'
+      ? 'Classes'
+      : lessons.find((lesson) => lesson.id === selectedLessonId)?.title ?? ''
 
   const submit = async () => {
     if (!ready || !activeWorkspace) return
-    const nextHome: KnowledgeHome = home.kind === 'book'
-      ? home
-      : { kind: 'lesson', lessonId: selectedLessonId }
+    const nextHome: KnowledgeHome = home.kind === 'lesson'
+      ? { kind: 'lesson', lessonId: selectedLessonId }
+      : home
     setIsSubmitting(true)
     setError(null)
     try {
@@ -243,7 +249,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
       })
       onCreated(project.id)
     } catch (caught) {
-      setError(errorMessage(caught, home.kind === 'lesson' ? 'Could not save the questions.' : 'Could not start structuring.'))
+      setError(errorMessage(caught, isClass ? 'Could not save this upload.' : 'Could not start structuring.'))
       setIsSubmitting(false)
     }
   }
@@ -260,7 +266,7 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
             Cancel
           </button>
           <button type="button" className="as-console__cta" disabled={!ready || isSubmitting} onClick={() => void submit()}>
-            {isSubmitting ? 'Starting…' : home.kind === 'lesson' ? 'Save questions' : 'Start structure'}
+            {isSubmitting ? 'Starting…' : isClass ? 'Save' : 'Start structure'}
           </button>
         </div>
       </header>
@@ -288,10 +294,10 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
             <button
               type="button"
               role="tab"
-              aria-selected={home.kind === 'lesson'}
-              className={home.kind === 'lesson' ? 'is-active' : undefined}
+              aria-selected={isClass}
+              className={isClass ? 'is-active' : undefined}
               onClick={() => {
-                if (home.kind === 'lesson') return
+                if (isClass) return
                 setHome({ kind: 'lesson', lessonId: lessons[0]?.id ?? '' })
                 clearUploads()
                 setNotes('')
@@ -328,9 +334,13 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
               <select
                 id="kproj-source"
                 className="as-wiki__input kproj-select"
-                value={selectedLessonId}
-                onChange={(event) => setHome({ kind: 'lesson', lessonId: event.target.value })}
+                value={home.kind === 'lessons' ? EVERY_CLASS : selectedLessonId}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setHome(value === EVERY_CLASS ? { kind: 'lessons' } : { kind: 'lesson', lessonId: value })
+                }}
               >
+                <option value={EVERY_CLASS}>Every class named in the file</option>
                 {lessons.length === 0 ? (
                   <option value="">{lessonsLoading ? 'Loading classes' : 'No classes yet'}</option>
                 ) : null}
@@ -341,15 +351,16 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
                 ))}
               </select>
               <p className="dsn-hint">
-                Practice questions for this class. Upload the JSON, then add the images it names, or upload a zip of
-                both. Terms, lists, ELOs, and abbreviations still go on a book. Study guides are not uploaded here yet.
+                {home.kind === 'lessons'
+                  ? "Each question's term must be the class title."
+                  : 'A study guide or a question pack for this class. Terms, lists, abbreviations, compares, and ELOs in the JSON are written into the wiki. Question images can be added beside the file, or zipped with it.'}
               </p>
             </>
           )}
         </div>
         <div className="kproj-field">
           <label className="kproj-label" htmlFor="kproj-file">
-            {home.kind === 'lesson' ? 'JSON Data Upload' : 'Notes file'}
+            {isClass ? 'JSON Data Upload' : 'Notes file'}
           </label>
           <div className="kproj-file">
             <input
@@ -357,11 +368,11 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
               id="kproj-file"
               type="file"
               hidden
-              accept={home.kind === 'lesson' ? '.json,.zip' : '.json,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp,.zip'}
+              accept={isClass ? '.json,.zip' : '.json,.md,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp,.zip'}
               onChange={(event) => pickFile(event.target.files?.[0] ?? null)}
             />
             <button type="button" className="as-console__cta as-console__cta--ghost" onClick={() => fileInputRef.current?.click()}>
-              {home.kind === 'lesson' ? '⇪ Upload questions' : '⇪ Upload notes'}
+              {isClass ? (home.kind === 'lessons' ? '⇪ Upload questions' : '⇪ Upload JSON') : '⇪ Upload notes'}
             </button>
             {file ? <span className="kproj-file__name">{file.name}</span> : null}
             {file ? (
@@ -371,8 +382,10 @@ function KnowledgeSetup({ onCancel, onCreated }: { onCancel: () => void; onCreat
             ) : null}
           </div>
           <p className="dsn-hint">
-            {home.kind === 'lesson'
-              ? 'One JSON question pack, or a zip of the JSON and its images.'
+            {isClass
+              ? home.kind === 'lessons'
+                ? "One JSON question pack, or a zip of the JSON and its images. Each question's term must be the class title."
+                : 'One JSON file. A study guide becomes wiki entries for this class. A question pack can be a zip of the JSON and its images.'
               : 'JSON with terms, key lists, and ELOs is imported as wiki entries. Other files are transcribed first. A question pack with pictures can be a zip of the JSON and the images.'}
           </p>
         </div>

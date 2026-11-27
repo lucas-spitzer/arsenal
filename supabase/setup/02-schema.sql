@@ -1096,17 +1096,14 @@ on public.lesson_chunks using hnsw (embedding extensions.vector_cosine_ops);
 alter table public.discussion_threads
   add column lesson_id uuid references public.lessons (id) on delete set null;
 
--- A knowledge project belongs to one book or one class. Practice questions
--- on a class are quiz rows with lesson_id set and no book.
+-- A knowledge project belongs to one book, one class, or neither when the
+-- question pack names a class on each question. Both set is forbidden.
+-- Practice questions on a class are quiz rows with lesson_id set and no book.
 alter table public.knowledge_projects
   add column lesson_id uuid references public.lessons (id) on delete restrict;
 
 alter table public.knowledge_projects
-  add constraint knowledge_projects_home_check
-  check (
-    (source_id is not null and lesson_id is null)
-    or (source_id is null and lesson_id is not null)
-  );
+  add constraint knowledge_projects_home_check check (source_id is null or lesson_id is null);
 
 create index knowledge_projects_lesson_id_idx
 on public.knowledge_projects (lesson_id);
