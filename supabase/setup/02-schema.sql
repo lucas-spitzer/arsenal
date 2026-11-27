@@ -893,14 +893,19 @@ create table public.exam_answers (
   question_index integer not null,
   question text not null,
   options jsonb not null,
-  -- Choice questions set selected_index. Short answers set response and feedback.
+  -- Single-choice questions set selected_index.
+  -- Multiple-selection questions set selected_indices.
+  -- Short answers set response and feedback.
   selected_index integer,
+  selected_indices integer[],
   response text,
   feedback text,
   is_correct boolean not null,
   points_awarded integer not null default 0,
   submitted_at timestamptz not null default now(),
   constraint exam_answers_selected_check check (selected_index is null or selected_index >= 0),
+  constraint exam_answers_selected_indices_check
+    check (selected_indices is null or cardinality(selected_indices) >= 1),
   constraint exam_answers_points_check check (points_awarded >= 0),
   unique (attempt_id, quiz_id)
 );

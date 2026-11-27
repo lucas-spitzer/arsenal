@@ -36,7 +36,7 @@ objective is worth more than broad coverage.
 - `multiple_choice` (preferred): 4 choices, one correct answer
 - `true_false_correction`: `question` is a statement, `choices` are `["True", "False"]`,
   `correct_answer` is `"True"` or `"False"`, and `explanation` gives the correction when false
-- `multiple_select`: multiple correct answers (semicolon-separated in correct_answer)
+- `multiple_select`: every option the learner must select. `correct_answer` joins those options with `"; "`. The study draw shows every correct option when they fit with at least one distractor, so a closed set (such as every phase) lists each member once. Extra correct options beyond `show_count` are sampled, at least two of them.
 
 ## Answer Pools
 

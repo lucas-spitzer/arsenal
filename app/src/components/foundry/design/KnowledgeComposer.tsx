@@ -39,7 +39,7 @@ const CARD_LAYOUTS = [
 const QUESTION_FORMATS = [
   { value: 'multiple_choice', label: 'Multiple choice' },
   { value: 'true_false_correction', label: 'True or false, with a correction' },
-  { value: 'multiple_select', label: 'Multiple select' },
+  { value: 'multiple_select', label: 'Multiple selection' },
   { value: 'short_answer', label: 'Short answer' },
 ] as const
 const SHORT_ANSWER = 'short_answer'
@@ -888,6 +888,7 @@ function QuestionEditor({
     setPreview(null)
   }
   const isTrueFalse = draft.format === 'true_false_correction'
+  const isMultiple = draft.format === 'multiple_select'
   const isShortAnswer = draft.format === SHORT_ANSWER
 
   return (
@@ -921,7 +922,12 @@ function QuestionEditor({
           />
         </Field>
       ) : (
-        <AnswerPoolEditor pool={draft.pool} trueFalse={isTrueFalse} onChange={(pool) => update({ pool })} />
+        <AnswerPoolEditor
+          pool={draft.pool}
+          trueFalse={isTrueFalse}
+          multiple={isMultiple}
+          onChange={(pool) => update({ pool })}
+        />
       )}
       <Field label="Explanation">
         <textarea className="as-wiki__input" rows={3} value={draft.explanation} onChange={(event) => update({ explanation: event.target.value })} />
@@ -1010,10 +1016,12 @@ function QuestionEditor({
 function AnswerPoolEditor({
   pool,
   trueFalse,
+  multiple = false,
   onChange,
 }: {
   pool: AnswerPool
   trueFalse: boolean
+  multiple?: boolean
   onChange: (pool: AnswerPool) => void
 }) {
   const safe = pool ?? emptyPool()
@@ -1025,7 +1033,13 @@ function AnswerPoolEditor({
       <div className="kcomp__pool-group">
         <div className="kcomp__pool-head">
           <span className="kcomp__pool-title">{trueFalse ? 'True statements' : 'Correct answers'}</span>
-          <span className="dsn-hint">{trueFalse ? 'Any can be shown as the statement.' : 'One is drawn each time. Each must stand alone.'}</span>
+          <span className="dsn-hint">
+            {trueFalse
+              ? 'Any can be shown as the statement.'
+              : multiple
+                ? 'Every correct answer is shown when they fit with a distractor.'
+                : 'One is drawn each time. Each must stand alone.'}
+          </span>
         </div>
         {safe.correct.map((text, i) => (
           <div key={i} className="kcomp__pool-row">
@@ -1045,7 +1059,7 @@ function AnswerPoolEditor({
           </div>
         ))}
         <button type="button" className="kcomp__add" onClick={() => setCorrect([...safe.correct, ''])}>
-          + Add {trueFalse ? 'true statement' : 'phrasing'}
+          + Add {trueFalse ? 'true statement' : multiple ? 'correct answer' : 'phrasing'}
         </button>
       </div>
 
@@ -1053,7 +1067,11 @@ function AnswerPoolEditor({
         <div className="kcomp__pool-head">
           <span className="kcomp__pool-title">{trueFalse ? 'False statements' : 'Distractors'}</span>
           <span className="dsn-hint">
-            {trueFalse ? 'Note holds the correction.' : `${Math.max(0, safe.show_count - 1)} are drawn with the answer. Note why a learner would pick it.`}
+            {trueFalse
+              ? 'Note holds the correction.'
+              : multiple
+                ? 'Shown beside the correct answers. Note why a learner would pick it.'
+                : `${Math.max(0, safe.show_count - 1)} are drawn with the answer. Note why a learner would pick it.`}
           </span>
         </div>
         {safe.distractors.map((row, i) => (

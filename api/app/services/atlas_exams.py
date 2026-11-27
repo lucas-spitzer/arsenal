@@ -87,6 +87,7 @@ def draw_shown_question(quiz: dict[str, Any], rng: random.Random) -> dict[str, A
                 "quiz_id": str(quiz["id"]),
                 "question": drawn.question or str(quiz.get("question") or ""),
                 "options": list(drawn.options),
+                "subtype": subtype,
             }
         except AnswerPoolError:
             pass
@@ -97,6 +98,7 @@ def draw_shown_question(quiz: dict[str, Any], rng: random.Random) -> dict[str, A
         "quiz_id": str(quiz["id"]),
         "question": str(quiz.get("question") or ""),
         "options": shuffled,
+        "subtype": subtype,
     }
 
 

@@ -139,13 +139,19 @@ def draw(pool: AnswerPool, subtype: str, rng: random.Random | None = None) -> Dr
         raise AnswerPoolError("No correct answer to draw.")
     show = max(2, pool.show_count)
     if subtype == MULTIPLE_SELECT:
-        max_correct = min(len(correct), max(2, show - 1))
-        take = rng.randint(min(2, max_correct), max_correct)
-        chosen = rng.sample(correct, take)
-        fill = rng.sample(distractors, min(len(distractors), show - take))
+        # A closed set (every phase, every step) fits with a distractor, so show
+        # all of it. Larger pools still sample at least two correct answers.
+        if len(correct) < show:
+            chosen = list(correct)
+        else:
+            max_correct = min(len(correct), max(2, show - 1))
+            take = rng.randint(min(2, max_correct), max_correct)
+            chosen = rng.sample(correct, take)
+        fill = rng.sample(distractors, min(len(distractors), show - len(chosen)))
         options = [*chosen, *fill]
         rng.shuffle(options)
-        return Draw(options=options, correct_answer="; ".join(opt for opt in options if opt in set(chosen)))
+        chosen_set = set(chosen)
+        return Draw(options=options, correct_answer="; ".join(opt for opt in options if opt in chosen_set))
 
     chosen_answer = rng.choice(correct)
     fill = rng.sample(distractors, min(len(distractors), show - 1))
@@ -195,6 +201,41 @@ def grade_shown_answer(
 
     stored = str(quiz.get("correct_answer") or "")
     return _option_matches_stored(stored, selected, selected_index), _stored_option_text(stored, options)
+
+
+def grade_shown_selection(
+    quiz: dict[str, Any],
+    *,
+    options: list[str],
+    selected_indices: list[int],
+) -> tuple[bool, list[str]]:
+    """Grade a multiple-selection answer against the options that were shown.
+
+    Right means the selected set equals the shown options that are correct.
+    One missing answer or one selected distractor fails the question.
+    """
+    if not options:
+        raise ShownAnswerError("That question has no options.")
+    if not selected_indices:
+        raise ShownAnswerError("Pick at least one option.")
+    if len(set(selected_indices)) != len(selected_indices):
+        raise ShownAnswerError("Each option can be selected once.")
+    if any(index < 0 or index >= len(options) for index in selected_indices):
+        raise ShownAnswerError("Pick from the shown options.")
+
+    shown_correct = _shown_correct_options(quiz, options)
+    selected = [options[index].strip() for index in selected_indices]
+    correct_texts = [option.strip() for option in shown_correct]
+    return set(selected) == set(correct_texts), correct_texts
+
+
+def _shown_correct_options(quiz: dict[str, Any], options: list[str]) -> list[str]:
+    pool = pool_or_none(quiz.get("answer_pool"))
+    if pool is not None and any(text.strip() for text in pool.correct):
+        correct_set = {text.strip() for text in pool.correct if text.strip()}
+        return [option for option in options if option.strip() in correct_set]
+    stored = {part.strip() for part in str(quiz.get("correct_answer") or "").split(";") if part.strip()}
+    return [option for option in options if option.strip() in stored]
 
 
 def cited_wiki_id(quiz: dict[str, Any]) -> str | None:

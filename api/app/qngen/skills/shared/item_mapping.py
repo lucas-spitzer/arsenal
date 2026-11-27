@@ -37,7 +37,7 @@ def normalize_question_type(subtype: str | None) -> str:
         "true_false": "true_false",
         "true_false_correction": "true_false",
         "short_answer": "short_answer",
-        "multiple_select": "multiple_choice",
+        "multiple_select": "multiple_select",
     }
     return mapping.get(subtype or "multiple_choice", "multiple_choice")
 

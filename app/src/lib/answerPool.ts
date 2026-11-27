@@ -93,12 +93,19 @@ export function drawOptions(pool: AnswerPool, subtype: string | null | undefined
   const show = Math.max(2, pool.show_count || 4)
 
   if (kind === MULTIPLE_SELECT) {
-    const maxCorrect = Math.min(correct.length, Math.max(2, show - 1))
-    const minCorrect = Math.min(2, maxCorrect)
-    const take = minCorrect + Math.floor(rng() * (maxCorrect - minCorrect + 1))
-    const chosen = sample(correct, take, rng)
-    const fill = sample(distractors, show - take, rng)
-    return { question: null, options: shuffle([...chosen, ...fill], rng), correct: chosen }
+    let chosen: string[]
+    if (correct.length < show) {
+      chosen = [...correct]
+    } else {
+      const maxCorrect = Math.min(correct.length, Math.max(2, show - 1))
+      const minCorrect = Math.min(2, maxCorrect)
+      const take = minCorrect + Math.floor(rng() * (maxCorrect - minCorrect + 1))
+      chosen = sample(correct, take, rng)
+    }
+    const fill = sample(distractors, show - chosen.length, rng)
+    const chosenSet = new Set(chosen)
+    const options = shuffle([...chosen, ...fill], rng)
+    return { question: null, options, correct: options.filter((option) => chosenSet.has(option)) }
   }
 
   const answer = correct[Math.floor(rng() * correct.length)]

@@ -7,6 +7,8 @@ import { showsStemImage } from '../../lib/assessmentVisual'
 import { submitPracticeAnswer, type AnswerSubmitResult } from '../../lib/atlasApi'
 import type { Quiz } from '../../lib/workspaceApi'
 import { AssessmentPicture } from './AssessmentPicture'
+import { ChoiceOptions } from './ChoiceOptions'
+import { answerLabels, isMultipleSelect } from './choiceOptions'
 import { CORRECT_BURST_MS, CorrectBurst } from './CorrectBurst'
 
 function isShortAnswerQuiz(quiz: Quiz): boolean {
@@ -52,7 +54,7 @@ export function WeakQuestionPractice({
   const { activeWorkspace } = useWorkspace()
   const { setLifetimeAp } = useAtlas()
   const [seed] = useState(() => Math.floor(Math.random() * 0x7fffffff))
-  const [selected, setSelected] = useState<number | null>(null)
+  const [picked, setPicked] = useState<number[]>([])
   const [result, setResult] = useState<AnswerSubmitResult | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -64,6 +66,7 @@ export function WeakQuestionPractice({
 
   const drawn = useMemo(() => (quiz ? drawQuestion(quiz, seed) : null), [quiz, seed])
   const shortAnswer = quiz ? isShortAnswerQuiz(quiz) : false
+  const multiple = quiz ? isMultipleSelect(quiz.subtype ?? quiz.question_type) : false
   const revealed = result !== null
 
   const applyScore = (next: AnswerSubmitResult) => {
@@ -77,8 +80,8 @@ export function WeakQuestionPractice({
   }
 
   const choose = (optionIndex: number) => {
-    if (!quiz || !drawn || !activeWorkspace || selected !== null || submitting) return
-    setSelected(optionIndex)
+    if (!quiz || !drawn || !activeWorkspace || revealed || submitting || multiple) return
+    setPicked([optionIndex])
     setSubmitting(true)
     setError(null)
     void submitPracticeAnswer(activeWorkspace.id, {
@@ -89,7 +92,31 @@ export function WeakQuestionPractice({
     })
       .then(applyScore)
       .catch((caught: unknown) => {
-        setSelected(null)
+        setPicked([])
+        setError(caught instanceof Error ? caught.message : 'Could not submit that answer.')
+      })
+      .finally(() => setSubmitting(false))
+  }
+
+  const togglePicked = (optionIndex: number) => {
+    if (revealed || submitting) return
+    setPicked((current) =>
+      current.includes(optionIndex) ? current.filter((index) => index !== optionIndex) : [...current, optionIndex],
+    )
+  }
+
+  const checkSelection = () => {
+    if (!quiz || !drawn || !activeWorkspace || picked.length === 0 || revealed || submitting) return
+    setSubmitting(true)
+    setError(null)
+    void submitPracticeAnswer(activeWorkspace.id, {
+      quiz_id: quiz.id,
+      question: drawn.question,
+      options: drawn.options,
+      selected_indices: picked,
+    })
+      .then(applyScore)
+      .catch((caught: unknown) => {
         setError(caught instanceof Error ? caught.message : 'Could not submit that answer.')
       })
       .finally(() => setSubmitting(false))
@@ -113,12 +140,17 @@ export function WeakQuestionPractice({
       .finally(() => setSubmitting(false))
   }
 
-  const optionMarkedCorrect = (option: string, optionIndex: number) => {
-    if (!quiz || !drawn) return false
-    if (drawn.correct && drawn.correct.length > 0) return drawn.correct.includes(option)
-    if (result?.right_answer && option === result.right_answer) return true
-    return optionIsCorrect(quiz, option, optionIndex)
-  }
+  const fromServer = result ? answerLabels(result.correct_options, result.right_answer) : []
+  const correctOptions =
+    fromServer.length > 0
+      ? fromServer
+      : result && quiz && drawn
+        ? drawn.options.filter((option, optionIndex) =>
+            drawn.correct && drawn.correct.length > 0
+              ? drawn.correct.includes(option)
+              : optionIsCorrect(quiz, option, optionIndex),
+          )
+        : []
 
   const explanation = result?.explanation || quiz?.explanation || ''
 
@@ -181,37 +213,16 @@ export function WeakQuestionPractice({
               ) : null}
             </form>
           ) : (
-            <div className="quiz__options">
-              {drawn.options.map((option, optionIndex) => {
-                const correct = optionMarkedCorrect(option, optionIndex)
-                const showCorrect = revealed && correct
-                const showWrong = revealed && optionIndex === selected && !correct
-                let cls = 'quiz__option'
-                if (showCorrect) cls += ' is-correct'
-                else if (showWrong) cls += ' is-wrong'
-                return (
-                  <button
-                    key={optionIndex}
-                    type="button"
-                    className={cls}
-                    disabled={revealed || submitting}
-                    onClick={() => choose(optionIndex)}
-                  >
-                    <span className="quiz__option-text">{option}</span>
-                    {showCorrect ? (
-                      <span className="quiz__option-status">
-                        <Check size={16} /> Correct
-                      </span>
-                    ) : null}
-                    {showWrong ? (
-                      <span className="quiz__option-status">
-                        <X size={16} /> Incorrect
-                      </span>
-                    ) : null}
-                  </button>
-                )
-              })}
-            </div>
+            <ChoiceOptions
+              options={drawn.options}
+              multiple={multiple}
+              picked={picked}
+              revealed={revealed}
+              submitting={submitting}
+              correctOptions={correctOptions}
+              onPick={multiple ? togglePicked : choose}
+              onCheck={checkSelection}
+            />
           )}
           {error && !shortAnswer ? <p className="quiz__score-note">{error}</p> : null}
           {revealed && explanation ? (

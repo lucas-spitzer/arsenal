@@ -1620,6 +1620,15 @@
   color: var(--color-dark-scarlet);
 }
 
+.quiz__option.is-picked {
+  border-color: var(--color-scarlet);
+  background: rgba(148, 0, 0, 0.05);
+}
+
+.quiz__check {
+  margin-top: var(--space-4);
+}
+
 .quiz__short-answer {
   display: grid;
   gap: var(--space-3);
@@ -2156,6 +2165,11 @@
 .academy--v3 .quiz__option.is-wrong {
   background: rgba(227, 93, 81, 0.18);
   color: #f0a7a0;
+}
+
+.academy--v3 .quiz__option.is-picked {
+  border-color: var(--color-scarlet);
+  background: rgba(227, 93, 81, 0.12);
 }
 
 .academy--v3 .chat__verdict {

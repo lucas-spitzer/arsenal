@@ -28,6 +28,7 @@ class _Atlas:
         self.calls: list[str] = []
         self.attempt_updates: list[dict[str, Any]] = []
         self.events: list[dict[str, Any]] = []
+        self.answers: list[dict[str, Any]] = []
         self.competition: dict[str, Any] = {
             "workspace_id": "ws-1",
             "student_access": True,
@@ -57,7 +58,8 @@ class _Atlas:
             "status": "in_progress",
             "correct_count": 3,
             "points_earned": 20,
-            "questions": [
+            "questions": getattr(self, "questions", None)
+            or [
                 {"quiz_id": "q-0", "question": "Earlier", "options": ["A", "B"]},
                 {"quiz_id": "q-1", "question": QUIZ["question"], "options": QUIZ["options"]},
             ],
@@ -77,6 +79,7 @@ class _Atlas:
 
     async def insert_answer(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls.append("insert_answer")
+        self.answers.append(payload)
         return {"id": "answer-1", **payload}
 
     async def insert_score_events(self, rows: list[dict[str, Any]]) -> None:
@@ -97,16 +100,22 @@ class _Atlas:
 
 
 class _Assessments:
-    def __init__(self) -> None:
+    def __init__(self, quiz: dict[str, Any] | None = None) -> None:
         self.calls = 0
+        self.quiz = QUIZ if quiz is None else quiz
 
     async def get_quiz(self, quiz_id: str, workspace_id: str) -> dict[str, Any]:
         self.calls += 1
-        return QUIZ
+        return self.quiz
 
 
-def _service(atlas: _Atlas, *, now: datetime = BEFORE_END) -> tuple[AtlasService, _Assessments]:
-    assessments = _Assessments()
+def _service(
+    atlas: _Atlas,
+    *,
+    now: datetime = BEFORE_END,
+    quiz: dict[str, Any] | None = None,
+) -> tuple[AtlasService, _Assessments]:
+    assessments = _Assessments(quiz)
     service = AtlasService(
         atlas=atlas,  # type: ignore[arg-type]
         assessments=assessments,  # type: ignore[arg-type]
@@ -159,6 +168,69 @@ def test_correct_answer_adds_to_the_attempt_row_totals() -> None:
     assert result.lifetime_ap == 100 + result.points_total
     assert assessments.calls == 1
     assert atlas.calls.count("get_progress") == 1
+
+
+PHASES = ["Care Under Fire", "Tactical Field Care", "Tactical Evacuation Care", "Care on the Move"]
+
+
+def test_multiple_selection_is_correct_only_when_the_set_matches() -> None:
+    quiz = {
+        "id": "q-1",
+        "workspace_id": "ws-1",
+        "subtype": "multiple_select",
+        "question_type": "multiple_select",
+        "question": "What are the phases of TCCC? (Choose all that apply)",
+        "options": PHASES,
+        "correct_answer": "Care Under Fire; Tactical Field Care; Tactical Evacuation Care",
+        "explanation": "Three phases.",
+        "answer_pool": {
+            "correct": PHASES[:3],
+            "distractors": [{"text": "Care on the Move", "misconception": "Not a phase."}],
+            "show_count": 4,
+        },
+    }
+    atlas = _Atlas()
+    atlas.questions = [
+        {"quiz_id": "q-1", "question": quiz["question"], "options": PHASES, "subtype": "multiple_select"},
+    ]
+    service, _assessments = _service(atlas, quiz=quiz)
+
+    missing = asyncio.run(
+        service.submit_exam_answer(
+            user=STUDENT,
+            workspace_id="ws-1",
+            attempt_id="attempt-1",
+            payload=AnswerSubmitRequest(
+                quiz_id="q-1",
+                question=quiz["question"],
+                options=PHASES,
+                selected_indices=[1],
+            ),
+        )
+    )
+    assert missing.correct is False
+    assert set(missing.correct_options) == set(PHASES[:3])
+    assert atlas.events == []
+    assert atlas.answers[-1]["selected_index"] is None
+    assert atlas.answers[-1]["selected_indices"] == [1]
+
+    complete = asyncio.run(
+        service.submit_exam_answer(
+            user=STUDENT,
+            workspace_id="ws-1",
+            attempt_id="attempt-2",
+            payload=AnswerSubmitRequest(
+                quiz_id="q-1",
+                question=quiz["question"],
+                options=PHASES,
+                selected_indices=[0, 1, 2],
+            ),
+        )
+    )
+    assert complete.correct is True
+    assert set(complete.correct_options) == set(PHASES[:3])
+    assert atlas.answers[-1]["selected_indices"] == [0, 1, 2]
+    assert atlas.answers[-1]["is_correct"] is True
 
 
 def test_wrong_answer_keeps_attempt_points_and_writes_no_events() -> None:

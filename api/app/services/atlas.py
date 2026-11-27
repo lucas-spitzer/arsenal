@@ -12,7 +12,7 @@ import httpx
 
 from app.access import counts_on_leaderboard, is_admin
 from app.config import Settings
-from app.knowledge.answer_pool import ShownAnswerError, grade_shown_answer
+from app.knowledge.answer_pool import ShownAnswerError, grade_shown_answer, grade_shown_selection
 from app.llm_defaults import DEFAULT_OPENAI_MODEL
 from app.models.atlas import (
     AnswerSubmitRequest,
@@ -320,7 +320,8 @@ class AtlasService:
                 response=response_text,
                 scoring_open=scoring_open,
             )
-        if payload.selected_index is None or not payload.options:
+        choosing = payload.selected_index is not None or bool(payload.selected_indices)
+        if not choosing or not payload.options:
             raise AtlasError("Pick an option or write a short answer.")
         sequence = await self.atlas.next_sequence(workspace_id, user.id, "practice", None, None)
         question = {
@@ -354,6 +355,7 @@ class AtlasService:
                 question=payload.question,
                 options=payload.options,
                 selected_index=payload.selected_index,
+                selected_indices=payload.selected_indices,
             ),
             allow_any_quiz=True,
             scoring_open=scoring_open,
@@ -714,6 +716,7 @@ class AtlasService:
             return AnswerSubmitResponse(
                 correct=bool(existing.get("is_correct")),
                 right_answer="",
+                correct_options=[],
                 explanation=None,
                 feedback=str(existing.get("feedback") or "") or None,
                 points_awarded=[],
@@ -739,13 +742,29 @@ class AtlasService:
         quiz = loaded.quiz if loaded is not None else await self.assessments.get_quiz(payload.quiz_id, workspace_id)
         if not quiz:
             raise AtlasError("That question is not in this workspace.", status_code=404)
+        kind = str(quiz.get("subtype") or quiz.get("question_type") or "")
         try:
-            correct, right = grade_shown_answer(
-                quiz,
-                question=payload.question,
-                options=payload.options,
-                selected_index=payload.selected_index,
-            )
+            if kind == "multiple_select":
+                selected_indices = list(payload.selected_indices or [])
+                correct, correct_options = grade_shown_selection(
+                    quiz,
+                    options=payload.options,
+                    selected_indices=selected_indices,
+                )
+                right = "; ".join(correct_options)
+                selected_index = None
+            else:
+                if payload.selected_index is None:
+                    raise ShownAnswerError("Pick one of the shown options.")
+                correct, right = grade_shown_answer(
+                    quiz,
+                    question=payload.question,
+                    options=payload.options,
+                    selected_index=payload.selected_index,
+                )
+                correct_options = [right] if right else []
+                selected_index = payload.selected_index
+                selected_indices = None
         except ShownAnswerError as exc:
             raise AtlasError(str(exc)) from exc
 
@@ -757,11 +776,13 @@ class AtlasService:
             quiz_id=payload.quiz_id,
             question=payload.question,
             options=payload.options,
-            selected_index=payload.selected_index,
+            selected_index=selected_index,
+            selected_indices=selected_indices,
             response=None,
             feedback=None,
             correct=correct,
             right_answer=right,
+            correct_options=correct_options,
             scoring_open=scoring_open,
             loaded=loaded,
         )
@@ -782,6 +803,8 @@ class AtlasService:
         correct: bool,
         right_answer: str,
         scoring_open: bool,
+        selected_indices: list[int] | None = None,
+        correct_options: list[str] | None = None,
         loaded: _Loaded | None = None,
     ) -> AnswerSubmitResponse:
         progress = loaded.progress if loaded is not None else await self.atlas.get_progress(user.id, quiz_id)
@@ -819,6 +842,7 @@ class AtlasService:
             "question": question,
             "options": options,
             "selected_index": selected_index,
+            "selected_indices": selected_indices,
             "response": response,
             "feedback": feedback,
             "is_correct": correct,
@@ -861,6 +885,7 @@ class AtlasService:
         return AnswerSubmitResponse(
             correct=correct,
             right_answer=right_answer,
+            correct_options=correct_options if correct_options is not None else ([right_answer] if right_answer else []),
             explanation=str(quiz.get("explanation") or "") or None,
             feedback=feedback,
             points_awarded=[PointsAwarded(event_type=event_type, points=points) for event_type, points in events],

@@ -9,6 +9,7 @@ from app.knowledge.answer_pool import (
     AnswerPoolError,
     Distractor,
     draw,
+    grade_shown_selection,
     pool_from_generated,
     validate_pool,
 )
@@ -86,6 +87,60 @@ def test_multiple_select_draw_keeps_at_least_two_correct() -> None:
     assert len(answers) >= 2
     assert all(answer in rendered.options for answer in answers)
     assert set(answers) <= {"Friction", "Uncertainty", "Fluidity"}
+
+
+PHASES = ["Care Under Fire", "Tactical Field Care", "Tactical Evacuation Care"]
+
+
+def test_multiple_select_draw_shows_every_correct_answer_when_they_fit() -> None:
+    pool = AnswerPool(
+        correct=list(PHASES),
+        distractors=[Distractor(text="Care on the Move", misconception="Not a phase.")],
+        show_count=4,
+    )
+
+    for seed in range(12):
+        rendered = draw(pool, MULTIPLE_SELECT, random.Random(seed))
+        answers = [part.strip() for part in rendered.correct_answer.split(";") if part.strip()]
+        assert set(rendered.options) == {*PHASES, "Care on the Move"}
+        assert set(answers) == set(PHASES)
+
+
+def test_multiple_select_samples_when_correct_answers_do_not_fit() -> None:
+    pool = AnswerPool(
+        correct=["A", "B", "C", "D", "E"],
+        distractors=[Distractor(text="X"), Distractor(text="Y")],
+        show_count=4,
+    )
+
+    rendered = draw(pool, MULTIPLE_SELECT, random.Random(4))
+    answers = [part.strip() for part in rendered.correct_answer.split(";") if part.strip()]
+
+    assert 2 <= len(answers) <= 3
+    assert len(rendered.options) == 4
+    assert any(option not in set(pool.correct) for option in rendered.options)
+
+
+def test_multiple_select_grades_the_shown_set() -> None:
+    quiz = {
+        "subtype": "multiple_select",
+        "answer_pool": {
+            "correct": list(PHASES),
+            "distractors": [{"text": "Care on the Move", "misconception": "Not a phase."}],
+            "show_count": 4,
+        },
+    }
+    options = ["Tactical Field Care", "Care on the Move", "Care Under Fire", "Tactical Evacuation Care"]
+
+    correct, shown = grade_shown_selection(quiz, options=options, selected_indices=[0, 2, 3])
+    assert correct is True
+    assert set(shown) == set(PHASES)
+
+    missing, _shown = grade_shown_selection(quiz, options=options, selected_indices=[0])
+    assert missing is False
+
+    extra, _shown = grade_shown_selection(quiz, options=options, selected_indices=[0, 1, 2, 3])
+    assert extra is False
 
 
 def test_validate_pool_rejects_a_distractor_that_matches_the_answer() -> None:

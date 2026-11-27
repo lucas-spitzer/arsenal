@@ -33,6 +33,21 @@ describe('drawOptions', () => {
     expect(drawn.correct.every((answer) => drawn.options.includes(answer))).toBe(true)
     expect(drawn.options).toHaveLength(4)
   })
+
+  it('shows every correct answer for a closed multiple-selection set', () => {
+    const phases: AnswerPool = {
+      correct: ['Care Under Fire', 'Tactical Field Care', 'Tactical Evacuation Care'],
+      distractors: [{ text: 'Care on the Move', misconception: 'Not a phase.' }],
+      show_count: 4,
+    }
+    for (let seed = 0; seed < 8; seed += 1) {
+      const drawn = drawOptions(phases, 'multiple_select', seededRng(seed))
+      expect(drawn.options).toHaveLength(4)
+      expect(drawn.correct).toHaveLength(3)
+      expect(drawn.correct).toEqual(expect.arrayContaining(phases.correct))
+      expect(drawn.options).toContain('Care on the Move')
+    }
+  })
 })
 
 describe('pickVariants', () => {

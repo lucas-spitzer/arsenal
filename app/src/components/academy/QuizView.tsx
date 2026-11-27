@@ -1,4 +1,4 @@
-import { Check, Info, RotateCcw, X } from 'lucide-react'
+import { Info, RotateCcw } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAtlas } from '../../features/atlas/atlasContext'
 import { useWorkspace } from '../../features/workspace/workspaceContext'
@@ -16,6 +16,8 @@ import { stemPicture } from '../../lib/assessmentVisual'
 import { sourceDisplayName } from '../../lib/sourceDisplay'
 import { useLessons } from '../../lib/useLessons'
 import { AssessmentPicture } from './AssessmentPicture'
+import { ChoiceOptions } from './ChoiceOptions'
+import { answerLabels, isMultipleSelect, listPhrase } from './choiceOptions'
 import { CORRECT_BURST_MS, CorrectBurst } from './CorrectBurst'
 import { quizLaunchFromScope } from './types'
 import { StudyHead, StudyPanel, StudySourceReference } from './StudySessionChrome'
@@ -23,7 +25,7 @@ import { useStudyFullscreen } from './useStudyFullscreen'
 
 type Mode = 'full_practice' | 'subject'
 type Miss = { quizId: string; question: string; selected: string; answer: string }
-type Answered = { selected: number; feedback: AnswerSubmitResult }
+type Answered = { picked: number[]; feedback: AnswerSubmitResult }
 
 export function QuizView({
   sourceId = null,
@@ -44,7 +46,7 @@ export function QuizView({
   const [subjectId, setSubjectId] = useState(launch.subjectId)
   const [attempt, setAttempt] = useState<ExamAttempt | null>(null)
   const [index, setIndex] = useState(0)
-  const [selected, setSelected] = useState<number | null>(null)
+  const [picked, setPicked] = useState<number[]>([])
   const [feedback, setFeedback] = useState<AnswerSubmitResult | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -79,7 +81,8 @@ export function QuizView({
   const questions = attempt?.questions ?? []
   const current: ExamQuestion | null = questions[index] ?? null
   const picture = current ? stemPicture(current.visual) : null
-  const revealed = selected !== null && feedback !== null
+  const multiple = isMultipleSelect(current?.subtype)
+  const revealed = feedback !== null
   const isLast = index >= questions.length - 1
 
   const begin = async () => {
@@ -90,7 +93,7 @@ export function QuizView({
     setApGained(0)
     setMasteredCount(0)
     setFeedback(null)
-    setSelected(null)
+    setPicked([])
     setIndex(0)
     setAnswered({})
     try {
@@ -105,19 +108,21 @@ export function QuizView({
     }
   }
 
-  const choose = async (optionIndex: number) => {
-    if (!activeWorkspace || !attempt || !current || selected !== null || submitting) return
+  const submitChoice = async (indices: number[]) => {
+    if (!activeWorkspace || !attempt || !current || feedback !== null || submitting) return
+    const choosingSeveral = isMultipleSelect(current.subtype)
     setSubmitting(true)
-    setSelected(optionIndex)
+    setPicked(indices)
+    setError(null)
     try {
       const result = await submitExamAnswer(activeWorkspace.id, attempt.id, {
         quiz_id: current.quiz_id,
         question: current.question,
         options: current.options,
-        selected_index: optionIndex,
+        ...(choosingSeveral ? { selected_indices: indices } : { selected_index: indices[0] ?? 0 }),
       })
       setFeedback(result)
-      setAnswered((rows) => ({ ...rows, [index]: { selected: optionIndex, feedback: result } }))
+      setAnswered((rows) => ({ ...rows, [index]: { picked: indices, feedback: result } }))
       setLifetimeAp(result.lifetime_ap)
       setApGained((value) => value + result.points_total)
       if (result.newly_mastered) setMasteredCount((value) => value + 1)
@@ -127,22 +132,36 @@ export function QuizView({
         burstTimer.current = window.setTimeout(() => setFloatLabel(null), CORRECT_BURST_MS)
       }
       if (!result.correct) {
+        const selectedLabels = indices.map((optionIndex) => current.options[optionIndex] ?? '').filter(Boolean)
         setMisses((rows) => [
           ...rows,
           {
             quizId: current.quiz_id,
             question: current.question,
-            selected: current.options[optionIndex] ?? '',
-            answer: result.right_answer,
+            selected: listPhrase(selectedLabels),
+            answer: listPhrase(answerLabels(result.correct_options, result.right_answer)),
           },
         ])
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not submit that answer.')
-      setSelected(null)
+      if (!choosingSeveral) setPicked([])
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const choose = (optionIndex: number) => {
+    if (!current || feedback !== null || submitting) return
+    if (isMultipleSelect(current.subtype)) {
+      setPicked((currentPicked) =>
+        currentPicked.includes(optionIndex)
+          ? currentPicked.filter((index) => index !== optionIndex)
+          : [...currentPicked, optionIndex],
+      )
+      return
+    }
+    void submitChoice([optionIndex])
   }
 
   const showQuestion = (target: number) => {
@@ -150,7 +169,7 @@ export function QuizView({
     window.clearTimeout(burstTimer.current)
     setFloatLabel(null)
     setIndex(target)
-    setSelected(saved?.selected ?? null)
+    setPicked(saved?.picked ?? [])
     setFeedback(saved?.feedback ?? null)
   }
 
@@ -199,7 +218,7 @@ export function QuizView({
     setFinished(false)
     setIndex(0)
     setAnswered({})
-    setSelected(null)
+    setPicked([])
     setFeedback(null)
     setMisses([])
     setApGained(0)
@@ -330,36 +349,16 @@ export function QuizView({
                 ) : null}
                 {picture ? <AssessmentPicture visual={picture} text={current.question} /> : null}
                 <p className="quiz__question">{current.question}</p>
-                <div className="quiz__options">
-                  {current.options.map((opt, optionIndex) => {
-                    let cls = 'quiz__option'
-                    const isCorrect = revealed && feedback?.right_answer === opt
-                    const isWrong = revealed && optionIndex === selected && !feedback?.correct
-                    if (isCorrect) cls += ' is-correct'
-                    else if (isWrong) cls += ' is-wrong'
-                    return (
-                      <button
-                        key={`${current.quiz_id}-${optionIndex}`}
-                        type="button"
-                        className={cls}
-                        disabled={revealed || submitting}
-                        onClick={() => void choose(optionIndex)}
-                      >
-                        <span className="quiz__option-text">{opt}</span>
-                        {isCorrect ? (
-                          <span className="quiz__option-status">
-                            <Check size={16} /> Correct
-                          </span>
-                        ) : null}
-                        {isWrong ? (
-                          <span className="quiz__option-status">
-                            <X size={16} /> Incorrect
-                          </span>
-                        ) : null}
-                      </button>
-                    )
-                  })}
-                </div>
+                <ChoiceOptions
+                  options={current.options}
+                  multiple={multiple}
+                  picked={picked}
+                  revealed={revealed}
+                  submitting={submitting}
+                  correctOptions={answerLabels(feedback?.correct_options, feedback?.right_answer)}
+                  onPick={choose}
+                  onCheck={() => void submitChoice(picked)}
+                />
                 {revealed && feedback?.explanation ? (
                   <p className="quiz__explain">
                     <Info size={15} /> {feedback.explanation}

@@ -19,6 +19,7 @@ class ExamQuestion(BaseModel):
     quiz_id: str
     question: str
     options: list[str]
+    subtype: str | None = None
     subject_kind: SubjectKind | None = None
     subject_id: str | None = None
     subject_name: str | None = None
@@ -47,7 +48,8 @@ class AnswerSubmitRequest(BaseModel):
     quiz_id: str
     question: str
     options: list[str] = Field(min_length=1)
-    selected_index: int = Field(ge=0)
+    selected_index: int | None = Field(default=None, ge=0)
+    selected_indices: list[int] | None = None
 
 
 class PointsAwarded(BaseModel):
@@ -58,6 +60,7 @@ class PointsAwarded(BaseModel):
 class AnswerSubmitResponse(BaseModel):
     correct: bool
     right_answer: str
+    correct_options: list[str] = Field(default_factory=list)
     explanation: str | None = None
     feedback: str | None = None
     points_awarded: list[PointsAwarded] = Field(default_factory=list)
@@ -74,7 +77,8 @@ class PracticeAnswerRequest(BaseModel):
     quiz_id: str
     question: str
     options: list[str] = Field(default_factory=list)
-    selected_index: int | None = None
+    selected_index: int | None = Field(default=None, ge=0)
+    selected_indices: list[int] | None = None
     response: str | None = None
 
 

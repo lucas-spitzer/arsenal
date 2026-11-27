@@ -22,6 +22,8 @@ import {
   StudySourceReference,
 } from './StudySessionChrome'
 import { AssessmentPicture, FlashcardFace } from './AssessmentPicture'
+import { ChoiceOptions } from './ChoiceOptions'
+import { answerLabels, isMultipleSelect } from './choiceOptions'
 import { CORRECT_BURST_MS, CorrectBurst } from './CorrectBurst'
 import { showsFlashcardDeck } from './types'
 import { useStudyFullscreen } from './useStudyFullscreen'
@@ -71,6 +73,8 @@ export function FlashcardsView({
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [selected, setSelected] = useState<number | null>(null)
+  const [picked, setPicked] = useState<number[]>([])
+  const [revealedCorrect, setRevealedCorrect] = useState<string[] | null>(null)
   const [responseDraft, setResponseDraft] = useState('')
   const [shortGrade, setShortGrade] = useState<{ correct: boolean; feedback: string | null } | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -178,6 +182,7 @@ export function FlashcardsView({
   const quiz = mode === 'questions' ? orderedQuestions[safeIndex] : undefined
 
   const shortAnswer = quiz ? isShortAnswerQuiz(quiz) : false
+  const multiple = Boolean(quiz && isMultipleSelect(quiz.subtype ?? quiz.question_type))
 
   const drawn = useMemo(() => {
     if (!quiz) return null
@@ -204,6 +209,8 @@ export function FlashcardsView({
     setIndex(0)
     setFlipped(false)
     setSelected(null)
+    setPicked([])
+    setRevealedCorrect(null)
     setResponseDraft('')
     setShortGrade(null)
     setGradeError(null)
@@ -231,6 +238,8 @@ export function FlashcardsView({
     if (deck.length === 0) return
     setFlipped(false)
     setSelected(null)
+    setPicked([])
+    setRevealedCorrect(null)
     setResponseDraft('')
     setShortGrade(null)
     setGradeError(null)
@@ -277,7 +286,14 @@ export function FlashcardsView({
     return optionIsCorrect(quiz, option, optionIndex)
   }
 
-  const revealed = shortAnswer ? shortGrade !== null : selected !== null
+  const revealed = shortAnswer ? shortGrade !== null : multiple ? revealedCorrect !== null : selected !== null
+  const correctOptions = multiple
+    ? (revealedCorrect ?? [])
+    : revealed && drawn
+      ? drawn.options.filter((option, optionIndex) =>
+          serverRight != null ? option === serverRight : optionCorrect(option, optionIndex),
+        )
+      : []
 
   const applyScoreResult = (result: {
     correct: boolean
@@ -297,7 +313,7 @@ export function FlashcardsView({
   }
 
   const choose = (optionIndex: number) => {
-    if (selected !== null || !quiz || !drawn || !activeWorkspace) return
+    if (selected !== null || !quiz || !drawn || !activeWorkspace || multiple) return
     setSelected(optionIndex)
     setNewlyMastered(false)
     setServerRight(null)
@@ -311,6 +327,34 @@ export function FlashcardsView({
       .catch(() => {
         // Keep local reveal even if scoring fails; Academics can retry.
       })
+  }
+
+  const togglePicked = (optionIndex: number) => {
+    if (revealedCorrect !== null || submitting) return
+    setPicked((current) =>
+      current.includes(optionIndex) ? current.filter((index) => index !== optionIndex) : [...current, optionIndex],
+    )
+  }
+
+  const checkSelection = () => {
+    if (!quiz || !drawn || !activeWorkspace || picked.length === 0 || revealedCorrect !== null || submitting) return
+    setSubmitting(true)
+    setNewlyMastered(false)
+    setServerRight(null)
+    void submitPracticeAnswer(activeWorkspace.id, {
+      quiz_id: quiz.id,
+      question: drawn.question,
+      options: drawn.options,
+      selected_indices: picked,
+    })
+      .then((result) => {
+        setRevealedCorrect(answerLabels(result.correct_options, result.right_answer))
+        applyScoreResult(result)
+      })
+      .catch(() => {
+        setRevealedCorrect(drawn.correct ?? [])
+      })
+      .finally(() => setSubmitting(false))
   }
 
   const submitShortAnswer = (event: FormEvent) => {
@@ -497,38 +541,16 @@ export function FlashcardsView({
                     ) : null}
                   </form>
                 ) : (
-                  <div className="quiz__options">
-                    {drawn.options.map((option, optionIndex) => {
-                      let cls = 'quiz__option'
-                      const correct =
-                        serverRight != null ? option === serverRight : optionCorrect(option, optionIndex)
-                      const showCorrect = revealed && correct
-                      const showWrong = revealed && optionIndex === selected && !correct
-                      if (showCorrect) cls += ' is-correct'
-                      else if (showWrong) cls += ' is-wrong'
-                      return (
-                        <button
-                          key={optionIndex}
-                          type="button"
-                          className={cls}
-                          disabled={revealed}
-                          onClick={() => choose(optionIndex)}
-                        >
-                          <span className="quiz__option-text">{option}</span>
-                          {showCorrect ? (
-                            <span className="quiz__option-status">
-                              <Check size={16} /> Correct
-                            </span>
-                          ) : null}
-                          {showWrong ? (
-                            <span className="quiz__option-status">
-                              <X size={16} /> Incorrect
-                            </span>
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  <ChoiceOptions
+                    options={drawn.options}
+                    multiple={multiple}
+                    picked={multiple ? picked : selected === null ? [] : [selected]}
+                    revealed={revealed}
+                    submitting={submitting}
+                    correctOptions={correctOptions}
+                    onPick={multiple ? togglePicked : choose}
+                    onCheck={checkSelection}
+                  />
                 )}
                 {revealed && quiz.explanation ? (
                   <p className="quiz__explain">

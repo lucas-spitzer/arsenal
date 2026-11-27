@@ -7,6 +7,7 @@ export interface ExamQuestion {
   quiz_id: string
   question: string
   options: string[]
+  subtype?: string | null
   subject_kind?: SubjectKind | null
   subject_id?: string | null
   subject_name?: string | null
@@ -39,6 +40,7 @@ export interface PointsAwarded {
 export interface AnswerSubmitResult {
   correct: boolean
   right_answer: string
+  correct_options?: string[]
   explanation?: string | null
   feedback?: string | null
   points_awarded: PointsAwarded[]
@@ -211,7 +213,8 @@ export async function submitExamAnswer(
     quiz_id: string
     question: string
     options: string[]
-    selected_index: number
+    selected_index?: number
+    selected_indices?: number[]
   },
 ): Promise<AnswerSubmitResult> {
   return apiRequest<AnswerSubmitResult>(
@@ -233,6 +236,7 @@ export async function submitPracticeAnswer(
     question: string
     options?: string[]
     selected_index?: number
+    selected_indices?: number[]
     response?: string
   },
 ): Promise<AnswerSubmitResult> {

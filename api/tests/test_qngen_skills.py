@@ -51,7 +51,7 @@ def _concept(wiki_id: str, label: str, *, importance: str = "essential") -> Conc
 
 def test_normalize_question_type_maps_subtypes() -> None:
     assert normalize_question_type("true_false_correction") == "true_false"
-    assert normalize_question_type("multiple_select") == "multiple_choice"
+    assert normalize_question_type("multiple_select") == "multiple_select"
 
 
 def test_assessment_item_mapping() -> None:
@@ -83,7 +83,7 @@ def test_assessment_item_mapping() -> None:
     )
 
     assert flashcard["segment_ids_used"] == ["seg-1"]
-    assert quiz["question_type"] == "multiple_choice"
+    assert quiz["question_type"] == "multiple_select"
     assert scenario["prompt"] == "Apply Alpha"
 
 
